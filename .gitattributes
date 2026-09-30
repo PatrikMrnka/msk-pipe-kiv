@@ -2,3 +2,4 @@
 *.bat text eol=crlf
 *.nii.gz binary
 *.stl binary
+pixi.lock merge=binary linguist-language=YAML linguist-generated=true

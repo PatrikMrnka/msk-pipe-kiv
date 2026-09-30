@@ -1,0 +1,64 @@
+[build-system]
+requires = ["hatchling>=1.27", "hatch-vcs>=0.4"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mskpipe"
+dynamic = ["version"]
+description = "From CT/MRI (NIfTI) to Muscle Wrapping 2.x input: segmentation, surface meshes and OpenSim bone model."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.11,<3.12"
+authors = [{ name = "Patrik Mrnka" }]
+keywords = ["musculoskeletal", "OpenSim", "segmentation", "CT", "MRI", "muscle wrapping"]
+classifiers = [
+    "Programming Language :: Python :: 3.11",
+    "Operating System :: Microsoft :: Windows",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+]
+# Only light dependencies here. Segmenters (torch, TotalSegmentator, MuscleMap)
+# and pystaple are installed by pixi features, see pixi.toml.
+dependencies = [
+    "typer>=0.15",
+]
+
+[project.scripts]
+mskpipe = "mskpipe.cli:app"
+
+[project.urls]
+Repository = "https://github.com/kivzcu/msk-pipe"
+Issues = "https://github.com/kivzcu/msk-pipe/issues"
+
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0.0.0"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mskpipe"]
+
+# --- ruff -------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "PTH", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/mskpipe/cli.py" = ["B008"]  # typer defaults
+
+# --- pytest -----------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "slow: long-running test (segmentation, full pipeline)",
+    "gpu: needs an NVIDIA GPU",
+    "reference: needs BP reference data (MSKPIPE_REFERENCE_DIR)",
+]
+
+[tool.coverage.run]
+source = ["mskpipe"]

@@ -1,0 +1,69 @@
+[workspace]
+name = "msk-pipe"
+channels = ["conda-forge"]
+platforms = ["win-64"]
+requires-pixi = ">=0.60"
+
+# ---------------------------------------------------------------------------
+# Base: Python + the mskpipe package itself (editable)
+# ---------------------------------------------------------------------------
+[dependencies]
+python = "3.11.*"
+
+[pypi-dependencies]
+mskpipe = { path = ".", editable = true }
+
+# MuscleMap pins numpy==1.24.4 and torch==2.4.1; override them (phase 1).
+[pypi-options.dependency-overrides]
+numpy = ">=1.26,<2"
+
+# ---------------------------------------------------------------------------
+# Pipeline: segmenters + pystaple (torch comes from cpu/gpu feature)
+# ---------------------------------------------------------------------------
+[feature.pipeline.pypi-dependencies]
+TotalSegmentator = "==2.18.0"
+nnunetv2 = "==2.8.1"
+
+# scripts = musclemap
+scripts = { git = "https://github.com/MuscleMap/MuscleMap", rev = "6e1e1eb6732337c13cab53bd5cc800c69024774f" }
+pystaple = { git = "https://github.com/PatrikMrnka/pystaple", rev = "cf23bb3187d5f84fd727852ac6604044ca38a2d8" }
+
+[feature.cpu.pypi-dependencies]
+torch = { version = "==2.7.1", index = "https://download.pytorch.org/whl/cpu" }
+
+[feature.cpu.pypi-options.dependency-overrides]
+torch = { version = "==2.7.1", index = "https://download.pytorch.org/whl/cpu" }
+
+[feature.gpu.pypi-dependencies]
+torch = { version = "==2.7.1", index = "https://download.pytorch.org/whl/cu128" }
+
+[feature.gpu.pypi-options.dependency-overrides]
+torch = { version = "==2.7.1", index = "https://download.pytorch.org/whl/cu128" }
+
+# ---------------------------------------------------------------------------
+# Dev tools (no torch -> fast CI)
+# ---------------------------------------------------------------------------
+[feature.dev.dependencies]
+ruff = ">=0.16"
+pytest = ">=8"
+pytest-cov = "*"
+pre-commit = "*"
+
+[feature.dev.tasks]
+lint = "ruff check . && ruff format --check ."
+fmt = "ruff format . && ruff check --fix ."
+test = "pytest"
+cov = "pytest --cov --cov-report=term-missing"
+
+# ---------------------------------------------------------------------------
+# Environments
+#   default : dev tools only (lint, unit tests)         pixi run test
+#   cpu     : full pipeline on CPU (release bundle)     pixi run -e cpu mskpipe ...
+#   gpu     : full pipeline on NVIDIA GPU (CUDA 12.8)   pixi run -e gpu mskpipe ...
+#   dev-cpu : full pipeline + dev tools (slow tests)    pixi run -e dev-cpu pytest -m slow
+# ---------------------------------------------------------------------------
+[environments]
+default = { features = ["dev"] }
+cpu = { features = ["pipeline", "cpu"], solve-group = "cpu" }
+dev-cpu = { features = ["pipeline", "cpu", "dev"], solve-group = "cpu" }
+gpu = { features = ["pipeline", "gpu"] }
