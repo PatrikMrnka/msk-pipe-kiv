@@ -193,6 +193,7 @@ class LabelmapConfig(StrictModel):
 
 # --------------------------------------------------------------------------- mesh
 # Defaults taken from the BP pipeline (config.json: bone_to_mesh / muscle_to_mesh).
+# Meshes are written in world coordinates (NIfTI RAS+, mm); see mskpipe.geometry.surface.
 
 
 class MeshParams(StrictModel):
@@ -207,6 +208,15 @@ class MeshParams(StrictModel):
         ge=0.0,
         lt=1.0,
         description="Fraction of triangles removed by quadric decimation; 0 disables.",
+    )
+    min_component_fraction: float = Field(
+        0.1,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Surface parts smaller than this fraction of the largest part are removed; "
+            "1 keeps only the largest, 0 keeps all."
+        ),
     )
 
 

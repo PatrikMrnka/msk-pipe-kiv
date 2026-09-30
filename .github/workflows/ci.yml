@@ -49,3 +49,4 @@ jobs:
           pixi run -e cpu mskpipe --version
           pixi run -e cpu python -c "import torch, totalsegmentator, pystaple; print(torch.__version__)"
           pixi run -e cpu mm_segment --help
+          pixi run -e cpu python -c "import vtk; v = vtk.vtkVersion.GetVTKVersion(); assert v == '9.4.2', v"
