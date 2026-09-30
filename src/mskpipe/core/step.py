@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from mskpipe.config import InputSpec, PipelineConfig
 from mskpipe.core.manifest import StepRecord
@@ -83,3 +83,7 @@ class Step(ABC):
 
     @abstractmethod
     def run(self, ctx: StepContext) -> None: ...
+
+    def fingerprint_extra(self, config: PipelineConfig) -> Mapping[str, Any]:
+        """Extra identity mixed into the cache key, e.g. the selected plugin and its version."""
+        return {}

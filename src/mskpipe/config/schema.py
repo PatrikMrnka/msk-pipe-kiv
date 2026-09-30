@@ -258,8 +258,11 @@ class AttachmentsConfig(StrictModel):
         "lhdl", pattern=_IDENT, description="Atlas providing reference attachment areas."
     )
     params: dict[str, Any] = Field(
-        default_factory=lambda: {"threshold_mm": 5.0, "clip_fraction": 0.22},
-        description="Method-specific parameters, validated by the plugin.",
+        default_factory=dict,
+        description=(
+            "Method-specific parameters, validated by the plugin. "
+            "Omitted ones take the plugin defaults (see `mskpipe plugins`)."
+        ),
     )
 
 

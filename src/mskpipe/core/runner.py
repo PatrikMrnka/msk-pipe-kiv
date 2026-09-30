@@ -140,6 +140,9 @@ def step_fingerprint(step: Step, config: PipelineConfig, upstream: str) -> str:
         "config": config.fingerprint(*step.config_sections) if step.config_sections else None,
         "upstream": upstream,
     }
+    extra = dict(step.fingerprint_extra(config))
+    if extra:  # only when present, so fingerprints of plain steps stay unchanged
+        payload["extra"] = extra
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 

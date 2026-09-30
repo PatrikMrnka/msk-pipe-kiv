@@ -123,4 +123,4 @@ def test_defaults_match_bp_config():
     assert cfg.mesh.bones.target_reduction == cfg.mesh.muscles.target_reduction == 0.8
     assert cfg.mesh.bones.passband == cfg.mesh.muscles.passband == 0.01
     assert cfg.attachments.method == "atlas_based"
-    assert cfg.attachments.params == {"threshold_mm": 5.0, "clip_fraction": 0.22}
+    assert cfg.attachments.params == {}  # plugin defaults: test_registry.py
