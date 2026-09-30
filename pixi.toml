@@ -11,9 +11,11 @@ requires-pixi = ">=0.60"
 python = "3.11.*"
 pydantic = ">=2.7,<3"
 pyyaml = ">=6"
+psutil = ">=5.9,<7"
 
 [pypi-dependencies]
 mskpipe = { path = ".", editable = true }
+nvidia-ml-py = ">=12"
 
 # MuscleMap pins numpy==1.24.4 and torch==2.4.1; override them (phase 1).
 [pypi-options.dependency-overrides]
