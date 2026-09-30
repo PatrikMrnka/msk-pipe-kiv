@@ -16,3 +16,20 @@ def test_version() -> None:
 def test_no_args_shows_help() -> None:
     result = runner.invoke(app, [])
     assert "Usage" in result.output
+
+
+def test_plugins_lists_builtins() -> None:
+    result = runner.invoke(app, ["plugins"])
+    assert result.exit_code == 0
+    assert "atlas_based" in result.stdout and "totalsegmentator" in result.stdout
+
+
+def test_device_cpu() -> None:
+    result = runner.invoke(app, ["device", "--device", "cpu"])
+    assert result.exit_code == 0
+    assert "Selected: cpu - requested" in result.stdout
+
+
+def test_device_json_and_bad_value() -> None:
+    assert '"requested": "cpu"' in runner.invoke(app, ["device", "-d", "cpu", "--json"]).stdout
+    assert runner.invoke(app, ["device", "-d", "tpu"]).exit_code == 1

@@ -4,14 +4,16 @@
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
 
 from mskpipe.config import InputSpec, PipelineConfig
+from mskpipe.core.device import DeviceReport
 from mskpipe.core.manifest import StepRecord
 from mskpipe.core.workspace import Workspace
 
@@ -28,6 +30,9 @@ class StepContext:
     record: StepRecord
     step_name: str
     logger: logging.Logger
+    device: DeviceReport = field(
+        default_factory=lambda: DeviceReport(requested="cpu", selected="cpu", reason="default")
+    )
 
     @property
     def out_dir(self) -> Path:
@@ -45,8 +50,13 @@ class StepContext:
         env: Mapping[str, str] | None = None,
         cwd: Path | None = None,
     ) -> None:
-        """Run an external tool; output goes to ``logs/<step>.log``."""
+        """Run an external tool; output goes to ``logs/<step>.log``.
+
+        The tool gets the run's device (``CUDA_VISIBLE_DEVICES``; empty on CPU runs) and
+        thread limits; ``env`` adds to or overrides the current environment.
+        """
         argv = [str(a) for a in args]
+        full_env = {**os.environ, **self.device.env(self.config.runtime.threads), **(env or {})}
         log_path = self.ws.logs_dir / f"{self.step_name}.log"
         self.logger.info("$ %s", subprocess.list2cmdline(argv))
         with (
@@ -58,7 +68,7 @@ class StepContext:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                env=dict(env) if env is not None else None,
+                env=full_env,
                 cwd=cwd,
             ) as proc,
         ):

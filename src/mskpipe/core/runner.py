@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from mskpipe.config import InputSpec, PipelineConfig
+from mskpipe.core.device import DeviceReport, resolve_device
 from mskpipe.core.manifest import Manifest
 from mskpipe.core.step import Step, StepContext
 from mskpipe.core.workspace import STEPS, Workspace
@@ -53,8 +54,14 @@ def run_pipeline(
     until_step: str | None = None,
     progress: ProgressCallback | None = None,
     cancel: threading.Event | None = None,
+    device: DeviceReport | None = None,
 ) -> RunResult:
-    """Run ``steps`` for a new input, or continue an existing run (``resume``)."""
+    """Run ``steps`` for a new input, or continue an existing run (``resume``).
+
+    ``device`` is normally resolved here from ``runtime.device``; pass a report to reuse one
+    detection for a whole batch. An unusable ``runtime.device=gpu`` fails before any run
+    folder is created.
+    """
     _check_order(steps)
     names = [s.name for s in steps]
     for label, value in (("from_step", from_step), ("until_step", until_step)):
@@ -64,6 +71,7 @@ def run_pipeline(
     if resume is not None:
         ws = Workspace.open(resume)
         spec, config = ws.load_input(), ws.load_config()
+        device = device or resolve_device(config.runtime.device)
         manifest = (
             Manifest.load(ws.manifest_path) if ws.manifest_path.exists() else Manifest.create(ws)
         )
@@ -73,8 +81,11 @@ def run_pipeline(
     else:
         if spec is None or config is None:
             raise ValueError("spec and config are required unless resume is given")
+        device = device or resolve_device(config.runtime.device)
         ws = Workspace.create(spec, config)
         manifest = Manifest.create(ws)
+    manifest.device = device.model_dump(mode="json")
+    manifest.save()
 
     handler = _attach_log(ws, config)
     notify = progress or (lambda _step, _status: None)
@@ -84,6 +95,7 @@ def run_pipeline(
     current: str | None = None
     try:
         logger.info("Run %s (%s, %s)", ws.root.name, spec.subject_id, spec.modality.value)
+        logger.info("Device: %s", device.summary())
         for i, step in enumerate(steps[: stop + 1]):
             current = step.name
             if cancel is not None and cancel.is_set():
@@ -105,8 +117,8 @@ def run_pipeline(
             _invalidate_from(step.name, ws, manifest)
             logger.info("[%s] running", step.name)
             notify(step.name, "running")
-            with manifest.step(step.name, fp) as rec:
-                step.run(StepContext(ws, config, spec, rec, step.name, logger))
+            with manifest.step(step.name, fp, gpu_index=device.gpu_index) as rec:
+                step.run(StepContext(ws, config, spec, rec, step.name, logger, device))
             notify(step.name, "completed")
             logger.info("[%s] completed in %.1f s", step.name, rec.resources.wall_s)
         manifest.finalize("completed")
