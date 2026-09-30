@@ -9,6 +9,8 @@ requires-pixi = ">=0.60"
 # ---------------------------------------------------------------------------
 [dependencies]
 python = "3.11.*"
+pydantic = ">=2.7,<3"
+pyyaml = ">=6"
 
 [pypi-dependencies]
 mskpipe = { path = ".", editable = true }

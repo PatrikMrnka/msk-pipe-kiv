@@ -22,6 +22,8 @@ classifiers = [
 # and pystaple are installed by pixi features, see pixi.toml.
 dependencies = [
     "typer>=0.15",
+    "pydantic>=2.7,<3",
+    "pyyaml>=6",
 ]
 
 [project.scripts]
