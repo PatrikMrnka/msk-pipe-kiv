@@ -1,0 +1,58 @@
+cff-version: 1.2.0
+message: "If you use msk-pipe, please cite it as below, together with the tools listed under references."
+title: "msk-pipe: automatic generation of Muscle Wrapping inputs from CT and MRI"
+type: software
+authors:
+  - family-names: Mrnka
+    given-names: Patrik
+    email: patmrnka@students.zcu.cz
+    orcid: "https://orcid.org/0009-0001-5778-8690"
+    affiliation: "Department of Computer Science and Engineering, University of West Bohemia in Pilsen"
+  - family-names: Kohout
+    given-names: Josef
+    email: besoft@fav.zcu.cz
+    orcid: "https://orcid.org/0000-0002-3231-2573"
+    affiliation: "Department of Computer Science and Engineering, University of West Bohemia in Pilsen"
+repository-code: "https://github.com/kivzcu/msk-pipe"
+license: Apache-2.0
+keywords:
+  - musculoskeletal modelling
+  - medical image segmentation
+  - OpenSim
+  - muscle wrapping
+  - CT
+  - MRI
+references:
+  - type: article
+    title: "Automatic generation of personalised skeletal models of the lower limb from three-dimensional bone geometries"
+    authors:
+      - family-names: Modenese
+        given-names: Luca
+      - family-names: Renault
+        given-names: Jean-Baptiste
+    journal: "Journal of Biomechanics"
+    volume: 116
+    start: 110186
+    year: 2021
+    doi: "10.1016/j.jbiomech.2020.110186"
+  - type: article
+    title: "TotalSegmentator: Robust Segmentation of 104 Anatomic Structures in CT Images"
+    authors:
+      - family-names: Wasserthal
+        given-names: Jakob
+      - name: "et al."
+    journal: "Radiology: Artificial Intelligence"
+    year: 2023
+    doi: "10.1148/ryai.230024"
+  - type: article
+    title: "MuscleMap: An Open-Source, Community-Supported Consortium for Whole-Body Quantitative MRI of Muscle"
+    authors:
+      - family-names: McKay
+        given-names: "M. J."
+      - name: "et al."
+    journal: "Journal of Imaging"
+    volume: 10
+    issue: 11
+    start: 262
+    year: 2024
+    doi: "10.3390/jimaging10110262"

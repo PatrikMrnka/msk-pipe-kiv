@@ -1,0 +1,22 @@
+msk-pipe
+Copyright 2026 Patrik Mrnka and Josef Kohout
+Department of Computer Science and Engineering,
+Faculty of Applied Sciences, University of West Bohemia in Pilsen
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product depends on third-party software distributed under their own
+licenses. The most important ones are:
+
+  pystaple          CC BY-NC 4.0   Python port of STAPLE
+                                   (Copyright 2020-2021 Luca Modenese and
+                                   Jean-Baptiste Renault)
+  TotalSegmentator  Apache-2.0     Wasserthal et al.
+  MuscleMap         MIT            MuscleMap consortium
+
+Because pystaple is licensed under CC BY-NC 4.0, the complete pipeline and
+the binary releases that include it may be used for NON-COMMERCIAL purposes
+only.
+
+See THIRD_PARTY_LICENSES.md for the full list of components, their licenses
+and required citations.
