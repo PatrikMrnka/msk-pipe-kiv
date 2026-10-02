@@ -57,12 +57,15 @@ class Plugin(ABC):
 class SegmentationOutput:
     """Multi-label image in the tool's own label scheme and its name -> ID map.
 
-    The map must be read from the tool (never hard-coded); the segment step converts it to
-    the unified msk-pipe label scheme by label names.
+    The map must be read from the tool (never hard-coded). Names must match the tool's
+    entries in ``config/unified_labels.yaml``; the ``labelmap`` step maps them to the
+    unified scheme. ``task`` names the tool task (``total``, ``total_mr``,
+    ``appendicular_bones``, ...).
     """
 
     image: Path
     labels: Mapping[str, int]
+    task: str = ""
 
 
 class SegmenterPlugin(Plugin):

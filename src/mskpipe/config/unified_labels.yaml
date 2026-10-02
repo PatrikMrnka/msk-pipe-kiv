@@ -1,0 +1,147 @@
+# SPDX-License-Identifier: Apache-2.0
+# Unified label scheme of msk-pipe (step ``labelmap``).
+#
+# structures: every structure the pipeline knows, with a fixed label value in
+#   02_labelmap/labelmap.nii.gz. Downstream steps look structures up by name
+#   (02_labelmap/labels.json); the values only keep label maps comparable across runs.
+#   group selects the config switch choosing the source:
+#     bones -> segmentation.bones, tibia_fibula -> segmentation.tibia_fibula,
+#     muscles -> segmentation.muscles.
+#
+# sources: label names of each segmentation source (as written by the segmenter plugin
+#   into 01_segment/segmentation.json), per unified structure. A structure listing several
+#   names is the union of them (each name is cleaned separately, so the two hip bones never
+#   fuse). A name mapped to both the _l and the _r structure covers both legs and is split
+#   by side. Structures missing under a source are simply not produced by it.
+#
+# Sides: _r = patient's right (+x in NIfTI RAS+ world coordinates).
+
+structures:
+  pelvis_no_sacrum: {value: 1, kind: bone, group: bones}
+  femur_r: {value: 2, kind: bone, group: bones}
+  femur_l: {value: 3, kind: bone, group: bones}
+  tibia_r: {value: 4, kind: bone, group: tibia_fibula}
+  tibia_l: {value: 5, kind: bone, group: tibia_fibula}
+  fibula_r: {value: 6, kind: bone, group: tibia_fibula}
+  fibula_l: {value: 7, kind: bone, group: tibia_fibula}
+  adductor_brevis_r: {value: 11, kind: muscle, group: muscles}
+  adductor_brevis_l: {value: 12, kind: muscle, group: muscles}
+  adductor_longus_r: {value: 13, kind: muscle, group: muscles}
+  adductor_longus_l: {value: 14, kind: muscle, group: muscles}
+  adductor_magnus_r: {value: 15, kind: muscle, group: muscles}
+  adductor_magnus_l: {value: 16, kind: muscle, group: muscles}
+  biceps_femoris_r: {value: 17, kind: muscle, group: muscles}
+  biceps_femoris_l: {value: 18, kind: muscle, group: muscles}
+  gluteus_maximus_r: {value: 19, kind: muscle, group: muscles}
+  gluteus_maximus_l: {value: 20, kind: muscle, group: muscles}
+  gluteus_medius_r: {value: 21, kind: muscle, group: muscles}
+  gluteus_medius_l: {value: 22, kind: muscle, group: muscles}
+  gluteus_minimus_r: {value: 23, kind: muscle, group: muscles}
+  gluteus_minimus_l: {value: 24, kind: muscle, group: muscles}
+  gracilis_r: {value: 25, kind: muscle, group: muscles}
+  gracilis_l: {value: 26, kind: muscle, group: muscles}
+  iliacus_r: {value: 27, kind: muscle, group: muscles}
+  iliacus_l: {value: 28, kind: muscle, group: muscles}
+  obturator_externus_r: {value: 29, kind: muscle, group: muscles}
+  obturator_externus_l: {value: 30, kind: muscle, group: muscles}
+  obturator_internus_r: {value: 31, kind: muscle, group: muscles}
+  obturator_internus_l: {value: 32, kind: muscle, group: muscles}
+  pectineus_r: {value: 33, kind: muscle, group: muscles}
+  pectineus_l: {value: 34, kind: muscle, group: muscles}
+  piriformis_r: {value: 35, kind: muscle, group: muscles}
+  piriformis_l: {value: 36, kind: muscle, group: muscles}
+  rectus_femoris_r: {value: 37, kind: muscle, group: muscles}
+  rectus_femoris_l: {value: 38, kind: muscle, group: muscles}
+  sartorius_r: {value: 39, kind: muscle, group: muscles}
+  sartorius_l: {value: 40, kind: muscle, group: muscles}
+  semimembranosus_r: {value: 41, kind: muscle, group: muscles}
+  semimembranosus_l: {value: 42, kind: muscle, group: muscles}
+  semitendinosus_r: {value: 43, kind: muscle, group: muscles}
+  semitendinosus_l: {value: 44, kind: muscle, group: muscles}
+  tensor_fasciae_latae_r: {value: 45, kind: muscle, group: muscles}
+  tensor_fasciae_latae_l: {value: 46, kind: muscle, group: muscles}
+  vastus_intermedius_r: {value: 47, kind: muscle, group: muscles}
+  vastus_intermedius_l: {value: 48, kind: muscle, group: muscles}
+  vastus_lateralis_r: {value: 49, kind: muscle, group: muscles}
+  vastus_lateralis_l: {value: 50, kind: muscle, group: muscles}
+  vastus_medialis_r: {value: 51, kind: muscle, group: muscles}
+  vastus_medialis_l: {value: 52, kind: muscle, group: muscles}
+
+sources:
+  # TotalSegmentator, tasks total (CT) and total_mr (MRI): same names, different IDs.
+  totalsegmentator:
+    tool: totalsegmentator
+    tasks: [total, total_mr]
+    labels:
+      pelvis_no_sacrum: [hip_left, hip_right]
+      femur_r: [femur_right]
+      femur_l: [femur_left]
+      gluteus_maximus_r: [gluteus_maximus_right]
+      gluteus_maximus_l: [gluteus_maximus_left]
+      gluteus_medius_r: [gluteus_medius_right]
+      gluteus_medius_l: [gluteus_medius_left]
+      gluteus_minimus_r: [gluteus_minimus_right]
+      gluteus_minimus_l: [gluteus_minimus_left]
+  # TotalSegmentator task appendicular_bones (licence key): one label per bone, both legs.
+  ts_appendicular:
+    tool: totalsegmentator
+    tasks: [appendicular_bones]
+    labels:
+      tibia_r: [tibia]
+      tibia_l: [tibia]
+      fibula_r: [fibula]
+      fibula_l: [fibula]
+  # MuscleMap (mm_segment): names normalised by the musclemap segmenter plugin.
+  musclemap:
+    tool: musclemap
+    tasks: []
+    labels:
+      pelvis_no_sacrum: [ilium_l, ilium_r]
+      femur_r: [femur_r]
+      femur_l: [femur_l]
+      tibia_r: [tibia_r]
+      tibia_l: [tibia_l]
+      fibula_r: [fibula_r]
+      fibula_l: [fibula_l]
+      adductor_brevis_r: [adductor_brevis_r]
+      adductor_brevis_l: [adductor_brevis_l]
+      adductor_longus_r: [adductor_longus_r]
+      adductor_longus_l: [adductor_longus_l]
+      adductor_magnus_r: [adductor_magnus_r]
+      adductor_magnus_l: [adductor_magnus_l]
+      biceps_femoris_r: [biceps_femoris_r]
+      biceps_femoris_l: [biceps_femoris_l]
+      gluteus_maximus_r: [gluteus_maximus_r]
+      gluteus_maximus_l: [gluteus_maximus_l]
+      gluteus_medius_r: [gluteus_medius_r]
+      gluteus_medius_l: [gluteus_medius_l]
+      gluteus_minimus_r: [gluteus_minimus_r]
+      gluteus_minimus_l: [gluteus_minimus_l]
+      gracilis_r: [gracilis_r]
+      gracilis_l: [gracilis_l]
+      iliacus_r: [iliacus_r]
+      iliacus_l: [iliacus_l]
+      obturator_externus_r: [obturator_externus_r]
+      obturator_externus_l: [obturator_externus_l]
+      obturator_internus_r: [obturator_internus_r]
+      obturator_internus_l: [obturator_internus_l]
+      pectineus_r: [pectineus_r]
+      pectineus_l: [pectineus_l]
+      piriformis_r: [piriformis_r]
+      piriformis_l: [piriformis_l]
+      rectus_femoris_r: [rectus_femoris_r]
+      rectus_femoris_l: [rectus_femoris_l]
+      sartorius_r: [sartorius_r]
+      sartorius_l: [sartorius_l]
+      semimembranosus_r: [semimembranosus_r]
+      semimembranosus_l: [semimembranosus_l]
+      semitendinosus_r: [semitendinosus_r]
+      semitendinosus_l: [semitendinosus_l]
+      tensor_fasciae_latae_r: [tensor_fasciae_latae_r]
+      tensor_fasciae_latae_l: [tensor_fasciae_latae_l]
+      vastus_intermedius_r: [vastus_intermedius_r]
+      vastus_intermedius_l: [vastus_intermedius_l]
+      vastus_lateralis_r: [vastus_lateralis_r]
+      vastus_lateralis_l: [vastus_lateralis_l]
+      vastus_medialis_r: [vastus_medialis_r]
+      vastus_medialis_l: [vastus_medialis_l]

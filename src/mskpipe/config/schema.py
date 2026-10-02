@@ -148,24 +148,36 @@ class SegmentationConfig(StrictModel):
 
 
 # --------------------------------------------------------------------------- labelmap
-# Defaults taken from the BP pipeline (config.json: bone_preprocessing / muscle_preprocessing).
-# Kernels are ball radii in voxels (as in BP: sitk.BinaryMorphologicalClosing/Opening,
-# radius [k, k, k]); closing is applied first, then opening.
+# Defaults reproduce the BP pipeline (config.json: bone_preprocessing / muscle_preprocessing):
+# BP used SimpleITK balls of radius 1 voxel on 1 mm CT = all offsets within 1.5 voxels,
+# hence 1.5 mm. Order: closing -> 3D hole filling -> opening -> small components removed.
+# See mskpipe.labelmap.clean.
 
 
 class PreprocessParams(StrictModel):
     min_voxels: int = Field(0, ge=0, description="Labels with fewer voxels are treated as missing.")
-    opening_kernel: int = Field(
-        1,
+    closing_radius_mm: float = Field(
+        1.5,
         ge=0,
-        description="Morphological opening radius in voxels (applied after closing); 0 disables.",
+        le=20,
+        description="Morphological closing radius in mm (applied first, only into background); "
+        "0 disables.",
     )
-    closing_kernel: int = Field(
-        1, ge=0, description="Morphological closing radius in voxels (applied first); 0 disables."
+    opening_radius_mm: float = Field(
+        1.5,
+        ge=0,
+        le=20,
+        description="Morphological opening radius in mm (applied after hole filling); 0 disables.",
     )
-    fill_holes: bool = Field(True, description="Fill internal holes of each label (3D).")
-    keep_largest: bool = Field(
-        True, description="Keep only the largest connected component of each label."
+    fill_holes: bool = Field(True, description="Fill internal cavities of each label (3D).")
+    min_component_fraction: float = Field(
+        1.0,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Connected components smaller than this fraction of the largest are removed; "
+            "1 keeps only the largest, 0 keeps all."
+        ),
     )
 
 
@@ -178,11 +190,6 @@ class BonePreprocessParams(PreprocessParams):
 class MusclePreprocessParams(PreprocessParams):
     min_voxels: int = Field(
         1000, ge=0, description="Labels with fewer voxels are treated as missing."
-    )
-    bone_subtraction_dilation_radius: int = Field(
-        0,
-        ge=0,
-        description="Bones dilated by this radius (voxels) are subtracted from muscles; 0 = none.",
     )
 
 
