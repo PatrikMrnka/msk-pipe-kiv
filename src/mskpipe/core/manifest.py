@@ -33,6 +33,7 @@ TRACKED_PACKAGES: dict[str, str] = {
     "nnunetv2": "nnunetv2",
     "musclemap": "scripts",  # MuscleMap is distributed under the name "scripts"
     "pystaple": "pystaple",
+    "fast-simplification": "fast-simplification",
     "torch": "torch",
     "numpy": "numpy",
     "simpleitk": "SimpleITK",

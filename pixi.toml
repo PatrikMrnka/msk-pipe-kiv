@@ -34,6 +34,7 @@ nnunetv2 = "==2.8.1"
 # scripts = musclemap
 scripts = { git = "https://github.com/MuscleMap/MuscleMap", rev = "6e1e1eb6732337c13cab53bd5cc800c69024774f" }
 pystaple = { git = "https://github.com/PatrikMrnka/pystaple", rev = "cf23bb3187d5f84fd727852ac6604044ca38a2d8" }
+fast-simplification = ">=0.1.7"
 
 [feature.cpu.pypi-dependencies]
 torch = { version = "==2.7.1", index = "https://download.pytorch.org/whl/cpu" }

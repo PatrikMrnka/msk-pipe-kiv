@@ -232,26 +232,40 @@ class MeshConfig(StrictModel):
 
 
 # --------------------------------------------------------------------------- skeleton
-# Identifiers follow msk-STAPLE; verified against pystaple in tests/steps/test_skeleton.py.
+# Identifiers follow msk-STAPLE. Only the algorithms of hip_model.m are ported to pystaple;
+# the others can be added to the Literal types once a backend implements them.
 
 
 class SkeletonConfig(StrictModel):
     backend: Literal["pystaple"] = Field("pystaple", description="Skeletal model generator.")
     side: Literal["r", "l"] = Field("r", description="Leg to model.")
-    pelvis_algorithm: Literal["STAPLE", "Kai2014"] = Field(
-        "STAPLE", description="Pelvis ACS algorithm."
+    pelvis_algorithm: Literal["STAPLE"] = Field("STAPLE", description="Pelvis ACS algorithm.")
+    femur_algorithm: Literal["GIBOC-cylinder"] = Field(
+        "GIBOC-cylinder", description="Femur ACS algorithm."
     )
-    femur_algorithm: Literal[
-        "GIBOC-cylinder", "GIBOC-spheres", "GIBOC-ellipsoids", "Miranda", "Kai2014"
-    ] = Field("GIBOC-cylinder", description="Femur ACS algorithm.")
-    tibia_algorithm: Literal["Kai2014", "GIBOC-plateau", "GIBOC-ellipse", "GIBOC-centroids"] = (
-        Field("Kai2014", description="Tibia ACS algorithm.")
-    )
-    joint_definitions: Literal["auto2020", "Modenese2018"] = Field(
+    tibia_algorithm: Literal["Kai2014"] = Field("Kai2014", description="Tibia ACS algorithm.")
+    joint_definitions: Literal["auto2020"] = Field(
         "auto2020", description="Joint definition scheme."
     )
+    body_mass: float = Field(
+        64.0,
+        gt=0,
+        le=300,
+        description="Subject mass in kg; sets segment masses and inertias (gait2392 ratios).",
+    )
+    geometry_format: Literal["obj", "stl"] = Field(
+        "obj", description="Format of the model's visualization geometries."
+    )
+    geometry_reduction: float = Field(
+        0.3,
+        gt=0,
+        le=1,
+        description="Fraction of triangles kept in the visualization geometries (1 = all).",
+    )
     model_name: str = Field(
-        "bone_model", pattern=r"^[A-Za-z][A-Za-z0-9_]*$", description="OpenSim model name."
+        "bone_model",
+        pattern=r"^[A-Za-z][A-Za-z0-9_]*$",
+        description="File name of the model (<model_name>.osim).",
     )
 
 
