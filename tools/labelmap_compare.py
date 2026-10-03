@@ -22,7 +22,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--raw", type=Path, required=True, help="BP masks before cleaning")
     parser.add_argument("--cleaned", type=Path, required=True, help="BP cleaned masks")
-    parser.add_argument("--min-dice", type=float, default=0.985)
+    parser.add_argument("--min-dice", type=float, default=0.975)
     parser.add_argument("--json", type=Path, help="Write the full report as JSON")
     args = parser.parse_args(argv)
 

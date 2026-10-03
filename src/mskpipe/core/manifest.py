@@ -160,7 +160,8 @@ class Manifest(_Model):
             rec.status = "interrupted"
             raise
         except BaseException as exc:
-            rec.status = "failed"
+            # StepCancelled (core.step) carries cancelled=True; not imported here (cycle)
+            rec.status = "interrupted" if getattr(exc, "cancelled", False) else "failed"
             rec.error = f"{type(exc).__name__}: {exc}"
             raise
         else:

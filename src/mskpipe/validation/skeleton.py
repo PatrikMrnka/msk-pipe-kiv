@@ -2,9 +2,11 @@
 """Skeleton backend vs. MATLAB STAPLE.
 
 1. parity: same bodies, joints, coordinates and markers as the MATLAB model, numbers
-   within tolerance (``TOLERANCE``);
+   within tolerance (``TOLERANCE``) - only for models built from the *same* bone meshes;
 2. rigid frame: bones moved by a rigid transform (the BP "voxel index x spacing" frame vs.
-   NIfTI world: LPS <-> RAS and a shift) give the same model moved by that transform.
+   NIfTI world: LPS <-> RAS and a shift) give the same model moved by that transform;
+3. anatomical comparison (:func:`compare_anatomical`): models from *different* bone meshes
+   (other segmentation, other frame), compared in the pelvis anatomical frame in mm/deg.
 
 Needs pystaple (environments ``cpu``, ``gpu``, ``dev-cpu``).
 """
@@ -170,4 +172,89 @@ def run_parity(bones: dict[str, Path], reference: Path, out_dir: Path) -> dict[s
         "rigid_frame": rigid,
         "qc": skeleton_qc(read_osim(ours), config.side),
         "passed": parity["passed"] and rigid["passed"],
+    }
+
+
+# ---------------------------------------------------------------------- anatomical comparison
+
+
+def _pelvis_frame(model: Any) -> tuple[np.ndarray, np.ndarray]:
+    """Rotation and origin (m) of the pelvis ACS: child frame of ``ground_pelvis``."""
+    joint = model.joints.get("ground_pelvis")
+    if joint is None:
+        raise ParityError(f"model '{model.name}' has no ground_pelvis joint")
+    return joint.child.rotation, joint.child.translation
+
+
+def anatomical_frames(model: Any) -> dict[str, Any]:
+    """Joint centres (mm), joint frame axes and markers (mm) in the pelvis ACS.
+
+    STAPLE bodies share the frame of the bone meshes, so all offset frames and markers are
+    in one common frame; expressing them in the pelvis ACS removes any rigid difference
+    between the frames of two models (BP voxel frame vs. NIfTI world).
+    """
+    rot, origin = _pelvis_frame(model)
+    joints: dict[str, Any] = {}
+    for name, joint in model.joints.items():
+        if joint.parent.parent_name == "ground":
+            continue
+        joints[name] = {
+            "centre_mm": rot.T @ (joint.parent.translation - origin) * 1000.0,
+            "parent_axes": rot.T @ joint.parent.rotation,
+            "child_axes": rot.T @ joint.child.rotation,
+        }
+    markers = {n: rot.T @ (m.location - origin) * 1000.0 for n, m in model.markers.items()}
+    return {"joints": joints, "markers": markers}
+
+
+def _angle_deg(a: np.ndarray, b: np.ndarray) -> float:
+    cos = (np.trace(a.T @ b) - 1.0) / 2.0
+    return float(np.degrees(np.arccos(np.clip(cos, -1.0, 1.0))))
+
+
+def _axis_angles_deg(a: np.ndarray, b: np.ndarray) -> list[float]:
+    cos = np.clip(np.sum(a * b, axis=0), -1.0, 1.0)
+    return [round(float(v), 3) for v in np.degrees(np.arccos(cos))]
+
+
+def compare_anatomical(ours: Path, reference: Path, side: str = "r") -> dict[str, Any]:
+    """Compare two models built from different bones (e.g. msk-pipe vs. BP MATLAB STAPLE).
+
+    Per joint: distance of the joint centres (mm) and rotation between the parent and the
+    child frames (deg, total and per axis), all in the pelvis ACS of each model. Markers:
+    distances (mm). QC: hip centre in the pelvis, femur length, ASIS width.
+    """
+    a, b = read_osim(ours), read_osim(reference)
+    fa, fb = anatomical_frames(a), anatomical_frames(b)
+    joints: dict[str, Any] = {}
+    for name in sorted(set(fa["joints"]) & set(fb["joints"])):
+        ja, jb = fa["joints"][name], fb["joints"][name]
+        diff = ja["centre_mm"] - jb["centre_mm"]
+        joints[name] = {
+            "centre_ours_mm": [round(float(v), 3) for v in ja["centre_mm"]],
+            "centre_ref_mm": [round(float(v), 3) for v in jb["centre_mm"]],
+            "centre_diff_mm": [round(float(v), 3) for v in diff],
+            "centre_distance_mm": round(float(np.linalg.norm(diff)), 3),
+            "parent_rotation_deg": round(_angle_deg(ja["parent_axes"], jb["parent_axes"]), 3),
+            "child_rotation_deg": round(_angle_deg(ja["child_axes"], jb["child_axes"]), 3),
+            "child_axis_angles_deg": _axis_angles_deg(ja["child_axes"], jb["child_axes"]),
+        }
+    markers = {
+        n: round(float(np.linalg.norm(fa["markers"][n] - fb["markers"][n])), 3)
+        for n in sorted(set(fa["markers"]) & set(fb["markers"]))
+    }
+    qa, qb = skeleton_qc(a, side), skeleton_qc(b, side)
+    qc = {
+        key: {"ours": qa.get(key), "reference": qb.get(key)}
+        for key in ("hip_center_in_pelvis_mm", "femur_length_mm", "asis_width_mm")
+    }
+    return {
+        "ours": str(ours),
+        "reference": str(reference),
+        "frame": "pelvis ACS (ground_pelvis child frame; ISB x anterior, y superior, z right)",
+        "joints": joints,
+        "markers_distance_mm": markers,
+        "only_in_ours": sorted(set(fa["joints"]) - set(fb["joints"])),
+        "only_in_reference": sorted(set(fb["joints"]) - set(fa["joints"])),
+        "qc": qc,
     }

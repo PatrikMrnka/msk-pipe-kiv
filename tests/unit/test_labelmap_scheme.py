@@ -13,14 +13,16 @@ def test_bundled_scheme_is_valid():
     assert len(scheme_sha256()) == 64
 
 
-def test_default_plan_uses_ts_bones_and_musclemap():
+def test_default_plan_ts_bones_and_tibia_musclemap_muscles():
     plan = load_scheme().plan(load_config())
     assert plan["pelvis_no_sacrum"] == ("totalsegmentator", ("hip_left", "hip_right"))
     assert plan["femur_r"] == ("totalsegmentator", ("femur_right",))
-    assert plan["tibia_r"] == ("musclemap", ("tibia_r",))
+    assert plan["tibia_r"] == ("ts_appendicular", ("tibia",))  # as BP
     assert plan["gluteus_maximus_r"] == ("musclemap", ("gluteus_maximus_r",))
     assert len(plan) == 25  # skeleton.side (r) leg + pelvis
     assert not any(name.endswith("_l") for name in plan)
+    no_key = load_scheme().plan(load_config(overrides=["segmentation.tibia_fibula=musclemap"]))
+    assert no_key["tibia_r"] == ("musclemap", ("tibia_r",))
 
 
 def test_plan_side():

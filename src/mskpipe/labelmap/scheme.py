@@ -18,6 +18,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from mskpipe.config import PipelineConfig
+from mskpipe.plugins.base import SegmentationRequest, TaskRequest
 
 SCHEME_FILE = "unified_labels.yaml"
 Group = Literal["bones", "tibia_fibula", "muscles"]
@@ -122,6 +123,30 @@ class Scheme(_Model):
             if labels:
                 plan[name] = (source, labels)
         return plan
+
+    def requests(self, config: PipelineConfig, modality: str) -> dict[str, SegmentationRequest]:
+        """Segmenter plugin name -> what it must segment, for the configured sources.
+
+        Both legs are requested (independent of ``skeleton.side``), so the raw segmentation
+        can be reused for either side; the ``labelmap`` step picks one.
+        """
+        chosen = self.selection(config)
+        jobs: dict[str, dict[tuple[str, ...], set[str]]] = {}
+        for name, struct in self.structures.items():
+            src = self.sources[chosen[struct.group]]
+            labels = src.labels.get(name)
+            if labels:
+                jobs.setdefault(src.tool, {}).setdefault(src.tasks, set()).update(labels)
+        return {
+            tool: SegmentationRequest(
+                modality=modality,
+                jobs=tuple(
+                    TaskRequest(tasks, frozenset(labels))
+                    for tasks, labels in sorted(by_task.items())
+                ),
+            )
+            for tool, by_task in sorted(jobs.items())
+        }
 
 
 def structure_side(name: str) -> str | None:

@@ -21,6 +21,7 @@ def test_defaults_are_valid():
     assert cfg == PipelineConfig()
     assert cfg.runtime.device == "cpu"
     assert cfg.segmentation.totalsegmentator.higher_order_resampling
+    assert cfg.segmentation.musclemap.overlap == 90
 
 
 def test_partial_override_keeps_class_specific_defaults():

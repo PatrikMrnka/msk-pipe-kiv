@@ -18,6 +18,8 @@ mskpipe = { path = ".", editable = true }
 nvidia-ml-py = ">=12"
 
 # MuscleMap pins numpy==1.24.4 and torch==2.4.1; override them (phase 1).
+# torchvision must match torch (2.7.1 <-> 0.22.1): timm (via nnU-Net) pulls the newest
+# torchvision from PyPI otherwise, which breaks `import torchvision` (torchvision::nms).
 # vtk: TotalSegmentator -> fury 0.12 caps vtk<9.4 (only for --preview, never used here);
 # 9.4.2 reproduces the BP meshes (C++ mask_to_mesh built against VTK 9.4) exactly.
 [pypi-options.dependency-overrides]
@@ -38,15 +40,19 @@ fast-simplification = ">=0.1.7"
 
 [feature.cpu.pypi-dependencies]
 torch = { version = "==2.7.1", index = "https://download.pytorch.org/whl/cpu" }
+torchvision = { version = "==0.22.1", index = "https://download.pytorch.org/whl/cpu" }
 
 [feature.cpu.pypi-options.dependency-overrides]
 torch = { version = "==2.7.1", index = "https://download.pytorch.org/whl/cpu" }
+torchvision = { version = "==0.22.1", index = "https://download.pytorch.org/whl/cpu" }
 
 [feature.gpu.pypi-dependencies]
 torch = { version = "==2.7.1", index = "https://download.pytorch.org/whl/cu128" }
+torchvision = { version = "==0.22.1", index = "https://download.pytorch.org/whl/cu128" }
 
 [feature.gpu.pypi-options.dependency-overrides]
 torch = { version = "==2.7.1", index = "https://download.pytorch.org/whl/cu128" }
+torchvision = { version = "==0.22.1", index = "https://download.pytorch.org/whl/cu128" }
 
 # ---------------------------------------------------------------------------
 # Dev tools (no torch -> fast CI)

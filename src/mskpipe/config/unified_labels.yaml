@@ -82,16 +82,19 @@ sources:
       gluteus_medius_l: [gluteus_medius_left]
       gluteus_minimus_r: [gluteus_minimus_right]
       gluteus_minimus_l: [gluteus_minimus_left]
-  # TotalSegmentator task appendicular_bones (licence key): one label per bone, both legs.
+  # TotalSegmentator tasks appendicular_bones / appendicular_bones_mr (licence key): one label
+  # per bone covering both legs.
   ts_appendicular:
     tool: totalsegmentator
-    tasks: [appendicular_bones]
+    tasks: [appendicular_bones, appendicular_bones_mr]
     labels:
       tibia_r: [tibia]
       tibia_l: [tibia]
       fibula_r: [fibula]
       fibula_l: [fibula]
-  # MuscleMap (mm_segment): names normalised by the musclemap segmenter plugin.
+  # MuscleMap (mm_segment, whole-body model 1.4): names normalised by the musclemap plugin
+  # (<anatomy>_<l|r> from the model's label JSON). biceps_femoris = long head only, as in BP
+  # (MuscleMap also segments the short head: biceps_femoris_short_head_l|r).
   musclemap:
     tool: musclemap
     tasks: []
@@ -109,8 +112,8 @@ sources:
       adductor_longus_l: [adductor_longus_l]
       adductor_magnus_r: [adductor_magnus_r]
       adductor_magnus_l: [adductor_magnus_l]
-      biceps_femoris_r: [biceps_femoris_r]
-      biceps_femoris_l: [biceps_femoris_l]
+      biceps_femoris_r: [biceps_femoris_long_head_r]
+      biceps_femoris_l: [biceps_femoris_long_head_l]
       gluteus_maximus_r: [gluteus_maximus_r]
       gluteus_maximus_l: [gluteus_maximus_l]
       gluteus_medius_r: [gluteus_medius_r]
