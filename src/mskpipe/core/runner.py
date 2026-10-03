@@ -15,7 +15,7 @@ from pathlib import Path
 from mskpipe.config import InputSpec, PipelineConfig
 from mskpipe.core.device import DeviceReport, resolve_device
 from mskpipe.core.manifest import Manifest
-from mskpipe.core.step import Step, StepContext
+from mskpipe.core.step import Step, StepCancelled, StepContext
 from mskpipe.core.workspace import STEPS, Workspace
 
 logger = logging.getLogger("mskpipe")
@@ -91,7 +91,7 @@ def run_pipeline(
     notify = progress or (lambda _step, _status: None)
     start = names.index(from_step) if from_step else 0
     stop = names.index(until_step) if until_step else len(steps) - 1
-    upstream = ws.load_input_record()["sha256"]
+    upstream = input_fingerprint(ws.load_input_record())
     current: str | None = None
     try:
         logger.info("Run %s (%s, %s)", ws.root.name, spec.subject_id, spec.modality.value)
@@ -118,7 +118,7 @@ def run_pipeline(
             logger.info("[%s] running", step.name)
             notify(step.name, "running")
             with manifest.step(step.name, fp, gpu_index=device.gpu_index) as rec:
-                step.run(StepContext(ws, config, spec, rec, step.name, logger, device))
+                step.run(StepContext(ws, config, spec, rec, step.name, logger, device, cancel))
             notify(step.name, "completed")
             logger.info("[%s] completed in %.1f s", step.name, rec.resources.wall_s)
         manifest.finalize("completed")
@@ -128,6 +128,12 @@ def run_pipeline(
         manifest.finalize("interrupted" if isinstance(exc, PipelineCancelled) else "failed")
         logger.error("%s", exc)
         raise
+    except StepCancelled as exc:
+        manifest.finalize("interrupted")
+        if current:
+            notify(current, "interrupted")
+        logger.warning("[%s] %s", current, exc)
+        raise PipelineCancelled("Run cancelled", ws, current) from exc
     except KeyboardInterrupt as exc:
         manifest.finalize("interrupted")
         if current:
@@ -142,6 +148,16 @@ def run_pipeline(
     finally:
         logger.removeHandler(handler)
         handler.close()
+
+
+def input_fingerprint(record: dict[str, object]) -> str:
+    """Identity of the run input: image content and modality (segmentation depends on both)."""
+    blob = json.dumps(
+        {"sha256": record["sha256"], "modality": record["modality"]},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
 def step_fingerprint(step: Step, config: PipelineConfig, upstream: str) -> str:

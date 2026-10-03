@@ -6,6 +6,7 @@ Input (``03_mesh/``): ``bones/<name>.stl`` listed in ``meshes.json``.
 Output (``04_skeleton/``)::
 
     <model_name>.osim       OpenSim model written by the backend (default pystaple)
+    bodies/tibia_<s>.stl    tibia + fibula, the tibia body geometry of STAPLE (include_fibula)
     Geometry/<bone>.obj     visualization geometries referenced by the model
     skeleton.json           index: model, frame, settings, warnings and quality checks
 
@@ -33,6 +34,7 @@ if TYPE_CHECKING:
     from mskpipe.io.osim import OsimModel
 
 SKELETON_FILE = "skeleton.json"
+BODIES_DIR = "bodies"  # merged body geometries given to the backend (e.g. tibia + fibula)
 FORMAT = "mskpipe.skeleton"
 VERSION = 1
 COORDINATES = {"space": "world_ras", "units": "m", "geometry_units": "mm"}
@@ -73,9 +75,18 @@ class SkeletonStep(Step):
         except PluginError as exc:
             raise StepError(str(exc)) from exc
 
-        bones = mesh_paths(ctx.step_dir("mesh"), "bone")
-        if not bones:
+        meshes = mesh_paths(ctx.step_dir("mesh"), "bone")
+        if not meshes:
             raise StepError("No bone meshes from step 'mesh'")
+        bones, sources = body_meshes(meshes, cfg.side, cfg.include_fibula, ctx.out_dir / BODIES_DIR)
+        for body, parts in sources.items():
+            if len(parts) > 1:
+                ctx.logger.info("[skeleton] %s geometry = %s", body, " + ".join(parts))
+        tibia = f"tibia_{cfg.side}"
+        if cfg.include_fibula and tibia in meshes and len(sources.get(tibia, ())) < 2:
+            ctx.logger.warning(
+                "[skeleton] fibula_%s missing: %s geometry is tibia only", cfg.side, tibia
+            )
         ctx.logger.info("[skeleton] %s from %s", cfg.backend, ", ".join(sorted(bones)))
 
         start = time.perf_counter()
@@ -108,6 +119,7 @@ class SkeletonStep(Step):
             "osim_version": model.version,
             "geometry": [p.relative_to(ctx.out_dir).as_posix() for p in geometry],
             "bones": {n: p.name for n, p in sorted(bones.items())},
+            "body_geometry_sources": sources,
             "settings": cfg.model_dump(mode="json"),
             "time_s": round(elapsed, 3),
             "warnings": backend_warnings,
@@ -117,7 +129,8 @@ class SkeletonStep(Step):
         index_path.write_text(
             json.dumps(index, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )
-        for path in (osim, *geometry, index_path):
+        merged = [p for n, p in bones.items() if len(sources.get(n, ())) > 1]
+        for path in (osim, *geometry, *merged, index_path):
             ctx.record.add_output(path)
 
         ctx.record.metrics.update(
@@ -144,6 +157,34 @@ class SkeletonStep(Step):
                 "The model is mirrored (hip joint on the wrong side of the pelvis): "
                 "check the orientation (affine) of the input image and skeleton.side"
             )
+
+
+def body_meshes(
+    meshes: dict[str, Path], side: str, include_fibula: bool, work_dir: Path
+) -> tuple[dict[str, Path], dict[str, list[str]]]:
+    """Bone meshes as the skeleton backend expects them, and what each one is made of.
+
+    STAPLE (and BP) use one geometry for the tibia body: tibia + fibula of the same leg
+    (meshes concatenated, as BP ``merge_mesh.py``). With ``include_fibula`` and both meshes
+    present, ``tibia_<side>`` is replaced by ``work_dir/tibia_<side>.stl``.
+    """
+    import numpy as np
+
+    from mskpipe.io.mesh_io import TriMesh, read_mesh, write_mesh
+
+    bones = dict(meshes)
+    sources = {name: [name] for name in bones}
+    tibia, fibula = f"tibia_{side}", f"fibula_{side}"
+    if include_fibula and tibia in meshes and fibula in meshes:
+        parts = [read_mesh(meshes[tibia]), read_mesh(meshes[fibula])]
+        offset = parts[0].n_vertices
+        merged = TriMesh(
+            np.vstack([parts[0].vertices, parts[1].vertices]),
+            np.vstack([parts[0].faces, parts[1].faces + offset]),
+        )
+        bones[tibia] = write_mesh(work_dir / f"{tibia}.stl", merged)
+        sources[tibia] = [tibia, fibula]
+    return bones, sources
 
 
 def read_skeleton_index(skeleton_dir: Path) -> dict[str, Any]:

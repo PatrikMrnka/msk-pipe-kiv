@@ -3,6 +3,7 @@ import json
 import warnings
 from pathlib import Path
 
+import numpy as np
 import pytest
 from osim_models import write_hip_model
 
@@ -159,3 +160,32 @@ def test_missing_bones_checked_before_pystaple(tmp_path):
     with pytest.raises(FileNotFoundError, match="femur_r, tibia_r"):
         build_hip_model({"pelvis_no_sacrum": tmp_path / "p.stl"}, tmp_path, cfg)
     assert required_bones("l") == ("pelvis_no_sacrum", "femur_l", "tibia_l")
+
+
+def test_tibia_body_includes_fibula(tmp_path, spec, registry):
+    from mskpipe.io.mesh_io import TriMesh, read_mesh, write_mesh
+
+    tri = TriMesh(np.array([[0.0, 0, 0], [1, 0, 0], [0, 1, 0]]), np.array([[0, 1, 2]]))
+
+    class MeshWithFibula(FakeMesh):
+        def run(self, ctx: StepContext) -> None:
+            FakeMesh.bones = ("pelvis_no_sacrum", "femur_r", "tibia_r", "fibula_r")
+            super().run(ctx)
+            for name in ("tibia_r", "fibula_r"):
+                write_mesh(ctx.out_dir / "bones" / f"{name}.stl", tri.transformed(np.eye(4)))
+
+    result = run_pipeline([MeshWithFibula(), SkeletonStep(registry)], spec, config(tmp_path))
+    out = result.ws.step_dir("skeleton")
+    merged = out / "bodies" / "tibia_r.stl"
+    assert FakeStaple.received["tibia_r"] == merged
+    assert read_mesh(merged).n_faces == 2
+    index = read_skeleton_index(out)
+    assert index["body_geometry_sources"]["tibia_r"] == ["tibia_r", "fibula_r"]
+
+    result = run_pipeline(
+        [MeshWithFibula(), SkeletonStep(registry)],
+        spec,
+        config(tmp_path, "skeleton.include_fibula=false"),
+    )
+    mesh_dir = result.ws.step_dir("mesh")
+    assert FakeStaple.received["tibia_r"] == mesh_dir / "bones" / "tibia_r.stl"

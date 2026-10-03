@@ -41,6 +41,13 @@ def _name(path: Path) -> str:
     return path.name.removesuffix(".nii.gz").removesuffix(".nii")
 
 
+def _tool_label(scheme: Any, tool: str, name: str) -> str:
+    """MuscleMap label name of a BP muscle mask (BP used unified names, e.g. biceps_femoris_r)."""
+    if tool != "musclemap":
+        return name
+    return scheme.sources["musclemap"].labels.get(name, (name,))[0]
+
+
 def find_masks(directory: Path) -> dict[str, Path]:
     return {_name(p): p for p in sorted(Path(directory).glob("*.nii*"))}
 
@@ -80,13 +87,14 @@ def compare_with_bp(raw_dir: Path, cleaned_dir: Path) -> dict[str, Any]:
             if data is None:
                 data, affine = np.zeros(vol.data.shape, np.uint8), vol.affine
             data[vol.data > 0] = value
-            labels[name] = value
+            labels[_tool_label(scheme, tool, name)] = value
         out = ToolOutput(tool=tool, task=task, file=f"{tool}_{task}.nii.gz", labels=labels)
         outputs.append((out, Volume(data, affine)))
 
     config = load_config(overrides=["segmentation.tibia_fibula=ts_appendicular"])
     plan = scheme.plan(config, sides=("r", "l"))  # BP masks cover both legs
-    plan = {n: p for n, p in plan.items() if all(label in raw for label in p[1])}
+    provided = {label for out, _ in outputs for label in out.labels}
+    plan = {n: p for n, p in plan.items() if all(label in provided for label in p[1])}
     start = time.perf_counter()
     result = build_labelmap(outputs, scheme, plan, config.labelmap)
     elapsed = time.perf_counter() - start

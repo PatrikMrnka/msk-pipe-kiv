@@ -111,12 +111,19 @@ class RuntimeConfig(StrictModel):
 
 class TotalSegmentatorConfig(StrictModel):
     fast: bool = Field(
-        False, description="Low-resolution 3 mm model; faster, not recommended for meshing."
+        False,
+        description="Low-resolution 3 mm model (tasks total/total_mr); faster, not recommended "
+        "for meshing.",
     )
     higher_order_resampling: bool = Field(
-        True, description="Higher-order resampling to input space (avoids staircase masks)."
+        True,
+        description="Higher-order upsampling of the segmentation to the input grid "
+        "(--higher_order_resampling): smooth instead of staircase masks; false = BP behaviour.",
     )
-    roi_subset: bool = Field(True, description="Predict only the structures the pipeline needs.")
+    roi_subset: bool = Field(
+        True,
+        description="Predict only the structures the pipeline needs (tasks total/total_mr).",
+    )
     extra_args: list[str] = Field(
         default_factory=list, description="Extra CLI arguments passed verbatim."
     )
@@ -124,11 +131,30 @@ class TotalSegmentatorConfig(StrictModel):
 
 class MuscleMapConfig(StrictModel):
     model_version: str | None = Field(
-        None, description="Model weights version; null = version pinned by msk-pipe."
+        None,
+        pattern=r"^\d+(\.\d+)*$",
+        description="Whole-body model version (e.g. '1.4'); null = version pinned by msk-pipe.",
+    )
+    overlap: float = Field(
+        90.0,
+        ge=0,
+        lt=100,
+        description="Sliding-window overlap in percent; higher = slower, possibly more "
+        "accurate (BP: 90).",
+    )
+    chunk_size: int | Literal["auto"] = Field(
+        "auto",
+        description="Axial slices per inference chunk, or 'auto' (from free CPU/GPU memory).",
     )
     extra_args: list[str] = Field(
         default_factory=list, description="Extra CLI arguments passed verbatim."
     )
+
+    @model_validator(mode="after")
+    def _check_chunk(self) -> MuscleMapConfig:
+        if isinstance(self.chunk_size, int) and self.chunk_size < 1:
+            raise ValueError("chunk_size must be a positive integer or 'auto'")
+        return self
 
 
 class SegmentationConfig(StrictModel):
@@ -253,6 +279,10 @@ class SkeletonConfig(StrictModel):
     tibia_algorithm: Literal["Kai2014"] = Field("Kai2014", description="Tibia ACS algorithm.")
     joint_definitions: Literal["auto2020"] = Field(
         "auto2020", description="Joint definition scheme."
+    )
+    include_fibula: bool = Field(
+        True,
+        description="STAPLE convention: the tibia body geometry is tibia + fibula (as in BP).",
     )
     body_mass: float = Field(
         64.0,
