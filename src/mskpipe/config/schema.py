@@ -312,7 +312,7 @@ class SkeletonConfig(StrictModel):
 
 class AttachmentsConfig(StrictModel):
     method: str = Field(
-        "atlas_based",
+        "bone_registration",
         pattern=_IDENT,
         description="Attachment method plugin (see `mskpipe plugins`).",
     )

@@ -22,7 +22,14 @@ from mskpipe.validation.segment import (
 
 SHAPE = (40, 24, 64)
 RAS = np.eye(4)  # +x = patient's right = increasing i
-TS_LABELS = {"femur_left": 75, "femur_right": 76, "hip_left": 77, "hip_right": 78}
+TS_LABELS = {
+    "femur_left": 75,
+    "femur_right": 76,
+    "hip_left": 77,
+    "hip_right": 78,
+    "sacrum": 25,
+    "vertebrae_S1": 26,
+}
 APP_LABELS = {"tibia": 9, "fibula": 10}
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -36,6 +43,8 @@ def _ts_volume() -> np.ndarray:
     for side, word in (("r", "right"), ("l", "left")):
         data[_x(side, 8), 4:16, 48:58] = TS_LABELS[f"hip_{word}"]
         data[_x(side), 6:14, 26:44] = TS_LABELS[f"femur_{word}"]
+    data[18:22, 10:16, 50:56] = TS_LABELS["sacrum"]  # midline, between the hip bones
+    data[18:22, 10:16, 56:60] = TS_LABELS["vertebrae_S1"]
     return data
 
 

@@ -19,7 +19,8 @@ def test_default_plan_ts_bones_and_tibia_musclemap_muscles():
     assert plan["femur_r"] == ("totalsegmentator", ("femur_right",))
     assert plan["tibia_r"] == ("ts_appendicular", ("tibia",))  # as BP
     assert plan["gluteus_maximus_r"] == ("musclemap", ("gluteus_maximus_r",))
-    assert len(plan) == 25  # skeleton.side (r) leg + pelvis
+    assert plan["sacrum"] == ("totalsegmentator", ("sacrum", "vertebrae_S1"))
+    assert len(plan) == 26  # skeleton.side (r) leg + pelvis + sacrum
     assert not any(name.endswith("_l") for name in plan)
     no_key = load_scheme().plan(load_config(overrides=["segmentation.tibia_fibula=musclemap"]))
     assert no_key["tibia_r"] == ("musclemap", ("tibia_r",))
@@ -29,7 +30,8 @@ def test_plan_side():
     left = load_scheme().plan(load_config(overrides=["skeleton.side=l"]))
     assert "femur_l" in left and "femur_r" not in left and "pelvis_no_sacrum" in left
     both = load_scheme().plan(load_config(), sides=("r", "l"))
-    assert len(both) == 49
+    assert "sacrum" in left
+    assert len(both) == 50
 
 
 def test_plan_follows_segmentation_config():

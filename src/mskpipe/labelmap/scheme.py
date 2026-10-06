@@ -108,8 +108,8 @@ class Scheme(_Model):
         """Structure -> (source, source label names) for the configured sources.
 
         Only structures of ``sides`` (default: ``skeleton.side``) and sideless ones
-        (``pelvis_no_sacrum``) are planned. Structures a chosen source does not provide are
-        left out (e.g. TotalSegmentator has only the gluteal muscles).
+        (``pelvis_no_sacrum``, ``sacrum``) are planned. Structures a chosen source does not
+        provide are left out (e.g. TotalSegmentator has only the gluteal muscles).
         """
         sides = sides or (config.skeleton.side,)
         chosen = self.selection(config)

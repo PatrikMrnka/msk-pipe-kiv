@@ -46,10 +46,19 @@ class FakeTS(SegmenterPlugin):
         data[10:14, 2:10, 2:6] = 78
         data[2:6, 2:10, 8:14] = 75
         data[10:14, 2:10, 8:14] = 76
+        data[7:9, 2:10, 2:4] = 25  # sacrum, between the hip bones
+        data[7:9, 2:10, 4:6] = 26  # S1 body
         affine = img.affine.copy()
         if FakeTS.mode == "wrong_grid":
             affine[0, 3] += 5
-        labels = {"femur_left": 75, "femur_right": 76, "hip_left": 77, "hip_right": 78}
+        labels = {
+            "femur_left": 75,
+            "femur_right": 76,
+            "hip_left": 77,
+            "hip_right": 78,
+            "sacrum": 25,
+            "vertebrae_S1": 26,
+        }
         if FakeTS.mode == "missing_label":
             labels.pop("femur_left")
         out = _write(out_dir / "totalsegmentator_total.nii.gz", data, affine)

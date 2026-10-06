@@ -63,6 +63,27 @@ def plan_runs(request: SegmentationRequest) -> dict[str, frozenset[str]]:
     return runs
 
 
+def known_labels(task: str) -> frozenset[str] | None:
+    """Label names TotalSegmentator defines for ``task`` (its class map, a plain dict
+    module), or ``None`` when TotalSegmentator is not installed / the task is unknown."""
+    try:
+        from totalsegmentator.map_to_binary import class_map
+    except ImportError:
+        return None
+    names = class_map.get(task)
+    return frozenset(names.values()) if names else None
+
+
+def split_labels(task: str, labels: Iterable[str]) -> tuple[frozenset[str], frozenset[str]]:
+    """(labels the task has, labels it lacks): ``--roi_subset`` fails on unknown names,
+    e.g. ``vertebrae_S1`` exists in ``total`` but not in ``total_mr``."""
+    labels = frozenset(labels)
+    known = known_labels(task)
+    if known is None:
+        return labels, frozenset()
+    return labels & known, labels - known
+
+
 def build_command(
     image: Path,
     out_file: Path,
@@ -145,8 +166,13 @@ class TotalSegmentator(SegmenterPlugin):
             raise StepError(str(exc)) from exc
 
         outputs: list[SegmentationOutput] = []
-        for task, labels in runs.items():
+        for task, wanted in runs.items():
             ctx.check_cancel()
+            labels, lacking = split_labels(task, wanted)
+            if lacking:
+                ctx.logger.info(
+                    "[segment] TotalSegmentator %s has no %s", task, ", ".join(sorted(lacking))
+                )
             out_file = out_dir / f"totalsegmentator_{task}.nii.gz"
             argv = build_command(
                 image,

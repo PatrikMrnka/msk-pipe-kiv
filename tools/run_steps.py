@@ -1,6 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Run the implemented pipeline steps on one volume (developer tool until `mskpipe run`).
 
+    # up to the attachment areas (atlas folder via MSKPIPE_ATLAS_DIR or the parameter)
+    pixi run -e cpu python tools/run_steps.py D:/data/lhdl/ct.nii.gz --modality ct `
+        --until attachments --set attachments.params.atlas_dir=D:/data/lhdl_atlas
+
     # LHDL CT from scratch to the skeletal model, CPU, no cache (timings for the paper)
     pixi run -e cpu python tools/run_steps.py D:/data/lhdl/ct.nii.gz --modality ct `
         --until skeleton --set runtime.cache=false
@@ -28,12 +32,13 @@ from mskpipe.config import ConfigError, InputSpec, load_config
 from mskpipe.core.device import DeviceError
 from mskpipe.core.registry import resolve_plugins
 from mskpipe.core.runner import PipelineCancelled, PipelineError, RunResult, run_pipeline
+from mskpipe.steps.attachments import AttachmentsStep
 from mskpipe.steps.labelmap import LabelmapStep
 from mskpipe.steps.mesh import MeshStep
 from mskpipe.steps.segment import SegmentStep
 from mskpipe.steps.skeleton import SkeletonStep
 
-STEPS = (SegmentStep(), LabelmapStep(), MeshStep(), SkeletonStep())
+STEPS = (SegmentStep(), LabelmapStep(), MeshStep(), SkeletonStep(), AttachmentsStep())
 NAMES = [s.name for s in STEPS]
 
 

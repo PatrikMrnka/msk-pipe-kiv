@@ -87,7 +87,7 @@ class SkeletonStep(Step):
             ctx.logger.warning(
                 "[skeleton] fibula_%s missing: %s geometry is tibia only", cfg.side, tibia
             )
-        ctx.logger.info("[skeleton] %s from %s", cfg.backend, ", ".join(sorted(bones)))
+        ctx.logger.info("[skeleton] %s, bones available: %s", cfg.backend, ", ".join(sorted(bones)))
 
         start = time.perf_counter()
         with warnings.catch_warnings(record=True) as caught:

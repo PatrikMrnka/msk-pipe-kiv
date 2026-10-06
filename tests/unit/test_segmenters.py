@@ -254,7 +254,14 @@ def test_requests_default_config():
     req = load_scheme().requests(load_config(), "ct")
     assert set(req) == {"totalsegmentator", "musclemap"}
     jobs = {job.tasks: job.labels for job in req["totalsegmentator"].jobs}
-    assert jobs[("total", "total_mr")] == {"hip_left", "hip_right", "femur_left", "femur_right"}
+    assert jobs[("total", "total_mr")] == {
+        "hip_left",
+        "hip_right",
+        "sacrum",
+        "vertebrae_S1",
+        "femur_left",
+        "femur_right",
+    }
     assert jobs[("appendicular_bones", "appendicular_bones_mr")] == {"tibia", "fibula"}
     assert ts.plan_runs(req["totalsegmentator"]).keys() == {"total", "appendicular_bones"}
     mm_labels = req["musclemap"].labels
@@ -281,3 +288,25 @@ def test_requests_appendicular_and_ts_muscles():
     plan = ts.plan_runs(req["totalsegmentator"])
     assert plan["appendicular_bones_mr"] == {"tibia", "fibula"}
     assert "gluteus_medius_left" in plan["total_mr"]
+
+
+def test_split_labels_drops_names_the_task_lacks(monkeypatch):
+    known = {
+        "total": frozenset({"sacrum", "vertebrae_S1", "hip_left"}),
+        "total_mr": frozenset({"sacrum", "hip_left"}),
+    }
+    monkeypatch.setattr(ts, "known_labels", known.get)
+    wanted = {"sacrum", "vertebrae_S1", "hip_left"}
+    assert ts.split_labels("total", wanted) == (frozenset(wanted), frozenset())
+    assert ts.split_labels("total_mr", wanted) == (
+        frozenset({"sacrum", "hip_left"}),
+        frozenset({"vertebrae_S1"}),
+    )
+
+
+def test_split_labels_without_totalsegmentator_keeps_all(monkeypatch):
+    monkeypatch.setattr(ts, "known_labels", lambda task: None)
+    assert ts.split_labels("total_mr", {"vertebrae_S1"}) == (
+        frozenset({"vertebrae_S1"}),
+        frozenset(),
+    )

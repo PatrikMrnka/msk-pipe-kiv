@@ -21,7 +21,7 @@ def test_no_args_shows_help() -> None:
 def test_plugins_lists_builtins() -> None:
     result = runner.invoke(app, ["plugins"])
     assert result.exit_code == 0
-    assert "atlas_based" in result.stdout and "totalsegmentator" in result.stdout
+    assert "bone_registration" in result.stdout and "totalsegmentator" in result.stdout
 
 
 def test_device_cpu() -> None:

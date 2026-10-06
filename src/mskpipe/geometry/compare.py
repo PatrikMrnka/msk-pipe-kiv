@@ -41,6 +41,23 @@ def point_to_surface(points: np.ndarray, surface: TriMesh) -> np.ndarray:
     return np.sqrt(out)
 
 
+def closest_on_surface(points: np.ndarray, surface: TriMesh) -> tuple[np.ndarray, np.ndarray]:
+    """Closest point of ``surface`` to each point, and its distance."""
+    locator = vtk.vtkStaticCellLocator()
+    locator.SetDataSet(to_polydata(surface))
+    locator.BuildLocator()
+    closest = [0.0, 0.0, 0.0]
+    cell_id, sub_id, dist2 = vtk.reference(0), vtk.reference(0), vtk.reference(0.0)
+    points = np.asarray(points, dtype=np.float64)
+    out = np.empty_like(points)
+    dist = np.empty(len(points))
+    for i, p in enumerate(points):
+        locator.FindClosestPoint(p, closest, cell_id, sub_id, dist2)
+        out[i] = closest
+        dist[i] = dist2.get()
+    return out, np.sqrt(dist)
+
+
 def surface_distance(a: TriMesh, b: TriMesh) -> DistanceStats:
     d_ab = point_to_surface(a.vertices, b)
     d_ba = point_to_surface(b.vertices, a)
@@ -55,4 +72,4 @@ def surface_distance(a: TriMesh, b: TriMesh) -> DistanceStats:
     )
 
 
-__all__ = ["DistanceStats", "point_to_surface", "surface_distance"]
+__all__ = ["DistanceStats", "closest_on_surface", "point_to_surface", "surface_distance"]

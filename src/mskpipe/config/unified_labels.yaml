@@ -15,6 +15,9 @@
 #   by side. Structures missing under a source are simply not produced by it.
 #
 # Sides: _r = patient's right (+x in NIfTI RAS+ world coordinates).
+#
+# sacrum is a separate bone: STAPLE builds the pelvis from pelvis_no_sacrum only, the
+# sacrum is used for attachment areas (gluteus maximus, piriformis) and display.
 
 structures:
   pelvis_no_sacrum: {value: 1, kind: bone, group: bones}
@@ -24,6 +27,7 @@ structures:
   tibia_l: {value: 5, kind: bone, group: tibia_fibula}
   fibula_r: {value: 6, kind: bone, group: tibia_fibula}
   fibula_l: {value: 7, kind: bone, group: tibia_fibula}
+  sacrum: {value: 8, kind: bone, group: bones}
   adductor_brevis_r: {value: 11, kind: muscle, group: muscles}
   adductor_brevis_l: {value: 12, kind: muscle, group: muscles}
   adductor_longus_r: {value: 13, kind: muscle, group: muscles}
@@ -74,6 +78,9 @@ sources:
     tasks: [total, total_mr]
     labels:
       pelvis_no_sacrum: [hip_left, hip_right]
+      # TS total segments the S1 vertebral body separately (vertebrae_S1); the sacrum of
+      # the anatomy (and of the LHDL ground truth) is both. total_mr has no vertebrae_S1.
+      sacrum: [sacrum, vertebrae_S1]
       femur_r: [femur_right]
       femur_l: [femur_left]
       gluteus_maximus_r: [gluteus_maximus_right]
