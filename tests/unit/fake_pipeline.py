@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import ClassVar
 
@@ -50,7 +51,106 @@ class FakeStep(Step):
         )
         out.write_text(self.name, encoding="utf-8")
         ctx.record.add_output(out)
-        ctx.record.metrics["value"] = 1
+        ctx.record.metrics.update(METRICS.get(self.name, {}), value=1)
+        if self.name == "export_mw2":
+            (ctx.out_dir / "export.json").write_text(json.dumps(EXPORT_INDEX), encoding="utf-8")
+
+
+# metrics shaped like those of the real steps (see mskpipe.steps.*)
+METRICS: dict[str, dict] = {
+    "segment": {
+        "segment_time_s": 3.0,
+        "tools": {
+            "totalsegmentator": {
+                "tasks": ["appendicular_bones", "total"],
+                "time_s": 1.25,
+                "device": "cpu",
+                "n_requested": 10,
+                "not_provided": [],
+                "empty": ["vertebrae_S1"],
+            },
+            "musclemap": {
+                "tasks": ["wholebody"],
+                "time_s": 1.75,
+                "device": "cpu",
+                "n_requested": 40,
+                "not_provided": [],
+                "empty": [],
+            },
+        },
+    },
+    "labelmap": {"labelmap_time_s": 0.5},
+    "mesh": {"mesh_time_s": 0.25, "n_meshed": 26},
+    "attachments": {
+        "attachments_time_s": 0.75,
+        "registration": {
+            "femur": {
+                "status": "ok",
+                "scale": 1.002,
+                "rigid": {"mean_mm": 0.88, "p95_mm": 2.1, "trimmed_mean_mm": 0.7},
+                "nonrigid": {"mean_mm": 0.69, "p95_mm": 1.6, "trimmed_mean_mm": 0.55},
+            },
+            "pelvis": {
+                "status": "ok",
+                "scale": 1.005,
+                "rigid": {"mean_mm": 1.25, "p95_mm": 3.0, "trimmed_mean_mm": 1.0},
+            },
+        },
+    },
+    "export_mw2": {"export_time_s": 0.5, "n_selected": 2, "n_exported": 1},
+}
+
+_AREA = {
+    "n_points": 12,
+    "distinct": 12,
+    "span_mm": 30.0,
+    "shrink": 0.9,
+    "crossing": False,
+    "patch_fraction": 0.05,
+    "gap_mean_mm": 2.0,
+    "gap_max_mm": 4.0,
+    "body": "pelvis",
+    "nearest_body": "pelvis",
+}
+EXPORT_INDEX: dict = {
+    "format": "mskpipe.mw2_input",
+    "version": 1,
+    "muscles": [
+        {
+            "name": "gluteus_medius_r",
+            "status": "ok",
+            "mesh": {"check": {"ok": True, "genus": 0, "components": 1}, "repaired": True},
+            "areas": {
+                "Ori": _AREA,
+                "Ins": {
+                    **_AREA,
+                    "distinct": 1,
+                    "body": "tibia_r",
+                    "nearest_body": "femur_r",
+                    "gap_mean_mm": 97.0,
+                    "inflated": {
+                        "radius_mm": 5.0,
+                        "patch_fraction": 0.01,
+                        "before": {"n_points": 12, "distinct": 1, "span_mm": 0.0},
+                        "after": {"n_points": 18, "distinct": 18, "span_mm": 9.5},
+                    },
+                },
+            },
+            "problems": [],
+            "warnings": ["insertion collapsed", "gluteus_medius_r insertion: area inflated"],
+            "ori_ins_distance_mm": 150.0,
+            "mean_edge_mm": 2.0,
+        },
+        {
+            "name": "piriformis_r",
+            "status": "excluded",
+            "mesh": {},
+            "areas": {},
+            "problems": ["export.exclude: tendon around a bony pulley"],
+            "excluded_by_config": "tendon around a bony pulley",
+        },
+    ],
+}
 
 
 def fake_steps() -> list[Step]:

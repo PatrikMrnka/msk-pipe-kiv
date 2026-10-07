@@ -345,6 +345,59 @@ def _print_batch(result) -> None:
             typer.echo(f"run {e.index}: {e.error}", err=True)
 
 
+# ---------------------------------------------------------------------------- stats
+
+
+@app.command()
+def stats(
+    paths: Annotated[
+        list[Path] | None,
+        typer.Argument(
+            help="Run folders, folders of runs (runs/) or batch folders. Default: runs.",
+            show_default=False,
+        ),
+    ] = None,
+    output: Annotated[
+        Path, typer.Option("--output", "-o", help="Folder for the CSV tables.")
+    ] = Path("stats"),
+    experiment: Annotated[
+        str | None,
+        typer.Option("--experiment", "-e", help="Only runs of this batch experiment."),
+    ] = None,
+) -> None:
+    """Collect timings, resources and Muscle Wrapping export checks into CSV tables.
+
+    \b
+    Tables: runs, steps, tools, muscles, areas, registration, summary (mean +- SD per step).
+    Example:
+      mskpipe stats runs -e E13 -o paper/stats/E13
+    """
+    from mskpipe import stats as stats_mod
+
+    tables = stats_mod.collect(paths or [Path("runs")], experiment=experiment)
+    for message in tables.skipped:
+        typer.echo(f"WARNING: skipped {message}", err=True)
+    runs = tables["runs"]
+    if not runs:
+        typer.echo("No runs found.", err=True)
+        raise typer.Exit(1)
+    for path in stats_mod.write_tables(tables, output):
+        typer.echo(f"Written {path} ({len(tables[path.stem])} rows)")
+    typer.echo("")
+    typer.echo(
+        f"{'job':<14}{'variant':<24}{'device':<7}{'step':<13}{'n':>3}{'mean s':>10}{'SD':>8}"
+    )
+    for row in tables["summary"]:
+        sd = f"{row['wall_sd_s']:.1f}" if row["wall_sd_s"] is not None else "-"
+        job = str(row["job"] or row["subject"])[:13]
+        variant = str(row["variant"] or "")[:23]
+        dev = str(row["device"] or "-")
+        typer.echo(
+            f"{job:<14}{variant:<24}{dev:<7}{row['step']:<13}{row['n']:>3}"
+            f"{row['wall_mean_s']:>10.1f}{sd:>8}"
+        )
+
+
 # ---------------------------------------------------------------------------- config
 
 
