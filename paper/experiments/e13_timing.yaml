@@ -1,0 +1,20 @@
+# Timings of the whole pipeline on the LHDL CT, CPU and GPU, n = 3 (paper_results E13).
+# Data are not in the repository (LHDL licence): paths point to the local data/ folder.
+# Run from the repository root (atlas_dir is a config value, relative to the working dir;
+# image paths are relative to this file).
+#   pixi run -e gpu mskpipe batch paper/experiments/e13_timing.yaml --dry-run
+#   pixi run -e gpu mskpipe batch paper/experiments/e13_timing.yaml
+version: 1
+experiment: E13
+repeat: 3
+defaults:
+  set:
+    - runtime.cache=false
+    - attachments.params.atlas_dir=data/reference-GT/lhdl_atlas
+jobs:
+  - name: lhdl_ct
+    image: ../../data/reference-GT/lhdl_msf/volumes/Cadaver1_LowerLimbsCT.nii.gz
+    modality: ct
+    subject: LHDL
+    matrix:
+      runtime.device: [gpu, cpu]

@@ -1,0 +1,17 @@
+# Non-rigid stage of the attachment registration on the LHDL CT (paper_results E10).
+# Segmentation is reused from the cache; only attachments and export_mw2 are recomputed.
+# Run from the repository root (atlas_dir is relative to the working directory).
+#   pixi run -e gpu mskpipe batch paper/experiments/e10_attachments.yaml
+version: 1
+experiment: E10
+defaults:
+  device: gpu
+  set:
+    - attachments.params.atlas_dir=data/reference-GT/lhdl_atlas
+jobs:
+  - name: lhdl_ct
+    image: ../../data/reference-GT/lhdl_msf/volumes/Cadaver1_LowerLimbsCT.nii.gz
+    modality: ct
+    subject: LHDL
+    matrix:
+      attachments.params.nonrigid: [coherent_icp, cpd, none]

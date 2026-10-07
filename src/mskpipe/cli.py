@@ -207,6 +207,144 @@ def _print_summary(summary: RunSummary) -> None:
         typer.echo(f"Muscle Wrapping input: {summary.mw2_dir}")
 
 
+# ---------------------------------------------------------------------------- batch
+
+
+@app.command()
+def batch(
+    file: Annotated[Path, typer.Argument(help="Batch file (.yaml or .csv).", show_default=False)],
+    overrides: Annotated[
+        list[str] | None,
+        typer.Option("--set", metavar="KEY=VALUE", help="Override for every run (repeatable)."),
+    ] = None,
+    device: Annotated[
+        Device | None, typer.Option("--device", "-d", help="Compute device for every run.")
+    ] = None,
+    runs_dir: Annotated[
+        Path | None,
+        typer.Option("--runs-dir", "-o", help="Folder for run folders (runtime.runs_dir)."),
+    ] = None,
+    no_cache: Annotated[
+        bool, typer.Option("--no-cache", help="Do not reuse results of earlier runs (timings).")
+    ] = False,
+    out: Annotated[
+        Path | None,
+        typer.Option("--out", help="Batch folder (default: <runs_dir>/batches/<time>_<exp>)."),
+    ] = None,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Only list the runs and the pre-run check results.")
+    ] = False,
+    stop_on_error: Annotated[
+        bool, typer.Option("--stop-on-error", help="Stop at the first run that does not complete.")
+    ] = False,
+    no_preflight: Annotated[
+        bool, typer.Option("--no-preflight", help="Start even if pre-run checks report errors.")
+    ] = False,
+    verbose: Annotated[
+        bool, typer.Option("--verbose", "-v", help="Also print the output of external tools.")
+    ] = False,
+    quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Only warnings and errors.")] = False,
+    as_json: Annotated[
+        bool, typer.Option("--json", help="Print the batch entries as JSON (stdout).")
+    ] = False,
+) -> None:
+    """Run several inputs and/or configurations one after another (format: mskpipe.batch).
+
+    \b
+    Examples:
+      mskpipe batch experiments/e13_timing.yaml --dry-run
+      mskpipe batch experiments/e13_timing.yaml -d gpu --no-cache
+    """
+    from mskpipe import api
+    from mskpipe import batch as batch_mod
+
+    try:
+        spec, base = batch_mod.load_batch(file)
+        planned = batch_mod.expand(
+            spec,
+            base,
+            overrides=tuple(overrides or ()),
+            device=device,
+            runs_dir=runs_dir,
+            cache=False if no_cache else None,
+        )
+        first = api.prepare_run(planned[0].request)
+    except api.SetupError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(EXIT_SETUP) from None
+
+    typer.echo(f"{len(planned)} run(s), experiment: {spec.experiment or '-'}", err=as_json)
+    for p in planned:
+        variant = f" [{p.variant}]" if p.variant else ""
+        typer.echo(f"  {p.index:>3}. {p.job}{variant} #{p.repeat}", err=as_json)
+    repeats = max(p.repeat for p in planned)
+    if repeats > 1 and first.config.runtime.cache:
+        typer.echo(
+            "WARNING: repeated runs with runtime.cache=true reuse earlier results "
+            "(use --no-cache for timings)",
+            err=True,
+        )
+    issues = [] if no_preflight and not dry_run else batch_mod.check_batch(planned)
+    for p, issue in issues:
+        typer.echo(
+            f"{issue.severity.upper()}: run {p.index} ({p.job}): {issue.where}: {issue.message}",
+            err=True,
+        )
+    errors = [i for _, i in issues if i.severity == "error"]
+    if dry_run:
+        raise typer.Exit(EXIT_SETUP if errors else 0)
+    if errors and not no_preflight:
+        typer.echo(
+            f"{len(errors)} pre-run check(s) failed; fix them or use --no-preflight.", err=True
+        )
+        raise typer.Exit(EXIT_SETUP)
+
+    folder = out or batch_mod.batch_folder(first.config.runtime.runs_dir, spec.experiment)
+    total = len(planned)
+
+    def progress(entry, event) -> None:
+        if event is not None:
+            return
+        if entry.status == "running":
+            variant = f" [{entry.variant}]" if entry.variant else ""
+            typer.echo(
+                f"=== [{entry.index}/{total}] {entry.job}{variant} #{entry.repeat}", err=as_json
+            )
+        else:
+            wall = f", {entry.wall_s:.1f} s" if entry.wall_s is not None else ""
+            typer.echo(f"=== [{entry.index}/{total}] {entry.status}{wall}", err=as_json)
+
+    level = logging.DEBUG if verbose else logging.WARNING if quiet else logging.INFO
+    with _console_log(level, sys.stderr if as_json else sys.stdout):
+        result = batch_mod.run_batch(
+            planned,
+            folder,
+            experiment=spec.experiment,
+            batch_file=file.resolve(),
+            stop_on_error=stop_on_error,
+            on_event=progress,
+        )
+    if as_json:
+        typer.echo(batch_mod.entries_json(result.entries))
+    else:
+        _print_batch(result)
+    raise typer.Exit(result.exit_code)
+
+
+def _print_batch(result) -> None:
+    typer.echo(f"\nBatch: {result.folder}")
+    typer.echo(f"{'#':>4}  {'job':<16}{'variant':<28}{'rep':>4}  {'status':<12}{'wall s':>9}")
+    for e in result.entries:
+        wall = f"{e.wall_s:.1f}" if e.wall_s is not None else "-"
+        typer.echo(
+            f"{e.index:>4}  {e.job[:15]:<16}{e.variant[:27]:<28}{e.repeat:>4}  "
+            f"{e.status:<12}{wall:>9}"
+        )
+    for e in result.entries:
+        if e.error:
+            typer.echo(f"run {e.index}: {e.error}", err=True)
+
+
 # ---------------------------------------------------------------------------- config
 
 
