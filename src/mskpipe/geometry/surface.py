@@ -8,7 +8,9 @@ VTK version (9.4) the filter chain gives identical meshes:
 2. ``vtkCleanPolyData`` + ``vtkPolyDataConnectivityFilter`` (small components removed),
 3. ``vtkWindowedSincPolyDataFilter`` (non-manifold smoothing, normalized coordinates),
 4. ``vtkTriangleFilter`` + ``vtkCleanPolyData`` (point merging),
-5. ``vtkQuadricDecimation``.
+5. ``vtkQuadricDecimation`` (``decimation="quadric"``, BP) or ``vtkDecimatePro`` with
+   topology preservation (``decimation="topology"``; never adds holes or non-manifold
+   edges, used to repair muscle surfaces for Muscle Wrapping 2.x).
 
 Differences to the BP tool, all intentional:
 
@@ -29,7 +31,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import vtk
@@ -68,6 +70,7 @@ def mask_to_surface(
     *,
     offset: Sequence[int] = (0, 0, 0),
     full_shape: Sequence[int] | None = None,
+    decimation: Literal["quadric", "topology"] = "quadric",
 ) -> SurfaceResult:
     """Extract the surface of a binary ``mask`` (indexed ``[i, j, k]``).
 
@@ -96,7 +99,10 @@ def mask_to_surface(
     cleaned = _clean(surface)
     kept, n_found, n_kept = _filter_components(cleaned, params.min_component_fraction)
     smoothed = _smooth(kept, params.smooth_iterations, params.passband)
-    final = _decimate(smoothed, params.target_reduction)
+    if decimation == "topology":
+        final = _decimate_pro(smoothed, params.target_reduction)
+    else:
+        final = _decimate(smoothed, params.target_reduction)
 
     # Filtering ran in "index x spacing" (the BP frame); apply the rest of the affine.
     to_world = np.eye(4)
@@ -205,6 +211,20 @@ def _decimate(poly: vtk.vtkPolyData, target_reduction: float) -> vtk.vtkPolyData
     dec = vtk.vtkQuadricDecimation()
     dec.SetInputData(poly)
     dec.SetTargetReduction(target_reduction)
+    dec.Update()
+    return dec.GetOutput()
+
+
+def _decimate_pro(poly: vtk.vtkPolyData, target_reduction: float) -> vtk.vtkPolyData:
+    """Decimation that keeps the topology (may stop short of the target)."""
+    if target_reduction <= 0.0:
+        return poly
+    dec = vtk.vtkDecimatePro()
+    dec.SetInputData(poly)
+    dec.SetTargetReduction(target_reduction)
+    dec.PreserveTopologyOn()
+    dec.SplittingOff()
+    dec.BoundaryVertexDeletionOff()
     dec.Update()
     return dec.GetOutput()
 

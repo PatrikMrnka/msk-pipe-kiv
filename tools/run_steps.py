@@ -1,9 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """Run the implemented pipeline steps on one volume (developer tool until `mskpipe run`).
 
-    # up to the attachment areas (atlas folder via MSKPIPE_ATLAS_DIR or the parameter)
+    # whole pipeline up to the Muscle Wrapping 2.x input (atlas via MSKPIPE_ATLAS_DIR)
     pixi run -e cpu python tools/run_steps.py D:/data/lhdl/ct.nii.gz --modality ct `
-        --until attachments --set attachments.params.atlas_dir=D:/data/lhdl_atlas
+        --set attachments.params.atlas_dir=D:/data/lhdl_atlas
+
+    # only redo the export of an existing run (e.g. other export.* settings)
+    pixi run -e cpu python tools/run_steps.py --resume runs/<run> --from export_mw2
 
     # LHDL CT from scratch to the skeletal model, CPU, no cache (timings for the paper)
     pixi run -e cpu python tools/run_steps.py D:/data/lhdl/ct.nii.gz --modality ct `
@@ -33,12 +36,20 @@ from mskpipe.core.device import DeviceError
 from mskpipe.core.registry import resolve_plugins
 from mskpipe.core.runner import PipelineCancelled, PipelineError, RunResult, run_pipeline
 from mskpipe.steps.attachments import AttachmentsStep
+from mskpipe.steps.export_mw2 import ExportMw2Step
 from mskpipe.steps.labelmap import LabelmapStep
 from mskpipe.steps.mesh import MeshStep
 from mskpipe.steps.segment import SegmentStep
 from mskpipe.steps.skeleton import SkeletonStep
 
-STEPS = (SegmentStep(), LabelmapStep(), MeshStep(), SkeletonStep(), AttachmentsStep())
+STEPS = (
+    SegmentStep(),
+    LabelmapStep(),
+    MeshStep(),
+    SkeletonStep(),
+    AttachmentsStep(),
+    ExportMw2Step(),
+)
 NAMES = [s.name for s in STEPS]
 
 

@@ -329,13 +329,108 @@ class AttachmentsConfig(StrictModel):
 
 
 # --------------------------------------------------------------------------- export
+# Muscle Wrapping 2.x input. Files are written in mm with scale_factors 0.001 (MW2 runs its
+# decomposition in file units; its tolerances assume mm). See mskpipe.steps.export_mw2.
+
+
+class MotionConfig(StrictModel):
+    coordinate: str | None = Field(
+        None,
+        pattern=_IDENT,
+        description="Coordinate swept by the motion and driving the muscle paths; "
+        "null = hip_flexion_<side>.",
+    )
+    end_deg: float = Field(
+        90.0, ge=-180, le=180, description="Last value of the swept coordinate [deg]."
+    )
+    step_deg: float = Field(2.0, gt=0, le=45, description="Step of the swept coordinate [deg].")
 
 
 class ExportConfig(StrictModel):
     muscles: list[MuscleName] | Literal["all"] = Field(
         "all", description="Muscles exported for Muscle Wrapping 2.x, or 'all'."
     )
-    units: Literal["m", "mm"] = Field("m", description="Length unit of exported .obj/.xml files.")
+    exclude: list[Annotated[str, StringConstraints(pattern=r"^[a-z][a-z_]*[a-z]$")]] = Field(
+        default_factory=lambda: [
+            "piriformis",
+            "obturator_internus",
+            "obturator_externus",
+            "tensor_fasciae_latae",
+        ],
+        description="Muscles (without side suffix) not exported for Muscle Wrapping 2.x. "
+        "Default: muscles whose insertion is reached through an unsegmented tendon or "
+        "fascia running around a bony pulley or down to the tibia; their insertion cannot be "
+        "placed on the segmented belly (reasons in export.json). [] exports all.",
+    )
+    num_of_lines: int = Field(100, ge=1, le=2000, description="Fibres per muscle.")
+    line_res: int = Field(15, ge=1, le=200, description="Segments per fibre (points - 1).")
+    decomposition_method: Literal["kukacka", "hoang"] = Field(
+        "kukacka", description="Muscle decomposition method of Muscle Wrapping 2.x."
+    )
+    bone_weights: Literal[
+        "InverseDistance", "PositionOnFibreQuadraticSpline", "PositionOnFibreSCurve"
+    ] = Field(
+        "InverseDistance",
+        description="Luca2018viaPointsAlgorithm: weights of the two bones moving a fibre point.",
+    )
+    pelvis_with_sacrum: bool = Field(
+        True,
+        description="Pelvis body geometry = hip bones + sacrum (when segmented), so that "
+        "sacral fibre ends are assigned to the pelvis.",
+    )
+    align_child_frames: bool = Field(
+        True,
+        description="Rotate the child frame of joints that cannot reach the pose of the "
+        "image (STAPLE 1-DOF knee) so that all bones are in that pose in the first frame; "
+        "false = keep the STAPLE frames (residual reported).",
+    )
+    motion: MotionConfig = Field(default_factory=MotionConfig)
+    muscle_analysis: bool = Field(
+        True, description="Let Muscle Wrapping write fibre lengths and moment arms (analysis/)."
+    )
+    fibre_export: bool = Field(
+        False, description="Let Muscle Wrapping write fibres and muscle meshes per frame (fibres/)."
+    )
+    repair: bool = Field(
+        True,
+        description="Repair muscle meshes Muscle Wrapping cannot use (extra components, "
+        "orientation; holes, non-manifold edges and genus > 0 by remeshing the mask).",
+    )
+    repair_max_opening_mm: float = Field(
+        3.0,
+        ge=0,
+        le=10,
+        description="Largest morphological opening tried when remeshing a mask (1, 1.5, 2, "
+        "3 mm); cuts thin bridges, e.g. a sheet of muscle left next to a bone (genus > 0).",
+    )
+    repair_max_closing_mm: float = Field(
+        6.0,
+        ge=0,
+        le=20,
+        description="Largest morphological closing tried when remeshing a mask (steps 1.5 mm); "
+        "fills tunnels.",
+    )
+    repair_max_volume_change: float = Field(
+        0.05,
+        gt=0,
+        le=0.5,
+        description="A repaired muscle is accepted only if its volume changes by at most this "
+        "fraction (an opening can erase thin muscles or cut off their ends).",
+    )
+    inflate_radius_mm: float = Field(
+        5.0,
+        gt=0,
+        le=50,
+        description="An attachment outline that collapses when projected onto the muscle "
+        "(missing tendon; Muscle Wrapping would crash) is replaced by the outline of a patch "
+        "of the muscle surface of this radius [mm] around it (grown until it is a disc).",
+    )
+    on_invalid: Literal["exclude", "keep"] = Field(
+        "exclude",
+        description="Muscles whose mesh fails the checks (and cannot be repaired): 'exclude' "
+        "from the setup XML or 'keep' (written with a warning). Attachment outline checks "
+        "are reported only and never exclude a muscle.",
+    )
 
 
 # --------------------------------------------------------------------------- root
