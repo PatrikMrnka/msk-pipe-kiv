@@ -1,6 +1,0 @@
-[2026-10-07 21:34:16.527] [info] Loaded library C:\msk-pipe-kiv-zcu\MW2-MASTER\Build\Bin\OsimMuscleGeneratorTool.dll
-[2026-10-07 21:34:16.530] [error] SimTK Exception thrown at Xml.cpp:108:
-  Error detected by Simbody method Xml::readFromFile(): Failed to load the Xml file 'setup_MuscleGeneratorTool.xml' with error 'Failed to open file (line=0, col=0)'.
-  (Required condition 'loadOK' was not met.)
-
-[2026-10-07 21:34:16.530] [error] A problem occurred when trying to load file 'setup_MuscleGeneratorTool.xml'.
