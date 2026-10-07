@@ -151,6 +151,24 @@ class BoneRegistration(AttachmentsPlugin):
             out["fast_rnrr_sha256"] = _executable_fingerprint(params.get("fast_rnrr_exe"))
         return out
 
+    @classmethod
+    def preflight(cls, config: PipelineConfig, modality: str) -> list[str]:
+        params = config.attachments.params
+        problems = []
+        folder = atlas_dir(params)
+        if folder is None:
+            problems.append(f"No attachment atlas: set attachments.params.atlas_dir or {ATLAS_ENV}")
+        elif not (folder / ATLAS_INDEX).is_file():
+            problems.append(f"Attachment atlas index not found: {folder / ATLAS_INDEX}")
+        if params.get("nonrigid") == "fast_rnrr":
+            from mskpipe.geometry.fast_rnrr import FastRnrrError, find_executable
+
+            try:
+                find_executable(params.get("fast_rnrr_exe"))
+            except FastRnrrError as exc:
+                problems.append(str(exc))
+        return problems
+
     def compute(
         self,
         ctx: StepContext,

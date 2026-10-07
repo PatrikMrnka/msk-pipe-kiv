@@ -21,6 +21,7 @@ from mskpipe.core.workspace import STEPS, Workspace
 logger = logging.getLogger("mskpipe")
 
 ProgressCallback = Callable[[str, str], None]  # (step, status)
+StartCallback = Callable[[Workspace, Manifest], None]  # run folder and manifest exist
 _DONE = ("completed", "cached")
 _INPUT_GLOB = "input.nii*"
 
@@ -55,12 +56,14 @@ def run_pipeline(
     progress: ProgressCallback | None = None,
     cancel: threading.Event | None = None,
     device: DeviceReport | None = None,
+    on_start: StartCallback | None = None,
 ) -> RunResult:
     """Run ``steps`` for a new input, or continue an existing run (``resume``).
 
     ``device`` is normally resolved here from ``runtime.device``; pass a report to reuse one
     detection for a whole batch. An unusable ``runtime.device=gpu`` fails before any run
-    folder is created.
+    folder is created. ``on_start`` is called once the run folder and the manifest exist
+    (before the first step), e.g. to show the run folder in a GUI.
     """
     _check_order(steps)
     names = [s.name for s in steps]
@@ -94,6 +97,8 @@ def run_pipeline(
     upstream = input_fingerprint(ws.load_input_record())
     current: str | None = None
     try:
+        if on_start is not None:
+            on_start(ws, manifest)
         logger.info("Run %s (%s, %s)", ws.root.name, spec.subject_id, spec.modality.value)
         logger.info("Device: %s", device.summary())
         for i, step in enumerate(steps[: stop + 1]):

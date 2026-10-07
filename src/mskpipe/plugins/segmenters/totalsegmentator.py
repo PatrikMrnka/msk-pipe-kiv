@@ -9,6 +9,8 @@ The tool runs as ``python -m totalsegmentator.bin.TotalSegmentator`` in a subpro
 
 from __future__ import annotations
 
+import json
+import os
 import sys
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable
@@ -23,6 +25,7 @@ from mskpipe.plugins.base import (
 )
 
 if TYPE_CHECKING:
+    from mskpipe.config import PipelineConfig
     from mskpipe.config.schema import TotalSegmentatorConfig
     from mskpipe.core.step import StepContext
 
@@ -37,8 +40,25 @@ LICENCE_HINT = (
 )
 
 
+LICENCE_LENGTH = 18  # TotalSegmentator's own offline check (config.has_valid_license_offline)
+
+
 class TotalSegmentatorError(RuntimeError):
     """TotalSegmentator output cannot be used."""
+
+
+def licence_number() -> str | None:
+    """Licence key stored by ``totalseg_set_license`` (``$TOTALSEG_HOME_DIR`` or
+    ``~/.totalsegmentator``, ``config.json``); read directly, because
+    ``totalsegmentator.config`` imports torch."""
+    home = os.environ.get("TOTALSEG_HOME_DIR")
+    folder = Path(home) if home else Path.home() / ".totalsegmentator"
+    try:
+        data = json.loads((folder / "config.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    key = data.get("license_number") if isinstance(data, dict) else None
+    return key if isinstance(key, str) and key else None
 
 
 def choose_task(tasks: Iterable[str], modality: str) -> str:
@@ -147,6 +167,29 @@ class TotalSegmentator(SegmenterPlugin):
     description = "TotalSegmentator: pelvis, femur, gluteal muscles; tibia/fibula with licence."
     requires_modules = ("totalsegmentator",)
     supports_gpu = True
+
+    @classmethod
+    def preflight(cls, config: PipelineConfig, modality: str) -> list[str]:
+        from mskpipe.labelmap.scheme import load_scheme
+
+        request = load_scheme().requests(config, modality).get(cls.name)
+        if request is None:
+            return []
+        try:
+            licensed = sorted(set(plan_runs(request)) & LICENSED_TASKS)
+        except TotalSegmentatorError as exc:
+            return [str(exc)]
+        if not licensed:
+            return []
+        key = licence_number()
+        if key is None:
+            return [LICENCE_HINT.format(task=licensed[0])]
+        if len(key) != LICENCE_LENGTH:
+            return [
+                f"Invalid TotalSegmentator licence key ({len(key)} characters). "
+                + LICENCE_HINT.format(task=licensed[0])
+            ]
+        return []
 
     def segment(
         self,

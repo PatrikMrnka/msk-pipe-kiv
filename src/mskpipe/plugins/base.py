@@ -52,6 +52,14 @@ class Plugin(ABC):
         return {}
 
     @classmethod
+    def preflight(cls, config: PipelineConfig, modality: str) -> list[str]:
+        """Problems that would make a run with ``config`` fail, found before it starts
+        (e.g. a missing licence key or data folder). Must be cheap and must not import
+        heavy libraries. Default: none.
+        """
+        return []
+
+    @classmethod
     def missing(cls) -> list[str]:
         """Dependencies not found in the current environment (empty list = available)."""
         missing = [m for m in cls.requires_modules if not _has_module(m)]
