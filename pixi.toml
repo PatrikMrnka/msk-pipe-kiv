@@ -55,6 +55,16 @@ torch = { version = "==2.7.1", index = "https://download.pytorch.org/whl/cu128" 
 torchvision = { version = "==0.22.1", index = "https://download.pytorch.org/whl/cu128" }
 
 # ---------------------------------------------------------------------------
+# GUI (PySide6, LGPL-3.0; QtCore/QtGui/QtWidgets only). Also in "default" so that the
+# GUI tests run in CI (Qt offscreen platform).
+# ---------------------------------------------------------------------------
+[feature.gui.pypi-dependencies]
+pyside6-essentials = ">=6.8,<7"
+
+[feature.gui.tasks]
+gui = "mskpipe gui"
+
+# ---------------------------------------------------------------------------
 # Dev tools (no torch -> fast CI)
 # ---------------------------------------------------------------------------
 [feature.dev.dependencies]
@@ -75,9 +85,10 @@ cov = "pytest --cov --cov-report=term-missing"
 #   cpu     : full pipeline on CPU (release bundle)     pixi run -e cpu mskpipe ...
 #   gpu     : full pipeline on NVIDIA GPU (CUDA 12.8)   pixi run -e gpu mskpipe ...
 #   dev-cpu : full pipeline + dev tools (slow tests)    pixi run -e dev-cpu pytest -m slow
+#   all of them include the GUI                          pixi run -e gpu gui
 # ---------------------------------------------------------------------------
 [environments]
-default = { features = ["dev"] }
-cpu = { features = ["pipeline", "cpu"], solve-group = "cpu" }
-dev-cpu = { features = ["pipeline", "cpu", "dev"], solve-group = "cpu" }
-gpu = { features = ["pipeline", "gpu"] }
+default = { features = ["dev", "gui"] }
+cpu = { features = ["pipeline", "cpu", "gui"], solve-group = "cpu" }
+dev-cpu = { features = ["pipeline", "cpu", "dev", "gui"], solve-group = "cpu" }
+gpu = { features = ["pipeline", "gpu", "gui"] }

@@ -9,12 +9,15 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
-from collections.abc import Iterator
-from contextlib import contextmanager
+import threading
+import time
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager, suppress
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, TextIO
 
 import typer
 
@@ -39,6 +42,13 @@ config_app = typer.Typer(
 app.add_typer(config_app, name="config")
 
 EXIT_SETUP = 2
+
+
+class EventFormat(StrEnum):
+    JSONL = "jsonl"
+
+
+ModalityChoice = StrEnum("ModalityChoice", {m: m for m in (*(x.value for x in Modality), "auto")})  # type: ignore[misc]
 
 
 def _version_callback(value: bool) -> None:
@@ -75,7 +85,12 @@ def run(
         ),
     ] = None,
     modality: Annotated[
-        Modality | None, typer.Option("--modality", "-m", help="Modality of the input.")
+        ModalityChoice | None,
+        typer.Option(
+            "--modality",
+            "-m",
+            help="Modality of the input; auto = from the dcm2niix JSON, header or intensities.",
+        ),
     ] = None,
     subject: Annotated[
         str | None, typer.Option("--subject", "-s", help="Subject id (default: file name).")
@@ -118,12 +133,28 @@ def run(
     as_json: Annotated[
         bool, typer.Option("--json", help="Print the run summary as JSON (stdout).")
     ] = False,
+    events: Annotated[
+        EventFormat | None,
+        typer.Option(
+            "--events",
+            help="Stream progress as one JSON object per line on stdout (for GUIs); "
+            "log messages are part of the stream.",
+        ),
+    ] = None,
+    cancel_on_stdin: Annotated[
+        bool,
+        typer.Option(
+            "--cancel-on-stdin",
+            help="Cancel the run when 'cancel' or end of input arrives on stdin (for GUIs).",
+        ),
+    ] = False,
 ) -> None:
     """Run the pipeline on one volume: segmentation -> ... -> Muscle Wrapping 2.x input.
 
     \b
     Examples:
       mskpipe run ct.nii.gz -m ct -d gpu
+      mskpipe run scan.nii.gz -m auto
       mskpipe run ct.nii.gz -m ct -c lhdl.yaml --set attachments.params.nonrigid=cpd
       mskpipe run --resume runs/<run> --from export_mw2
     """
@@ -131,7 +162,7 @@ def run(
 
     request = api.RunRequest(
         image=image,
-        modality=modality,
+        modality=modality.value if modality else None,
         subject=subject,
         config=config,
         overrides=tuple(overrides or ()),
@@ -143,12 +174,22 @@ def run(
         resume=resume,
     )
     level = logging.DEBUG if verbose else logging.WARNING if quiet else logging.INFO
+    cancel = threading.Event()
+    if cancel_on_stdin:
+        threading.Thread(
+            target=watch_stdin, args=(sys.stdin, cancel), name="mskpipe-stdin", daemon=True
+        ).start()
     try:
         prepared = api.prepare_run(request)
         if not _report_preflight(api.preflight(prepared), no_preflight):
             raise typer.Exit(EXIT_SETUP)
+        if events is not None:
+            summary = api.run(
+                prepared, on_event=_event_writer(sys.stdout), log_level=level, cancel=cancel
+            )
+            raise typer.Exit(summary.exit_code)
         with _console_log(level, sys.stderr if as_json else sys.stdout):
-            summary = api.run(prepared)
+            summary = api.run(prepared, cancel=cancel)
     except api.SetupError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(EXIT_SETUP) from None
@@ -157,6 +198,91 @@ def run(
     else:
         _print_summary(summary)
     raise typer.Exit(summary.exit_code)
+
+
+def watch_stdin(stream: TextIO, cancel: threading.Event, poll_s: float = 0.25) -> None:
+    """Set ``cancel`` on a line 'cancel' or at end of input (the parent GUI is gone).
+
+    On Windows a pipe is polled (``PeekNamedPipe``) instead of read with a blocking call:
+    while one thread waits in a synchronous ``ReadFile`` on the inherited stdin pipe,
+    ``subprocess.Popen`` in another thread hangs duplicating that handle, which froze runs
+    started from the GUI before the first step (device detection starts nvidia-smi).
+    """
+    pipe = _windows_pipe(stream)
+    if pipe is not None:
+        poll_pipe(*pipe, cancel, poll_s)
+        return
+    try:
+        for line in stream:
+            if line.strip().lower() == "cancel":
+                break
+    except (OSError, ValueError):  # closed or invalid handle: treat as end of input
+        pass
+    cancel.set()
+
+
+def poll_pipe(
+    peek: Callable[[], int],
+    read: Callable[[int], bytes],
+    cancel: threading.Event,
+    poll_s: float = 0.25,
+) -> None:
+    """Poll a pipe without blocking: ``peek()`` = bytes available (raises OSError when the
+    writer is gone), ``read(n)`` returns available bytes. Sets ``cancel`` on a 'cancel'
+    line or end of input; returns early if ``cancel`` is set by someone else."""
+    buffer = b""
+    while not cancel.is_set():
+        try:
+            available = peek()
+            data = read(available) if available else b""
+        except OSError:  # broken pipe: the parent closed stdin or died
+            break
+        if available and not data:
+            break
+        buffer += data
+        *lines, buffer = buffer.split(b"\n")
+        if any(line.strip().lower() == b"cancel" for line in lines):
+            break
+        if not available:
+            time.sleep(poll_s)
+    cancel.set()
+
+
+def _windows_pipe(stream: TextIO) -> tuple[Callable[[], int], Callable[[int], bytes]] | None:
+    """(peek, read) for stdin if it is a Windows pipe, else None (POSIX, console, tests)."""
+    if sys.platform != "win32":
+        return None
+    try:
+        import _winapi
+        import msvcrt
+
+        fd = stream.fileno()
+        handle = msvcrt.get_osfhandle(fd)
+        _winapi.PeekNamedPipe(handle, 0)
+    except (AttributeError, ImportError, OSError, ValueError):  # not a pipe (console)
+        return None
+
+    def peek() -> int:
+        return int(_winapi.PeekNamedPipe(handle, 0)[0])
+
+    def read(n: int) -> bytes:
+        return os.read(fd, n)
+
+    return peek, read
+
+
+def _event_writer(stream: TextIO):
+    """Thread-safe writer of RunEvents as JSON lines (logs come from tool reader threads)."""
+    lock = threading.Lock()
+    with suppress(AttributeError, OSError):
+        stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+
+    def write(event) -> None:
+        with lock:
+            stream.write(event.to_line() + "\n")
+            stream.flush()
+
+    return write
 
 
 def _report_preflight(issues: list, force: bool) -> bool:
@@ -396,6 +522,24 @@ def stats(
             f"{job:<14}{variant:<24}{dev:<7}{row['step']:<13}{row['n']:>3}"
             f"{row['wall_mean_s']:>10.1f}{sd:>8}"
         )
+
+
+# ---------------------------------------------------------------------------- gui
+
+
+@app.command()
+def gui() -> None:
+    """Open the graphical user interface."""
+    try:
+        from mskpipe.gui.app import main as gui_main
+    except ImportError as exc:
+        typer.echo(
+            f"Error: the GUI needs PySide6 ({exc}). Use a pixi environment with the GUI: "
+            "pixi run -e cpu mskpipe gui",
+            err=True,
+        )
+        raise typer.Exit(1) from None
+    raise typer.Exit(gui_main([]))
 
 
 # ---------------------------------------------------------------------------- config

@@ -52,6 +52,8 @@ jobs:
           pixi run -e cpu mm_segment --help
           pixi run -e cpu python -m totalsegmentator.bin.TotalSegmentator --version
           pixi run -e cpu mskpipe plugins
+          pixi run -e cpu python -c "from PySide6.QtWidgets import QApplication; import mskpipe.gui.app"
+          pixi run -e cpu mskpipe gui --help
           pixi run -e cpu python -c "import vtk; v = vtk.vtkVersion.GetVTKVersion(); assert v == '9.4.2', v"
       - name: Skeleton parity with MATLAB STAPLE
         run: pixi run -e cpu python tools/skeleton_parity.py --fetch

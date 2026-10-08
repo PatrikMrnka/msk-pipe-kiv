@@ -221,6 +221,7 @@ def git_info(path: Path) -> GitInfo:
             out = subprocess.run(
                 ["git", *args],
                 cwd=path,
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
                 timeout=5,

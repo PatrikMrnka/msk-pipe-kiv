@@ -1,0 +1,449 @@
+# SPDX-License-Identifier: Apache-2.0
+# Explanations of the configuration; the GUI shows them when hovering the '?' of a setting.
+#
+# Key = dotted config path (sections and groups too). Plugin parameters live under
+# plugins.<kind>.<plugin>.<param>; window controls of the GUI under gui.<control>.
+# help: what the setting does and when to change it; example: a concrete value with its
+# effect. tests/unit/test_config_help.py checks that every setting of the schema and of
+# the built-in plugins has an entry (and that no entry is stale).
+
+# ------------------------------------------------------------------ GUI controls
+gui.image:
+  help: >-
+    The CT or MRI volume of the subject in NIfTI format. Position, orientation and voxel
+    spacing are taken from its header, so every mesh and the skeletal model are in the
+    patient's world coordinates.
+  example: Cadaver1_LowerLimbsCT.nii.gz exported from the LHDL MAF scene.
+gui.modality:
+  help: >-
+    CT or MRI decides which segmentation models run (TotalSegmentator total vs total_mr).
+    Auto reads it from the dcm2niix JSON next to the image, from the NIfTI header, or from
+    the intensities (CT is in Hounsfield units with air around -1000; MRI has no negative
+    values).
+  example: "Auto on the LHDL CT shows 'detected CT (intensities: ... at or below -500 HU)'."
+gui.subject:
+  help: Identifier used in the run folder name and the output files. Empty = file name.
+  example: LHDL gives runs/20261008-101500_LHDL_1a2b3c4d.
+gui.device:
+  help: >-
+    Where the neural networks run. GPU needs an NVIDIA card with driver 570 or newer; Auto
+    uses it when it works and falls back to the CPU otherwise. Only the segmentation
+    profits; on the LHDL CT it takes about 4 min on an RTX 5070 Ti and about 15 min on CPU.
+  example: Auto on a notebook without an NVIDIA card runs on the CPU.
+gui.runs_dir:
+  help: >-
+    Folder in which each run gets its own subfolder (00_input ... 06_mw2_input, logs,
+    manifest.json). Results of earlier runs here are reused when input and settings match.
+  example: D:\msk-runs
+gui.until:
+  help: >-
+    Last step to run. Earlier steps whose results already exist are reused; later steps are
+    not run.
+  example: Skeletal model, to check the bones and the .osim model before the attachments.
+gui.verbose:
+  help: Show the output of TotalSegmentator, MuscleMap and pystaple in the log.
+  example: Turn on when a segmentation fails, to see the tool's own error message.
+
+# ------------------------------------------------------------------ runtime
+runtime:
+  help: How the run is executed. These settings do not change the results.
+runtime.threads:
+  help: >-
+    Upper limit of CPU threads used by the tools (OMP, MKL, OpenBLAS). Empty = all cores.
+    Lower it to keep the computer usable during a long CPU run.
+  example: 8 on a 12-core CPU leaves 4 cores free.
+runtime.seed:
+  help: >-
+    Random seed for steps that sample randomly. With the same seed, input and settings, a
+    run gives the same result.
+  example: 0 (default); change it only to test how much the result depends on sampling.
+runtime.cache:
+  help: >-
+    Reuse the result of a step from an earlier run when its input and settings are
+    identical, instead of computing it again. Turn off to measure computation times.
+  example: Off for the timing experiments of the paper (every step really runs).
+runtime.keep_intermediate:
+  help: Keep the outputs of all steps (segmentations, label map, meshes) in the run folder.
+  example: On (default); needed for checking the results in 3D Slicer.
+runtime.log_level:
+  help: Detail of logs/run.log in the run folder.
+  example: DEBUG also records the commands and the output of every tool.
+
+# ------------------------------------------------------------------ segmentation
+segmentation:
+  help: >-
+    Which tool segments which structures. The raw multi-label outputs are written to
+    01_segment/.
+segmentation.bones:
+  help: >-
+    Tool segmenting the pelvis, femur and sacrum. TotalSegmentator is trained on many CT and
+    MRI scans and gives smooth bone masks; MuscleMap segments bones only as a by-product.
+  example: musclemap, to compare its bones with TotalSegmentator.
+segmentation.tibia_fibula:
+  help: >-
+    Source of tibia and fibula. ts_appendicular = TotalSegmentator appendicular_bones (as in
+    the BP thesis), which needs a free academic licence key; musclemap needs no key.
+  example: musclemap when no TotalSegmentator licence key is set.
+segmentation.muscles:
+  help: >-
+    Tool segmenting the muscles. MuscleMap provides all thigh and hip muscles;
+    TotalSegmentator only the three gluteal muscles.
+  example: musclemap (default).
+segmentation.totalsegmentator:
+  help: Settings of TotalSegmentator.
+segmentation.totalsegmentator.fast:
+  help: >-
+    Use the low-resolution (3 mm) model of TotalSegmentator: several times faster but with
+    coarse masks, not suited for surface meshes.
+  example: On only for a quick test that the run works.
+segmentation.totalsegmentator.higher_order_resampling:
+  help: >-
+    Resample the network output to the input grid smoothly instead of voxel by voxel, which
+    removes the staircase on the bone surfaces. Off = behaviour of the BP thesis.
+  example: On (default); off only for the comparison with the BP thesis.
+segmentation.totalsegmentator.roi_subset:
+  help: >-
+    Predict only the structures the pipeline needs instead of all 117. Faster and lighter on
+    memory, same masks of the needed structures.
+  example: On (default).
+segmentation.totalsegmentator.extra_args:
+  help: Additional command-line arguments passed to TotalSegmentator unchanged (advanced).
+  example: "[--nr_thr_saving, '1'] to reduce the memory used when saving."
+segmentation.musclemap:
+  help: Settings of MuscleMap.
+segmentation.musclemap.model_version:
+  help: >-
+    Version of the MuscleMap whole-body model. Empty = the version pinned by msk-pipe, so
+    that results are reproducible.
+  example: "1.4"
+segmentation.musclemap.overlap:
+  help: >-
+    Overlap of the sliding windows in percent. Higher = more predictions averaged per voxel,
+    slower; lower = faster, possibly rougher masks.
+  example: 50 is faster than 90 (default, as in the BP thesis).
+segmentation.musclemap.chunk_size:
+  help: >-
+    Number of axial slices processed at once. auto chooses it from the free CPU or GPU
+    memory; a fixed number avoids running out of memory on large scans.
+  example: 15 (value used in the BP thesis) when auto runs out of memory.
+segmentation.musclemap.extra_args:
+  help: Additional command-line arguments passed to mm_segment unchanged (advanced).
+  example: "[]"
+
+# ------------------------------------------------------------------ labelmap
+labelmap:
+  help: >-
+    Cleaning of the raw segmentations and their merge into one label map
+    (02_labelmap/labelmap.nii.gz). Order per structure: closing, hole filling, opening,
+    small parts removed. Bones win over muscles where they overlap.
+labelmap.bones:
+  help: Cleaning of the bone masks.
+labelmap.muscles:
+  help: Cleaning of the muscle masks.
+labelmap.bones.min_voxels: &min_voxels
+  help: >-
+    A structure with fewer voxels after cleaning is treated as missing (a few stray voxels
+    are not meshed).
+  example: 2000 voxels at 1 mm spacing are 2 cm³.
+labelmap.muscles.min_voxels: *min_voxels
+labelmap.bones.closing_radius_mm: &closing
+  help: >-
+    Morphological closing in mm: fills gaps and notches narrower than about twice the radius
+    (grows only into background, never into another structure). 0 = off.
+  example: 1.5 mm = a ball of radius 1 voxel on a 1 mm CT (as in the BP thesis).
+labelmap.muscles.closing_radius_mm: *closing
+labelmap.bones.opening_radius_mm: &opening
+  help: >-
+    Morphological opening in mm: removes thin protrusions and bridges narrower than about
+    twice the radius. 0 = off.
+  example: 1.5 mm removes one-voxel-wide spurs.
+labelmap.muscles.opening_radius_mm: *opening
+labelmap.bones.fill_holes: &fill
+  help: Fill cavities fully enclosed by the structure (3D).
+  example: On closes the marrow cavity left unlabelled in a femur.
+labelmap.muscles.fill_holes: *fill
+labelmap.bones.min_component_fraction: &components
+  help: >-
+    Separate parts smaller than this fraction of the largest part are removed. 1 keeps only
+    the largest part, 0 keeps all.
+  example: 1 (default) drops a false patch of 'femur' found in the other leg.
+labelmap.muscles.min_component_fraction: *components
+
+# ------------------------------------------------------------------ mesh
+mesh:
+  help: >-
+    Surface meshes from the label map (03_mesh/): bones as .stl for the skeletal model,
+    muscles as .obj for Muscle Wrapping. Marching cubes, smoothing, decimation.
+mesh.bones:
+  help: Mesh settings for bones.
+mesh.muscles:
+  help: Mesh settings for muscles.
+mesh.bones.smooth_iterations: &iterations
+  help: >-
+    Iterations of windowed sinc smoothing that removes the voxel staircase. More = smoother
+    surface; the volume is preserved. 0 = off.
+  example: 40 for bones and 30 for muscles (as in the BP thesis).
+mesh.muscles.smooth_iterations: *iterations
+mesh.bones.passband: &passband
+  help: >-
+    Pass band of the smoothing filter (0 to 2). Lower = stronger smoothing of fine detail.
+  example: 0.01 (default); 0.1 keeps more detail.
+mesh.muscles.passband: *passband
+mesh.bones.target_reduction: &reduction
+  help: >-
+    Fraction of triangles removed by decimation after smoothing. 0 = keep all triangles.
+  example: 0.8 keeps 20 % of the triangles (edges about 2 mm long).
+mesh.muscles.target_reduction: *reduction
+mesh.bones.min_component_fraction: &mesh_components
+  help: >-
+    Surface parts smaller than this fraction of the largest are removed. 1 keeps only the
+    largest, 0 keeps all.
+  example: 0.1 (default) keeps both hip bones in pelvis_no_sacrum.
+mesh.muscles.min_component_fraction: *mesh_components
+
+# ------------------------------------------------------------------ skeleton
+skeleton:
+  help: >-
+    OpenSim skeletal model (04_skeleton/) built by pystaple, a Python port of STAPLE, from
+    the bone meshes: anatomical coordinate systems, hip and knee joints.
+skeleton.backend:
+  help: Program that builds the skeletal model.
+  example: pystaple (the only backend; same results as MATLAB STAPLE).
+skeleton.side:
+  help: >-
+    Leg to model: r = patient's right, l = left. Selects the bones and muscles of that
+    side.
+  example: l models the left leg (muscles gluteus_maximus_l, ...).
+skeleton.pelvis_algorithm:
+  help: Method of the pelvis coordinate system (STAPLE).
+  example: STAPLE
+skeleton.femur_algorithm:
+  help: Method of the femur coordinate system and the knee axis.
+  example: GIBOC-cylinder (cylinder fitted to the femoral condyles).
+skeleton.tibia_algorithm:
+  help: Method of the tibia coordinate system.
+  example: Kai2014
+skeleton.joint_definitions:
+  help: Set of joint definitions of the model.
+  example: auto2020 (hip with 3 rotations, knee with 1).
+skeleton.include_fibula:
+  help: >-
+    The tibia body of the model uses the tibia and fibula together (STAPLE and BP
+    convention), so that muscles attached to the fibula move with the shank.
+  example: On (default); biceps femoris inserts on the fibular head.
+skeleton.body_mass:
+  help: >-
+    Subject mass in kg; sets segment masses and inertias (gait2392 ratios). Muscle Wrapping
+    does not use them.
+  example: 64 (LHDL donor).
+skeleton.geometry_format:
+  help: File format of the bone geometries referenced by the model.
+  example: obj
+skeleton.geometry_reduction:
+  help: >-
+    Fraction of triangles kept in the bone geometries of the model (display only; 1 = all).
+  example: 0.3 keeps 30 % of the triangles.
+skeleton.model_name:
+  help: File name of the model without extension.
+  example: bone_model writes 04_skeleton/bone_model.osim.
+
+# ------------------------------------------------------------------ attachments
+attachments:
+  help: >-
+    Attachment areas (origin and insertion outlines) of the muscles, transferred from an
+    atlas onto the subject's bones (05_attachments/).
+attachments.method:
+  help: Method computing the attachment areas (see `mskpipe plugins`).
+  example: bone_registration
+attachments.atlas:
+  help: Name of the attachment atlas, informational; the files come from Atlas dir below.
+  example: lhdl
+attachments.params:
+  help: Parameters of the selected method.
+
+plugins.attachments.bone_registration.atlas_dir:
+  help: >-
+    Folder of the attachment atlas (atlas.json, bones/, muscles/). Empty = the
+    MSKPIPE_ATLAS_DIR environment variable. The atlas is not distributed with msk-pipe.
+  example: C:\msk-pipe-kiv-zcu\msk-PIPE\data\reference-GT\lhdl_atlas
+plugins.attachments.bone_registration.n_points:
+  help: Points sampled on each atlas bone for the rigid registration.
+  example: 3000 (default); more = slower, rarely better.
+plugins.attachments.bone_registration.target_points:
+  help: >-
+    Points sampled on each subject bone (registration target). Denser = closer to the true
+    surface.
+  example: 50000 (default).
+plugins.attachments.bone_registration.scale:
+  help: >-
+    Allow a uniform scale between atlas and subject in the rigid stage (bones of different
+    size).
+  example: On (default); the LHDL subject gives a scale of 1.001 to 1.005.
+plugins.attachments.bone_registration.icp_metric:
+  help: >-
+    Distance minimised by the ICP. point_to_plane is more accurate and converges in a few
+    iterations; point_to_point is the classic variant.
+  example: point_to_plane (default).
+plugins.attachments.bone_registration.icp_iterations:
+  help: Maximum number of ICP iterations.
+  example: "100"
+plugins.attachments.bone_registration.trim:
+  help: >-
+    Fraction of the closest point pairs used in each ICP iteration; the rest are ignored, so
+    that parts present in only one bone (e.g. a cut-off femur) do not pull the alignment.
+  example: 0.9 ignores the 10 % worst pairs.
+plugins.attachments.bone_registration.nonrigid:
+  help: >-
+    Non-rigid stage after the rigid alignment, adapting the atlas bone to the subject's
+    shape: coherent_icp (default), cpd (Coherent Point Drift), fast_rnrr (external program,
+    not distributed) or none (rigid only).
+  example: none, to compare with the rigid transfer only.
+plugins.attachments.bone_registration.nonrigid_points:
+  help: Atlas points driving the non-rigid stage (coherent_icp and cpd).
+  example: "1500"
+plugins.attachments.bone_registration.coherent_beta_mm:
+  help: >-
+    coherent_icp: width of the smoothing kernel in mm. Larger = smoother deformation that
+    moves larger regions together.
+  example: 40 (default); 80 for a stiffer pelvis.
+plugins.attachments.bone_registration.coherent_lambda:
+  help: coherent_icp regularisation. Larger = stiffer, smaller deformation.
+  example: 2 (default); 10 deforms much less.
+plugins.attachments.bone_registration.coherent_iterations:
+  help: coherent_icp iterations.
+  example: "30"
+plugins.attachments.bone_registration.cpd_beta:
+  help: cpd kernel width in normalised units (Myronenko & Song 2010 use 2).
+  example: "2"
+plugins.attachments.bone_registration.cpd_lambda:
+  help: cpd regularisation (larger = stiffer).
+  example: "2"
+plugins.attachments.bone_registration.cpd_w:
+  help: cpd weight of outliers (0 = none). Raise it when the bones cover different extents.
+  example: 0.1 (default); 0 = as in the BP thesis.
+plugins.attachments.bone_registration.cpd_iterations:
+  help: Maximum cpd iterations.
+  example: "150"
+plugins.attachments.bone_registration.cpd_target_points:
+  help: Subject points used by cpd; memory grows with points x nonrigid points.
+  example: "5000"
+plugins.attachments.bone_registration.cpd_sigma_init_mm:
+  help: >-
+    cpd initial width in mm. Empty = standard CPD start; a small value (e.g. 5) keeps
+    already well aligned bones from sliding.
+  example: "5"
+plugins.attachments.bone_registration.fast_rnrr_exe:
+  help: >-
+    fast_rnrr: path to your own build of Fast_RNRR.exe (research-only licence, not
+    distributed). Empty = MSKPIPE_FAST_RNRR or PATH.
+  example: C:\tools\Fast_RNRR\Fast_RNRR.exe
+plugins.attachments.bone_registration.fast_rnrr_max_faces:
+  help: "fast_rnrr: the atlas bone is decimated to at most this many triangles."
+  example: "20000"
+plugins.attachments.bone_registration.max_projection_mm:
+  help: >-
+    Transferred outline points closer to the subject's bone than this are snapped onto its
+    surface. 0 = no snapping.
+  example: 10 (default).
+plugins.attachments.bone_registration.seed:
+  help: Seed of the random surface sampling (same seed = same result).
+  example: "0"
+
+# ------------------------------------------------------------------ export
+export:
+  help: >-
+    Input folder for Muscle Wrapping 2.x (06_mw2_input/): setup XML, model, motion, bone
+    and muscle meshes, attachment outlines. Muscle Wrapping itself is not run.
+export.muscles:
+  help: >-
+    Explicit list of exported muscles (with side suffix) for config files and the command
+    line; all = every meshed muscle of the modelled side. The GUI keeps all and unchecks
+    muscles through the list below instead.
+  example: "[gluteus_maximus_r, gluteus_medius_r, iliacus_r] for a quick Muscle Wrapping test."
+export.exclude:
+  help: >-
+    Checked muscles are written for Muscle Wrapping, unchecked ones are left out (saved as
+    export.exclude). Unchecked by default are the four whose insertion is reached through a
+    tendon or fascia the segmentation does not contain; the outline would lie on the belly
+    and Muscle Wrapping would move the fibre ends with the wrong bone. Hover a muscle for
+    the reason.
+  example: Check only the three gluteal muscles for a quick Muscle Wrapping test.
+export.num_of_lines:
+  help: Number of fibres each muscle is divided into.
+  example: 100 (default); 20 for a fast test run of Muscle Wrapping.
+export.line_res:
+  help: Number of segments per fibre (each fibre has line_res + 1 points).
+  example: 15 gives 16 points per fibre.
+export.decomposition_method:
+  help: >-
+    Algorithm of Muscle Wrapping splitting the muscle volume into fibres between the origin
+    and insertion outlines. kukacka (default, used in all msk-pipe tests) or hoang.
+  example: kukacka
+export.bone_weights:
+  help: >-
+    How the two bones of a muscle move its fibre points (Luca2018 kinematics).
+    InverseDistance = by distance to each bone; PositionOnFibre... = by the position along
+    the fibre (quadratic spline or S-curve from origin to insertion).
+  example: InverseDistance (default of Muscle Wrapping).
+export.pelvis_with_sacrum:
+  help: >-
+    The pelvis body includes the sacrum, so that fibres starting on the sacrum (gluteus
+    maximus) move with the pelvis.
+  example: On (default).
+export.align_child_frames:
+  help: >-
+    The STAPLE knee has one rotation and cannot reproduce the knee pose of the scan exactly.
+    On = its frame is rotated so that all bones sit where they are in the image in the first
+    frame (otherwise the tibia can be off by tens of mm).
+  example: On (default); LHDL residual 8 deg at the knee.
+export.motion:
+  help: >-
+    Motion written to the .mot file: starts in the pose of the scan and sweeps one
+    coordinate.
+export.motion.coordinate:
+  help: Joint coordinate swept by the motion. Empty = hip_flexion_<side>.
+  example: knee_angle_r for a knee flexion.
+export.motion.end_deg:
+  help: Final value of the swept coordinate in degrees.
+  example: 90 = hip flexed to 90 deg.
+export.motion.step_deg:
+  help: Step of the motion in degrees (number of frames = range / step).
+  example: 2 gives 47 frames from the scan pose to 90 deg.
+export.muscle_analysis:
+  help: >-
+    Muscle Wrapping writes fibre lengths and moment arms over the motion (analysis/ folder).
+  example: On; needed to check the effect of the missing tendons.
+export.fibre_export:
+  help: >-
+    Muscle Wrapping writes the fibres and muscle meshes of every frame (fibres/ folder;
+    large).
+  example: On to make figures of the fibres.
+export.repair:
+  help: >-
+    Repair muscle meshes that Muscle Wrapping cannot process (holes, several parts, handles
+    / genus > 0) by remeshing the mask with small openings and closings.
+  example: On (default); the LHDL iliacus (genus 2) becomes usable.
+export.repair_max_opening_mm:
+  help: >-
+    Largest opening tried by the repair (1, 1.5, 2, 3 mm). Cuts thin bridges, e.g. a thin
+    sheet of muscle left between two bones.
+  example: "3"
+export.repair_max_closing_mm:
+  help: Largest closing tried by the repair (steps of 1.5 mm). Fills tunnels through a muscle.
+  example: "6"
+export.repair_max_volume_change:
+  help: >-
+    A repaired muscle is accepted only if its volume changes by at most this fraction
+    (protects thin muscles from being eaten by the opening).
+  example: 0.05 = 5 %.
+export.inflate_radius_mm:
+  help: >-
+    When an attachment outline shrinks to a point on the muscle (its tendon is not
+    segmented), it is replaced by a small disc of the muscle surface of this radius, so that
+    Muscle Wrapping does not crash. Reported as 'area inflated'.
+  example: 5 mm (default).
+export.on_invalid:
+  help: >-
+    Muscles whose mesh fails the checks and cannot be repaired: exclude from the setup XML,
+    or keep them (Muscle Wrapping may then fail).
+  example: exclude (default).

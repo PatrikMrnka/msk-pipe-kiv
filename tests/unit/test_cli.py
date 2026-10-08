@@ -126,3 +126,137 @@ def test_config_init_show_schema(tmp_path):
     out = tmp_path / "schema.json"
     assert runner.invoke(app, ["config", "schema", "-o", str(out)]).exit_code == 0
     assert json.loads(out.read_text(encoding="utf-8"))["type"] == "object"
+
+
+# ---------------------------------------------------------------------------- events / cancel
+
+
+def test_run_events_jsonl(fake, image, tmp_path):
+    from mskpipe.api import RunEvent
+
+    result = _run(tmp_path, str(image), "-m", "ct", "--events", "jsonl")
+    assert result.exit_code == 0, result.output
+    events = [RunEvent.from_line(line) for line in result.stdout.splitlines()]
+    kinds = [e.kind for e in events]
+    assert kinds[0] == "log" and "run_started" in kinds and kinds[-1] == "run_finished"
+    assert {"step", "log"} <= set(kinds)
+    assert events[-1].status == "completed" and events[-1].exit_code == 0
+    done = [e.step for e in events if e.kind == "step" and e.status == "completed"]
+    assert done[-1] == "export_mw2"
+
+
+def test_run_cancel_on_stdin(fake, image, tmp_path):
+    from fake_pipeline import FakeStep
+
+    from mskpipe.api import RunEvent
+
+    FakeStep.wait_cancel = {"labelmap"}
+    args = [str(image), "-m", "ct", "--events", "jsonl", "--cancel-on-stdin"]
+    result = runner.invoke(
+        app, ["run", *args, "--runs-dir", str(tmp_path / "runs")], input="cancel\n"
+    )
+    assert result.exit_code == 130, result.output
+    last = RunEvent.from_line(result.stdout.splitlines()[-1])
+    assert last.kind == "run_finished" and last.status == "interrupted"
+
+
+def test_watch_stdin():
+    import io
+    import threading
+
+    from mskpipe.cli import watch_stdin
+
+    cancel = threading.Event()
+    watch_stdin(io.StringIO("hello\ncancel\nmore\n"), cancel)
+    assert cancel.is_set()
+    eof = threading.Event()
+    watch_stdin(io.StringIO(""), eof)  # parent gone
+    assert eof.is_set()
+
+
+def test_gui_command_without_pyside(monkeypatch):
+    import builtins
+
+    real = builtins.__import__
+
+    def no_qt(name, *args, **kwargs):
+        if name.startswith("mskpipe.gui"):
+            raise ImportError("No module named 'PySide6'")
+        return real(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", no_qt)
+    result = runner.invoke(app, ["gui"])
+    assert result.exit_code == 1 and "PySide6" in result.output
+
+
+class _FakePipe:
+    """Windows pipe stand-in for poll_pipe: chunks arrive over time; None = writer gone."""
+
+    def __init__(self, chunks):
+        self.chunks = list(chunks)
+        self.pending = b""
+
+    def peek(self) -> int:
+        if not self.pending and self.chunks:
+            nxt = self.chunks.pop(0)
+            if nxt is None:
+                raise BrokenPipeError
+            self.pending = nxt
+        return len(self.pending)
+
+    def read(self, n: int) -> bytes:
+        data, self.pending = self.pending[:n], self.pending[n:]
+        return data
+
+
+@pytest.mark.parametrize(
+    "chunks",
+    [
+        [b"", b"can", b"cel\n", b"more"],  # cancel line split over reads
+        [b"noise\r\n", b"", b"CANCEL\r\n"],
+        [b"", None],  # parent closed the pipe / died
+    ],
+)
+def test_poll_pipe_sets_cancel(chunks):
+    import threading
+
+    from mskpipe.cli import poll_pipe
+
+    pipe = _FakePipe(chunks)
+    cancel = threading.Event()
+    poll_pipe(pipe.peek, pipe.read, cancel, poll_s=0.001)
+    assert cancel.is_set()
+
+
+def test_poll_pipe_returns_when_cancelled_elsewhere():
+    import threading
+
+    from mskpipe.cli import poll_pipe
+
+    cancel = threading.Event()
+    timer = threading.Timer(0.05, cancel.set)
+    timer.start()
+    poll_pipe(lambda: 0, lambda n: b"", cancel, poll_s=0.01)  # idle pipe
+    assert cancel.is_set()
+
+
+def test_pipeline_subprocesses_do_not_inherit_stdin():
+    """Regression: runs started from the GUI hung on Windows in subprocess.Popen."""
+    import inspect
+
+    from mskpipe.core import device, manifest, step
+
+    for module in (step, device, manifest):
+        source = inspect.getsource(module)
+        calls = source.count("subprocess.run(") + source.count("subprocess.Popen(")
+        assert calls and source.count("stdin=subprocess.DEVNULL") == calls, module.__name__
+
+
+def test_run_modality_auto(fake, image, tmp_path):
+    from mskpipe.api import RunEvent
+
+    result = _run(tmp_path, str(image), "-m", "auto", "--events", "jsonl")
+    assert result.exit_code == 0, result.output
+    events = [RunEvent.from_line(line) for line in result.stdout.splitlines()]
+    notes = [e.message for e in events if e.kind == "log" and "Modality:" in (e.message or "")]
+    assert notes and notes[0].startswith("Modality: MRI")  # a zero volume has no air in HU

@@ -222,6 +222,7 @@ def _detect_nvidia_smi() -> dict[str, Any] | None:
         try:
             out = subprocess.run(
                 [exe, f"--query-gpu={fields}", "--format=csv,noheader,nounits"],
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
                 timeout=20,
@@ -282,6 +283,7 @@ def probe_torch_cuda(python: str | None = None) -> TorchInfo:
     try:
         out = subprocess.run(
             [python or sys.executable, "-c", _PROBE],
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             timeout=PROBE_TIMEOUT_S,

@@ -26,6 +26,8 @@ KILL_GRACE_S = 5.0  # time to exit after terminate() before kill()
 TAIL_LINES = 20  # last tool output lines kept for the error message
 # child Pythons: UTF-8 output (Windows consoles default to cp1250/cp852), no buffering
 _CHILD_ENV = {"PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"}
+# Windows: no console window per tool when the run is started from the GUI (no console)
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 class StepError(RuntimeError):
@@ -95,6 +97,7 @@ class StepContext:
         with log_path.open("a", encoding="utf-8") as log:
             proc = subprocess.Popen(
                 argv,
+                stdin=subprocess.DEVNULL,  # never touch the run's own stdin (GUI pipe)
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -102,6 +105,7 @@ class StepContext:
                 errors="replace",
                 env=full_env,
                 cwd=cwd,
+                creationflags=_NO_WINDOW,
             )
             assert proc.stdout is not None
             tail: deque[str] = deque(maxlen=TAIL_LINES)

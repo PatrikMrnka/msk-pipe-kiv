@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import json
+import os
+import time
 from pathlib import Path
 from typing import ClassVar
 
@@ -14,18 +16,24 @@ from mskpipe.core.step import Step, StepContext, StepError
 from mskpipe.core.workspace import STEPS
 
 PIPELINE = STEPS[1:]
+WAIT_S = 20.0
 
 
 class FakeStep(Step):
     """Writes ``<name>.txt`` (export_mw2: the MW2 setup file) and one metric.
 
     ``FakeStep.fail``: names of steps that raise; ``FakeStep.cancel_in``: steps that
-    set the run's cancel event and then check it (as a long step would).
+    set the run's cancel event and then check it (as a long step would);
+    ``FakeStep.wait_cancel``: steps that wait (max. ``WAIT_S``) until the run is cancelled
+    from outside; ``FakeStep.hang``: steps that sleep ignoring cancellation (kill test).
+    The ``FAKE_*`` environment variables set them in a child process (``fake_cli.py``).
     """
 
     calls: ClassVar[dict[str, int]] = {}
     fail: ClassVar[set[str]] = set()
     cancel_in: ClassVar[set[str]] = set()
+    wait_cancel: ClassVar[set[str]] = set()
+    hang: ClassVar[set[str]] = set()
 
     def __init__(self, name: str) -> None:
         self.name = name  # type: ignore[misc]
@@ -45,6 +53,13 @@ class FakeStep(Step):
         if self.name in FakeStep.cancel_in and ctx.cancel is not None:
             ctx.cancel.set()
             ctx.check_cancel()
+        if self.name in FakeStep.wait_cancel:
+            end = time.monotonic() + WAIT_S
+            while not ctx.cancelled and time.monotonic() < end:
+                time.sleep(0.05)
+            ctx.check_cancel()
+        if self.name in FakeStep.hang:
+            time.sleep(WAIT_S)
         ctx.logger.info("[%s] fake work", self.name)
         out = ctx.out_dir / (
             "setup_MuscleGeneratorTool.xml" if self.name == "export_mw2" else f"{self.name}.txt"
@@ -161,6 +176,19 @@ def reset() -> None:
     FakeStep.calls = {}
     FakeStep.fail = set()
     FakeStep.cancel_in = set()
+    FakeStep.wait_cancel = set()
+    FakeStep.hang = set()
+
+
+def configure_from_env() -> None:
+    """``FAKE_FAIL``, ``FAKE_WAIT_CANCEL``, ``FAKE_HANG``: comma-separated step names."""
+    reset()
+    for attr, var in (
+        ("fail", "FAKE_FAIL"),
+        ("wait_cancel", "FAKE_WAIT_CANCEL"),
+        ("hang", "FAKE_HANG"),
+    ):
+        setattr(FakeStep, attr, {s for s in os.environ.get(var, "").split(",") if s})
 
 
 def write_nifti(

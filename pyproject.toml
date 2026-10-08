@@ -32,8 +32,15 @@ dependencies = [
     "vtk>=9.4,<9.5",
 ]
 
+[project.optional-dependencies]
+# PySide6 (LGPL-3.0, unmodified, dynamically linked); pixi installs it via feature "gui"
+gui = ["PySide6-Essentials>=6.8,<7"]
+
 [project.scripts]
 mskpipe = "mskpipe.cli:app"
+
+[project.gui-scripts]
+mskpipe-gui = "mskpipe.gui.app:main"
 
 [project.urls]
 Repository = "https://github.com/kivzcu/msk-pipe"

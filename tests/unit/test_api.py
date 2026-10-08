@@ -95,9 +95,11 @@ def test_run_completed_with_events(image, tmp_path):
     assert summary.mw2_dir == summary.run_dir / "06_mw2_input"
     assert summary.device == "cpu" and summary.subject == "s01"
     kinds = [e.kind for e in events]
-    assert kinds[0] == "run_started" and kinds[-1] == "run_finished"
-    assert events[0].run_dir == str(summary.run_dir)
-    assert events[0].steps == list(api.PIPELINE_STEPS)
+    assert kinds[0] == "log" and "Preparing the run" in events[0].message
+    assert kinds[kinds.index("run_started") - 1] == "log" and kinds[-1] == "run_finished"
+    started = events[kinds.index("run_started")]
+    assert started.run_dir == str(summary.run_dir)
+    assert started.steps == list(api.PIPELINE_STEPS)
     done = [e for e in events if e.kind == "step" and e.status == "completed"]
     assert [e.step for e in done] == list(api.PIPELINE_STEPS)
     assert all(e.wall_s is not None for e in done)

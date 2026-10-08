@@ -25,7 +25,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ValidationError
 
@@ -47,6 +47,9 @@ from mskpipe.core.runner import PipelineCancelled, PipelineError, run_pipeline
 from mskpipe.core.step import Step
 from mskpipe.core.workspace import STEPS, Workspace, WorkspaceError
 
+if TYPE_CHECKING:
+    from mskpipe.io.modality import ModalityGuess
+
 __all__ = [
     "PIPELINE_STEPS",
     "Issue",
@@ -56,10 +59,13 @@ __all__ = [
     "RunSummary",
     "SetupError",
     "StepSummary",
+    "check_image",
     "config_schema",
     "config_template",
     "config_yaml",
     "default_steps",
+    "describe_image",
+    "detect_modality",
     "finalize_stale",
     "preflight",
     "prepare_run",
@@ -70,7 +76,8 @@ __all__ = [
 
 logger = logging.getLogger("mskpipe")
 
-PIPELINE_STEPS: tuple[str, ...] = STEPS[1:]  # "prepare" = run folder set up by the runner
+PIPELINE_STEPS: tuple[str, ...] = STEPS[1:]
+AUTO = "auto"  # modality detected from the image  # "prepare" = run folder set up by the runner
 MW2_SETUP_FILE = "setup_MuscleGeneratorTool.xml"
 
 RunStatus = Literal["running", "completed", "failed", "interrupted"]
@@ -151,7 +158,9 @@ class RunRequest:
                 )
             return
         if self.image is None or self.modality is None:
-            raise SetupError("An input image and its modality (ct or mri) are required")
+            raise SetupError("An input image and its modality (ct, mri or auto) are required")
+        if str(self.modality) not in (*(m.value for m in Modality), AUTO):
+            raise SetupError(f"modality must be ct, mri or auto, got '{self.modality}'")
 
 
 @dataclass(frozen=True)
@@ -163,6 +172,7 @@ class PreparedRun:
     config: PipelineConfig
     steps: tuple[str, ...]
     workspace: Workspace | None = None  # set when resuming
+    notes: tuple[str, ...] = ()  # logged at the start of the run (e.g. detected modality)
 
     @property
     def modality(self) -> str:
@@ -189,9 +199,18 @@ def prepare_run(request: RunRequest, registry: Registry | None = None) -> Prepar
     image = Path(request.image).expanduser()
     if not image.is_file():
         raise SetupError(f"Input image not found: {image}")
+    modality, notes = request.modality, ()
+    if str(modality) == AUTO:
+        guess = detect_modality(image)
+        if guess.modality is None:
+            raise SetupError(
+                f"Cannot detect the modality of {image.name} ({guess.reason}); "
+                "give it explicitly (ct or mri)"
+            )
+        modality, notes = guess.modality, (f"Modality: {guess}",)
     try:
         spec = InputSpec.model_validate(
-            {"image": image, "modality": request.modality, "subject_id": request.subject}
+            {"image": image, "modality": modality, "subject_id": request.subject}
         )
     except ValidationError as exc:
         msgs = "; ".join(
@@ -199,7 +218,14 @@ def prepare_run(request: RunRequest, registry: Registry | None = None) -> Prepar
         )
         raise SetupError(f"Invalid input: {msgs}") from None
     config = resolved_config(request.config, request.all_overrides(), registry)
-    return PreparedRun(request, spec, config, steps)
+    return PreparedRun(request, spec, config, steps, notes=notes)
+
+
+def detect_modality(path: str | Path) -> ModalityGuess:
+    """CT or MRI from the JSON sidecar, the header or the intensities (reads the volume)."""
+    from mskpipe.io.modality import detect_modality as detect
+
+    return detect(path)
 
 
 def resolved_config(
@@ -242,7 +268,7 @@ def preflight(prepared: PreparedRun, registry: Registry | None = None) -> list[I
     issues: list[Issue] = []
     if "segment" in prepared.steps:
         image = prepared.workspace.input_image if prepared.workspace else prepared.spec.image
-        issues += _check_image(image)
+        issues += check_image(image)
     for where, kind, name in _plugins(prepared):
         try:
             plugin = reg.get(kind, name)
@@ -279,7 +305,8 @@ def _plugins(prepared: PreparedRun) -> list[tuple[str, str, str]]:
     return out
 
 
-def _check_image(path: Path) -> list[Issue]:
+def check_image(path: Path) -> list[Issue]:
+    """Header checks of an input volume (3D, qform/sform, suspicious 1 mm spacing)."""
     import nibabel as nib
     import numpy as np
 
@@ -313,6 +340,20 @@ def _check_image(path: Path) -> list[Issue]:
             )
         )
     return issues
+
+
+_check_image = check_image  # name used before the GUI
+
+
+def describe_image(path: Path) -> str:
+    """One line about an input volume: shape, voxel spacing, orientation (header only)."""
+    import nibabel as nib
+
+    img = nib.load(str(path))
+    shape = " x ".join(str(int(n)) for n in img.shape[:3])
+    zooms = " x ".join(f"{float(z):.4g}" for z in img.header.get_zooms()[:3])
+    axes = "".join(nib.aff2axcodes(img.affine))
+    return f"{shape} voxels, {zooms} mm, {axes}"
 
 
 # ---------------------------------------------------------------------------- events
@@ -547,6 +588,15 @@ def run(
     if handler is not None:
         logger.addHandler(handler)
         logger.setLevel(logging.DEBUG)
+    if prepared.workspace is None:
+        logger.info(
+            "Preparing the run (device '%s', copying and hashing the input)",
+            prepared.config.runtime.device.value,
+        )
+    else:
+        logger.info("Resuming %s", prepared.workspace.root.name)
+    for note in prepared.notes:
+        logger.info("%s", note)
     try:
         try:
             if prepared.workspace is not None:
