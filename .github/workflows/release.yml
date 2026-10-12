@@ -56,7 +56,7 @@ jobs:
       - name: Pack the cpu environment
         shell: pwsh
         run: |
-          $inject = Get-ChildItem build/wheels/*.whl | ForEach-Object { "--inject"; $_.FullName }
+          $inject = @(Get-ChildItem build/wheels/*.whl | ForEach-Object { "--inject"; $_.FullName })
           & build/tools/pixi-pack.exe --environment cpu --platform win-64 --ignore-pypi-non-wheel `
             --use-cache build/cache --output-file build/environment.tar @inject pixi.toml
           if ($LASTEXITCODE) { throw "pixi-pack failed" }
@@ -76,8 +76,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          $allow = if ($env:GITHUB_REF_TYPE -eq "tag") { @() } else { @("--allow-missing") }
-          pixi exec --spec python=3.11 python packaging/build_release.py atlas --out build/assets @allow
+          # arrays built with += (an if-expression would turn a one-item array into a string,
+          # and splatting a string passes its characters)
+          $cmd = @("packaging/build_release.py", "atlas", "--out", "build/assets")
+          if ($env:GITHUB_REF_TYPE -ne "tag") { $cmd += "--allow-missing" }
+          pixi exec --spec python=3.11 python @cmd
           if ($LASTEXITCODE) { throw "atlas failed" }
 
       - name: Assemble release

@@ -271,6 +271,10 @@ def test_release_workflow():
     assert wf["jobs"]["publish"]["permissions"] == {"contents": "write"}
     assert wf["permissions"] == {"contents": "read"}
     assert not (ROOT / "ci.yml").exists()  # the workflow lives in .github/workflows
+    # PowerShell: "$x = if (...) { @(...) }" yields a string for one item; splatting a
+    # string passes its characters (broke the atlas step of the first test build)
+    text = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    assert not re.search(r"=\s*if\s*\(.*\)\s*\{\s*@\(", text)
 
 
 def test_zenodo_and_citation_metadata():
