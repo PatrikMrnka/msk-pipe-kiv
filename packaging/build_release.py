@@ -15,7 +15,7 @@ The release folder (zipped as ``msk-pipe-<version>-win64.zip``)::
     msk-pipe-<version>/
         msk-pipe.cmd, mskpipe.cmd     GUI (double-click) and command line
         environment.tar               pixi-pack of the "cpu" environment
-        bin/                          pixi-unpack.exe, _setup.cmd, check data
+        bin/                          pixi-unpack.exe (+ VC++ runtime DLLs), _setup.cmd
         atlas/lhdl/                   attachment atlas (own licence, CC BY-NC-SA 2.0 BE)
         licenses/                     licences of every bundled package
         LICENSE, NOTICE, THIRD_PARTY_LICENSES.md, CITATION.cff, README.txt, version.txt
@@ -45,6 +45,10 @@ PACKAGING = ROOT / "packaging"
 PINS = PACKAGING / "release.toml"
 LAUNCHER = PACKAGING / "launcher"
 DOCS = ("LICENSE", "NOTICE", "THIRD_PARTY_LICENSES.md", "CITATION.cff")
+# pixi-unpack.exe (Rust, MSVC) needs the Visual C++ runtime, which a clean Windows does not
+# have; it runs before the environment exists, so its DLLs are put next to it (app-local,
+# taken from the environment's own conda package vc14_runtime, licence in licenses/).
+RUNTIME_DLLS = ("vcruntime140.dll", "vcruntime140_1.dll")
 MAX_ASSET_BYTES = 2 * 2**30 - 2**20  # GitHub release assets must be < 2 GiB
 STORED_SUFFIXES = (".tar", ".exe", ".whl", ".zip")  # already compressed
 
@@ -205,6 +209,20 @@ def extract_atlas(archive: Path, dest: Path) -> None:
 # ---------------------------------------------------------------- assemble
 
 
+def runtime_dlls(prefix: Path) -> list[Path]:
+    """Visual C++ runtime DLLs of an unpacked environment (root, else Library/bin)."""
+    found = []
+    for name in RUNTIME_DLLS:
+        for folder in (prefix, prefix / "Library" / "bin"):
+            match = next((p for p in folder.glob("*") if p.name.lower() == name), None)
+            if match is not None:
+                found.append(match)
+                break
+    if not any(p.name.lower() == RUNTIME_DLLS[0] for p in found):
+        raise BuildError(f"No {RUNTIME_DLLS[0]} in {prefix} (conda package vc14_runtime)")
+    return found
+
+
 def longest_path(root: Path) -> int:
     """Length of the longest file path below ``root``, relative to it (Windows style)."""
     longest = 0
@@ -223,6 +241,7 @@ def stage(
     maxpath: int,
     atlas: Path | None,
     atlas_folder: str = "lhdl",
+    runtime: list[Path] | None = None,
 ) -> Path:
     """Lay out the release folder ``folder`` (created fresh)."""
     if folder.exists():
@@ -238,6 +257,8 @@ def stage(
     _write_crlf(folder / "version.txt", version + "\n")
     _write_crlf(folder / "bin" / "maxpath.txt", f"{maxpath}\n")
     shutil.copy2(unpack, folder / "bin" / "pixi-unpack.exe")
+    for dll in runtime or ():
+        shutil.copy2(dll, folder / "bin" / dll.name.lower())
     shutil.copy2(pack, folder / "environment.tar")
     for name in DOCS:
         shutil.copy2(ROOT / name, folder / name)
@@ -286,6 +307,7 @@ def assemble(args: argparse.Namespace) -> list[Path]:
         maxpath=int(Path(args.maxpath).read_text(encoding="ascii").strip()),
         atlas=Path(args.atlas) if args.atlas else None,
         atlas_folder=pins["atlas"]["folder"],
+        runtime=runtime_dlls(Path(args.runtime_from)),
     )
     outputs = [zip_folder(folder, dist / f"{name}-win64.zip")]
     if args.atlas:
@@ -332,6 +354,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--licenses", required=True, help="output of collect_licenses.py")
     p.add_argument("--maxpath", required=True, help="output of the maxpath command")
     p.add_argument("--atlas", help="atlas zip (omit for a release without atlas)")
+    p.add_argument(
+        "--runtime-from",
+        required=True,
+        help="unpacked environment with the Visual C++ runtime DLLs for bin/",
+    )
     p.add_argument("--work", default="build/stage")
     p.add_argument("--out", default="dist")
 
