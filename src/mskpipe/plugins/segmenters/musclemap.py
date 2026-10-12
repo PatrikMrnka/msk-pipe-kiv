@@ -40,6 +40,7 @@ if TYPE_CHECKING:
 MODEL_VERSION = "1.4"  # whole-body model on Zenodo; label IDs below were checked for it
 REGION = "wholebody"
 PACKAGE = "scripts"  # MuscleMap is installed as the top-level package "scripts"
+MODEL_PTH = "contrast_agnostic_wholebody_model.pth"
 MODEL_JSON = "contrast_agnostic_wholebody_model.json"
 OUTPUT_FILE = "musclemap_wholebody.nii.gz"
 WORK_DIR = "_musclemap"
@@ -218,6 +219,7 @@ class MuscleMap(SegmenterPlugin):
         version = model_version(ctx.config)
         device = ctx.device.device_for(self.supports_gpu)
         work = out_dir / WORK_DIR
+        _sync_store(ctx, version)
         shutil.rmtree(work, ignore_errors=True)
         work.mkdir(parents=True)
         try:
@@ -245,8 +247,25 @@ class MuscleMap(SegmenterPlugin):
             labels = read_model_labels(version)
             out_file = out_dir / OUTPUT_FILE
             normalize_output(produced, out_file, set(labels.values()))
+            _sync_store(ctx, version)
         except (MuscleMapError, OSError) as exc:
             raise StepError(f"MuscleMap: {exc}") from exc
         finally:
             shutil.rmtree(work, ignore_errors=True)
         return [SegmentationOutput(out_file, labels, REGION)]
+
+
+def _sync_store(ctx: StepContext, version: str) -> None:
+    """Share the model with the per-user store (``mskpipe.resources.weights``); a failure
+    only costs a download, so it is logged and ignored."""
+    from mskpipe.resources.weights import mm_store_dir, sync_musclemap
+
+    try:
+        action = sync_musclemap(version)
+    except (OSError, MuscleMapError) as exc:
+        ctx.logger.warning("[segment] MuscleMap model store not used: %s", exc)
+        return
+    if action == "restored":
+        ctx.logger.info("[segment] MuscleMap %s linked from %s", version, mm_store_dir(version))
+    elif action == "stored":
+        ctx.logger.info("[segment] MuscleMap %s kept in %s", version, mm_store_dir(version))
