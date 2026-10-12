@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel
 
 from mskpipe.resources.atlas import ATLAS_INDEX, Source, resolve_atlas_dir
+from mskpipe.resources.gpu import GpuStatus, gpu_status
 from mskpipe.resources.licence import format_problem, licence_number
 from mskpipe.resources.paths import home, totalseg_home
 from mskpipe.resources.weights import WeightsItem, required_ts_tasks, weights_status
@@ -37,6 +38,7 @@ class SetupStatus(BaseModel):
     licence: LicenceStatus
     weights: list[WeightsItem]
     atlas: AtlasStatus
+    gpu: GpuStatus | None = None  # None: the GPU wheel list could not be read
 
     @property
     def ready(self) -> bool:
@@ -71,4 +73,12 @@ def collect(config: PipelineConfig, modalities: Iterable[str] = ("ct", "mri")) -
         licence=licence,
         weights=weights_status(config, modalities),
         atlas=atlas,
+        gpu=_gpu(),
     )
+
+
+def _gpu() -> GpuStatus | None:
+    try:
+        return gpu_status()
+    except (OSError, ValueError):
+        return None

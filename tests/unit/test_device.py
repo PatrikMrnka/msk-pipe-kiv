@@ -43,7 +43,7 @@ def fake(monkeypatch):
     """Control detection results; records whether the torch probe was used."""
     state = SimpleNamespace(gpus=NO_GPU, torch=TORCH_OK, probed=0)
 
-    def probe(python=None):
+    def probe(python=None, overlay=None):
         state.probed += 1
         return state.torch
 
