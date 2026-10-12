@@ -26,11 +26,17 @@ The Windows release additionally bundles further Python and conda packages. Thei
 | OpenSim | Apache-2.0 | Musculoskeletal simulation |
 | Muscle Wrapping 2.x | Apache-2.0 | Muscle fibre generation |
 
+## Data in the release
+
+| Component | License | Role |
+|---|---|---|
+| Attachment atlas `lhdl` (derived from LHDL Cadaver #1, IOR + ULB, EU FP6 IST-2004-026932) | [CC BY-NC-SA 2.0 BE](https://creativecommons.org/licenses/by-nc-sa/2.0/be/) | Attachment areas transferred by bone registration; folder `atlas/lhdl` of the release and asset `msk-pipe-atlas-lhdl-v1.zip`, with its own `LICENSE` and `README.md` (attribution, changes). Not covered by Apache-2.0; never committed to this repository. |
+
 ## Not redistributed
 
 - **Model weights** of TotalSegmentator and MuscleMap are not part of this repository or of the release. They are downloaded on first use from their official sources and are subject to their own terms.
 - **TotalSegmentator `appendicular_bones`** is an optional task that requires a separate license key, free for non-commercial use ([academic license](https://backend.totalsegmentator.com/license-academic/)).
-- **Datasets** (e.g. LHDL, TLEM 2.0) are not included. Obtain them from their original providers under their terms.
+- **Datasets** (e.g. LHDL, TLEM 2.0) are not included (only the derived attachment atlas above). Obtain them from their original providers under their terms.
 
 ## Required citations
 

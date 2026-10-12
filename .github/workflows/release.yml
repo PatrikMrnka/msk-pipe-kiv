@@ -1,0 +1,178 @@
+name: Release
+
+# Tag vX.Y.Z on main -> Windows release on GitHub (GitLab: a tag pipeline + release job).
+#   git tag v0.1.0
+#   git push origin v0.1.0
+# "Run workflow" (workflow_dispatch) builds and tests the same package without publishing.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  PIXI_VERSION: v0.81.0
+
+jobs:
+  build:
+    name: Build Windows package
+    runs-on: windows-latest
+    timeout-minutes: 90
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # hatch-vcs: version from the tag
+      - uses: prefix-dev/setup-pixi@v0.10.2
+        with:
+          pixi-version: ${{ env.PIXI_VERSION }}
+          run-install: false
+
+      - name: Download pixi-pack and pixi-unpack (pinned)
+        run: pixi exec --spec python=3.11 python packaging/build_release.py tools --out build/tools
+
+      - name: Build wheels of non-wheel packages (mskpipe, MuscleMap, pystaple, sdists)
+        run: pixi exec --spec python=3.11 --spec pip --spec pyyaml python packaging/build_release.py wheels --out build/wheels
+
+      - name: Version
+        id: version
+        shell: pwsh
+        run: |
+          $v = pixi exec --spec python=3.11 python packaging/build_release.py version --wheels build/wheels
+          if ($env:GITHUB_REF_TYPE -eq "tag" -and "v$v" -ne $env:GITHUB_REF_NAME) {
+            throw "Tag $env:GITHUB_REF_NAME does not match the package version $v"
+          }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          Write-Host "mskpipe $v"
+
+      - name: Pack the cpu environment
+        shell: pwsh
+        run: |
+          $inject = Get-ChildItem build/wheels/*.whl | ForEach-Object { "--inject"; $_.FullName }
+          & build/tools/pixi-pack.exe --environment cpu --platform win-64 --ignore-pypi-non-wheel `
+            --use-cache build/cache --output-file build/environment.tar @inject pixi.toml
+          if ($LASTEXITCODE) { throw "pixi-pack failed" }
+          "{0:N2} GiB" -f ((Get-Item build/environment.tar).Length / 1GB)
+
+      - name: Unpack for checks (path length, licences)
+        shell: pwsh
+        run: |
+          & build/tools/pixi-unpack.exe build/environment.tar -o build/test -e env -s cmd -q
+          if ($LASTEXITCODE) { throw "pixi-unpack failed" }
+          pixi exec --spec python=3.11 python packaging/build_release.py maxpath --root build/test --out build/maxpath.txt
+          build/test/env/python.exe packaging/collect_licenses.py --prefix build/test/env --out build/licenses
+          "unpacked: {0:N2} GiB" -f ((Get-ChildItem build/test -Recurse -File | Measure-Object Length -Sum).Sum / 1GB)
+
+      - name: Attachment atlas (pinned release asset)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $allow = if ($env:GITHUB_REF_TYPE -eq "tag") { @() } else { @("--allow-missing") }
+          pixi exec --spec python=3.11 python packaging/build_release.py atlas --out build/assets @allow
+          if ($LASTEXITCODE) { throw "atlas failed" }
+
+      - name: Assemble release
+        shell: pwsh
+        run: |
+          $atlas = @(Get-ChildItem build/assets/*.zip -ErrorAction SilentlyContinue | ForEach-Object { "--atlas"; $_.FullName })
+          pixi exec --spec python=3.11 python packaging/build_release.py assemble `
+            --version ${{ steps.version.outputs.version }} --pack build/environment.tar `
+            --unpack build/tools/pixi-unpack.exe --licenses build/licenses `
+            --maxpath build/maxpath.txt --out dist @atlas
+          if ($LASTEXITCODE) { throw "assemble failed" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: dist/
+          retention-days: 14
+          compression-level: 0
+
+  smoke:
+    name: Test on a clean Windows runner
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v7  # only for tools/skeleton_parity.py
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: dist
+      - name: Unzip to a short path
+        shell: pwsh
+        run: |
+          Expand-Archive "dist/msk-pipe-$env:VERSION-win64.zip" C:\r
+          "MSKPIPE_ROOT=C:\r\msk-pipe-$env:VERSION" >> $env:GITHUB_ENV
+      - name: First start (unpacks the environment) and version
+        shell: cmd
+        run: |
+          set "PATH=C:\Windows\System32;C:\Windows"
+          call "%MSKPIPE_ROOT%\mskpipe.cmd" --version > version.txt || exit /b 1
+          type version.txt
+          findstr /c:"mskpipe %VERSION%" version.txt || exit /b 1
+      - name: CLI
+        shell: cmd
+        run: |
+          set "PATH=C:\Windows\System32;C:\Windows"
+          call "%MSKPIPE_ROOT%\mskpipe.cmd" plugins || exit /b 1
+          call "%MSKPIPE_ROOT%\mskpipe.cmd" device -d auto || exit /b 1
+          call "%MSKPIPE_ROOT%\mskpipe.cmd" setup status -m ct
+          call "%MSKPIPE_ROOT%\mskpipe.cmd" config show > nul || exit /b 1
+      - name: Tools and libraries in the environment
+        shell: cmd
+        run: |
+          set "PATH=C:\Windows\System32;C:\Windows"
+          set "PY=%MSKPIPE_ROOT%\env\python.exe"
+          "%PY%" -c "import torch, torchvision, totalsegmentator, nnunetv2, pystaple, vtk, SimpleITK; from torchvision.ops import nms; print(torch.__version__, vtk.vtkVersion.GetVTKVersion())" || exit /b 1
+          "%PY%" -c "import vtk; assert vtk.vtkVersion.GetVTKVersion() == '9.4.2'" || exit /b 1
+          "%PY%" -m totalsegmentator.bin.TotalSegmentator --version || exit /b 1
+          call "%MSKPIPE_ROOT%\activate.bat"
+          mm_segment --help > nul || exit /b 1
+          "%PY%" -c "from PySide6.QtWidgets import QApplication; import mskpipe.gui.app" || exit /b 1
+      - name: Skeleton parity with MATLAB STAPLE
+        shell: cmd
+        run: |
+          set "PATH=C:\Windows\System32;C:\Windows"
+          call "%MSKPIPE_ROOT%\env\..\activate.bat"
+          "%MSKPIPE_ROOT%\env\python.exe" tools\skeleton_parity.py --fetch
+      - name: Moved folder is unpacked again
+        shell: pwsh
+        run: |
+          Move-Item C:\r C:\r2
+          & "C:\r2\msk-pipe-$env:VERSION\mskpipe.cmd" --version
+          if ($LASTEXITCODE) { throw "relocated release does not start" }
+
+  publish:
+    name: Publish GitHub release
+    if: github.ref_type == 'tag'
+    needs: [build, smoke]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: dist
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "msk-pipe ${{ needs.build.outputs.version }}" \
+            --notes-file packaging/release_notes.md --generate-notes

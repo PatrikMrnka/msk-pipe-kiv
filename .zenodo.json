@@ -1,0 +1,22 @@
+{
+  "title": "msk-pipe: automatic generation of Muscle Wrapping inputs from CT and MRI",
+  "upload_type": "software",
+  "description": "Pipeline from CT or MRI (NIfTI) to the input of Muscle Wrapping 2.x: segmentation (TotalSegmentator, MuscleMap), label map, surface meshes, skeletal model (pystaple, a Python port of STAPLE), attachment areas and export. Windows release with GUI and CLI.",
+  "creators": [
+    {
+      "name": "Mrnka, Patrik",
+      "affiliation": "Department of Computer Science and Engineering, University of West Bohemia in Pilsen",
+      "orcid": "0009-0001-5778-8690"
+    },
+    {
+      "name": "Kohout, Josef",
+      "affiliation": "Department of Computer Science and Engineering, University of West Bohemia in Pilsen",
+      "orcid": "0000-0002-3231-2573"
+    }
+  ],
+  "license": "Apache-2.0",
+  "keywords": ["musculoskeletal modelling", "medical image segmentation", "OpenSim", "muscle wrapping", "CT", "MRI"],
+  "related_identifiers": [
+    {"identifier": "https://github.com/kivzcu/msk-pipe", "relation": "isSupplementTo", "scheme": "url"}
+  ]
+}

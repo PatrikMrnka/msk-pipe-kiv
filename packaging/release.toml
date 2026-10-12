@@ -1,0 +1,23 @@
+# Pins for the Windows release (packaging/build_release.py, .github/workflows/release.yml).
+# Every binary or data file the release is built from is fetched from a fixed URL and
+# checked against the SHA-256 below.
+
+[pixi-pack]
+version = "0.7.11"
+pack_url = "https://github.com/Quantco/pixi-pack/releases/download/v0.7.11/pixi-pack-x86_64-pc-windows-msvc.exe"
+pack_sha256 = "12dde5b363fb7c5fb6215e0747638b0486a0bd3f47ef653b23ce020bc1936263"
+unpack_url = "https://github.com/Quantco/pixi-pack/releases/download/v0.7.11/pixi-unpack-x86_64-pc-windows-msvc.exe"
+unpack_sha256 = "4b27cae647100dae4a321954461fe5863d25aa3eb9a919fb302f20509090bc72"
+
+[environment]
+name = "cpu"          # pixi environment shipped in the release (GPU: mskpipe setup gpu)
+platform = "win-64"
+
+# Attachment atlas (CC BY-NC-SA 2.0 BE, derived from LHDL), a separately licensed asset of
+# the GitHub release with this tag; made with packaging/make_atlas_zip.py and uploaded once:
+#   gh release create atlas-lhdl-v1 dist\msk-pipe-atlas-lhdl-v1.zip --latest=false ...
+[atlas]
+tag = "atlas-lhdl-v1"
+file = "msk-pipe-atlas-lhdl-v1.zip"
+sha256 = ""           # fill in after uploading (printed by make_atlas_zip.py)
+folder = "lhdl"       # unpacked into <release>/atlas/<folder>

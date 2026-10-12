@@ -224,6 +224,10 @@ def package_info(dist_name: str) -> PackageInfo:
     with suppress(ValueError, OSError):
         direct = json.loads(dist.read_text("direct_url.json") or "{}")
         commit = direct.get("vcs_info", {}).get("commit_id")
+    if not commit:  # release wheel built from git: commit recorded at build time
+        from mskpipe.core import build_info
+
+        commit = build_info.package_commit(dist_name)
     return PackageInfo(version=dist.version, commit=commit)
 
 
@@ -247,6 +251,9 @@ def git_info(path: Path) -> GitInfo:
 
     commit = run("rev-parse", "HEAD")
     if not commit:
-        return GitInfo()
+        from mskpipe.core import build_info
+
+        built = build_info.commit()  # installed release: commit it was built from
+        return GitInfo(commit=built, dirty=False) if built else GitInfo()
     status = run("status", "--porcelain", "--untracked-files=no")
     return GitInfo(commit=commit, dirty=bool(status) if status is not None else None)
