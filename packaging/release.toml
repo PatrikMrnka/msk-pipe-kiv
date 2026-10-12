@@ -19,5 +19,5 @@ platform = "win-64"
 [atlas]
 tag = "atlas-lhdl-v1"
 file = "msk-pipe-atlas-lhdl-v1.zip"
-sha256 = ""           # fill in after uploading (printed by make_atlas_zip.py)
+sha256 = "04e9f1afc481cc870bc1b570742bffcf2c71fb8d79289df21450af49b8dd7ec4"           # fill in after uploading (printed by make_atlas_zip.py)
 folder = "lhdl"       # unpacked into <release>/atlas/<folder>
