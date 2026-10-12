@@ -1,0 +1,17 @@
+﻿Build Windows package	Attachment atlas (pinned release asset)	´╗┐2026-10-12T19:15:31.0799609Z ##[group]Run $allow = if ($env:GITHUB_REF_TYPE -eq "tag") { @() } else { @("--allow-missing") }
+Build Windows package	Attachment atlas (pinned release asset)	2026-10-12T19:15:31.0800435Z ^[[36;1m$allow = if ($env:GITHUB_REF_TYPE -eq "tag") { @() } else { @("--allow-missing") }^[[0m
+Build Windows package	Attachment atlas (pinned release asset)	2026-10-12T19:15:31.0801117Z ^[[36;1mpixi exec --spec python=3.11 python packaging/build_release.py atlas --out build/assets @allow^[[0m
+Build Windows package	Attachment atlas (pinned release asset)	2026-10-12T19:15:31.0801707Z ^[[36;1mif ($LASTEXITCODE) { throw "atlas failed" }^[[0m
+Build Windows package	Attachment atlas (pinned release asset)	2026-10-12T19:15:31.1169359Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+Build Windows package	Attachment atlas (pinned release asset)	2026-10-12T19:15:31.1169757Z env:
+Build Windows package	Attachment atlas (pinned release asset)	2026-10-12T19:15:31.1169954Z   PIXI_VERSION: v0.81.0
+Build Windows package	Attachment atlas (pinned release asset)	2026-10-12T19:15:31.1176338Z   GH_TOKEN: ***
+Build Windows package	Attachment atlas (pinned release asset)	2026-10-12T19:15:31.1176583Z ##[endgroup]
+Build Windows package	Attachment atlas (pinned release asset)	2026-10-12T19:15:31.8159007Z usage: build_release.py [-h] {tools,wheels,version,atlas,maxpath,assemble} ...
+Build Windows package	Attachment atlas (pinned release asset)	2026-10-12T19:15:31.8446591Z build_release.py: error: unrecognized arguments: - - a l l o w - m i s s i n g
+Build Windows package	Attachment atlas (pinned release asset)	2026-10-12T19:15:32.1434823Z ^[[31;1mException: ^[[0mD:\a\_temp\734a95f8-a685-4055-aecd-82978dc05d0e.ps1:4^[[0m
+Build Windows package	Attachment atlas (pinned release asset)	2026-10-12T19:15:32.1436044Z ^[[31;1m^[[0m^[[36;1mLine |^[[0m
+Build Windows package	Attachment atlas (pinned release asset)	2026-10-12T19:15:32.1436763Z ^[[31;1m^[[0m^[[36;1m^[[36;1m   4 | ^[[0m if ($LASTEXITCODE) { ^[[36;1mthrow "atlas failed"^[[0m }^[[0m
+Build Windows package	Attachment atlas (pinned release asset)	2026-10-12T19:15:32.1437674Z ^[[31;1m^[[0m^[[36;1m^[[36;1m^[[0m^[[36;1m^[[0m^[[36;1m     | ^[[31;1m                      ~~~~~~~~~~~~~~~~~~~~^[[0m
+Build Windows package	Attachment atlas (pinned release asset)	2026-10-12T19:15:32.1438596Z ^[[31;1m^[[0m^[[36;1m^[[36;1m^[[0m^[[36;1m^[[0m^[[36;1m^[[31;1m^[[31;1m^[[36;1m     | ^[[31;1matlas failed^[[0m
+Build Windows package	Attachment atlas (pinned release asset)	2026-10-12T19:15:32.2090769Z ##[error]Process completed with exit code 1.
