@@ -90,7 +90,7 @@ jobs:
           pixi exec --spec python=3.11 python packaging/build_release.py assemble `
             --version ${{ steps.version.outputs.version }} --pack build/environment.tar `
             --unpack build/tools/pixi-unpack.exe --licenses build/licenses `
-            --maxpath build/maxpath.txt --out dist @atlas
+            --maxpath build/maxpath.txt --runtime-from build/test/env --out dist @atlas
           if ($LASTEXITCODE) { throw "assemble failed" }
 
       - uses: actions/upload-artifact@v4
@@ -119,6 +119,10 @@ jobs:
         run: |
           Expand-Archive "dist/msk-pipe-$env:VERSION-win64.zip" C:\r
           "MSKPIPE_ROOT=C:\r\msk-pipe-$env:VERSION" >> $env:GITHUB_ENV
+      - name: Visual C++ runtime next to pixi-unpack (clean Windows has none)
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "$env:MSKPIPE_ROOT\bin\vcruntime140.dll")) { throw "bin\vcruntime140.dll missing" }
       - name: First start (unpacks the environment) and version
         shell: cmd
         run: |

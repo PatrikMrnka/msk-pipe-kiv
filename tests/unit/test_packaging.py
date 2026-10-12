@@ -154,8 +154,13 @@ def test_stage_and_zip(tmp_path):
     (lic / "packages.csv").write_text("name\n", encoding="utf-8")
     atlas = tmp_path / "atlas.zip"
     atlas_zip.make_zip(make_atlas(tmp_path / "atlas_src"), atlas)
+    env = tmp_path / "env"
+    (env / "Library" / "bin").mkdir(parents=True)
+    (env / "VCRUNTIME140.dll").write_bytes(b"MZ")
+    (env / "Library" / "bin" / "vcruntime140_1.dll").write_bytes(b"MZ")
     folder = br.stage(
         tmp_path / "stage" / "msk-pipe-0.1.0",
+        runtime=br.runtime_dlls(env),
         version="0.1.0",
         pack=pack,
         unpack=unpack,
@@ -168,6 +173,8 @@ def test_stage_and_zip(tmp_path):
         "mskpipe.cmd",
         "bin/_setup.cmd",
         "bin/pixi-unpack.exe",
+        "bin/vcruntime140.dll",
+        "bin/vcruntime140_1.dll",
         "bin/maxpath.txt",
         "environment.tar",
         "atlas/lhdl/atlas.json",
@@ -194,6 +201,11 @@ def test_stage_and_zip(tmp_path):
     assert sums == f"{br.sha256(archive)}  {archive.name}\n"
     with pytest.raises(br.BuildError, match="2 GiB"):
         br.zip_folder(folder, tmp_path / "big.zip", limit=10)
+
+
+def test_runtime_dlls_required(tmp_path):
+    with pytest.raises(br.BuildError, match=r"vcruntime140\.dll"):
+        br.runtime_dlls(tmp_path)
 
 
 def test_longest_path(tmp_path):

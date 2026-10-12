@@ -10,6 +10,7 @@ the situation of a new user. Run before every tag.
    `Desktop\shared` to `C:\` and unzip it there (*Extract all*).
 3. Check:
    - [ ] `msk-pipe.cmd` (double-click): first start unpacks the environment, the GUI opens
+         (no message about a missing `VCRUNTIME140.dll` or other DLL)
    - [ ] the Setup window opens by itself (no licence key); **Use MuscleMap instead** works
    - [ ] atlas shows `ok (release)`; GPU support shows *not installed* (no NVIDIA here)
    - [ ] Device *Auto* -> `cpu - auto: no NVIDIA GPU found`
