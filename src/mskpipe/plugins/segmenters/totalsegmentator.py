@@ -40,6 +40,15 @@ LICENCE_HINT = (
 )
 
 
+MAX_SAVING_WORKERS = 6  # TotalSegmentator's default --nr_thr_saving
+GIB = 2**30
+# Commit memory per export worker process: every worker imports torch; on Windows the CUDA
+# build reserves ~3 GB of commit for its DLLs (cublas, cufft, cudnn, ...), the CPU build far
+# less. The main process (model, volume) is covered by the reserve.
+WORKER_COMMIT = {"cuda": 3.5 * GIB, "cpu": 1.5 * GIB}
+MAIN_RESERVE = 12 * GIB
+
+
 class TotalSegmentatorError(RuntimeError):
     """TotalSegmentator output cannot be used."""
 
@@ -87,6 +96,27 @@ def split_labels(task: str, labels: Iterable[str]) -> tuple[frozenset[str], froz
     return labels & known, labels - known
 
 
+def saving_workers(
+    value: int | str, device: str, *, commit_limit: int | None = None
+) -> tuple[int, str]:
+    """Number of segmentation export workers (``--nr_thr_saving``) and why.
+
+    ``auto``: as many as fit into RAM + page file (Windows commit limit) after the main
+    process, between 1 and TotalSegmentator's default 6. Too many workers fail on Windows
+    with WinError 1455 ("the paging file is too small") while loading the CUDA DLLs.
+    """
+    if value != "auto":
+        return int(value), "configured"
+    if commit_limit is None:
+        import psutil
+
+        commit_limit = psutil.virtual_memory().total + psutil.swap_memory().total
+    per_worker = WORKER_COMMIT["cuda" if device == "cuda" else "cpu"]
+    fit = int(max(0, commit_limit - MAIN_RESERVE) // per_worker)
+    workers = max(1, min(MAX_SAVING_WORKERS, fit))
+    return workers, f"auto: {commit_limit / GIB:.0f} GiB RAM + page file, {device}"
+
+
 def build_command(
     image: Path,
     out_file: Path,
@@ -95,8 +125,10 @@ def build_command(
     cfg: TotalSegmentatorConfig,
     *,
     device: str,
+    saving: int | None = None,
 ) -> list[str]:
-    """Command line of one TotalSegmentator run (multi-label output file)."""
+    """Command line of one TotalSegmentator run (multi-label output file); ``saving`` =
+    ``--nr_thr_saving`` unless ``extra_args`` sets it."""
     argv = [sys.executable, "-m", MODULE, "-i", str(image), "-o", str(out_file), "--ml"]
     argv += ["-ta", task, "-d", "gpu" if device == "cuda" else "cpu"]
     if task in ROI_TASKS:
@@ -106,6 +138,8 @@ def build_command(
             argv.append("-f")
     if cfg.higher_order_resampling:
         argv.append("--higher_order_resampling")
+    if saving is not None and not {"-ns", "--nr_thr_saving"} & set(cfg.extra_args):
+        argv += ["-ns", str(saving)]
     argv += list(cfg.extra_args)
     return argv
 
@@ -191,6 +225,8 @@ class TotalSegmentator(SegmenterPlugin):
         except TotalSegmentatorError as exc:
             raise StepError(str(exc)) from exc
 
+        saving, why = saving_workers(cfg.nr_thr_saving, device)
+        ctx.logger.info("[segment] TotalSegmentator export workers: %d (%s)", saving, why)
         outputs: list[SegmentationOutput] = []
         for task, wanted in runs.items():
             ctx.check_cancel()
@@ -207,6 +243,7 @@ class TotalSegmentator(SegmenterPlugin):
                 labels,
                 cfg,
                 device=device,
+                saving=saving,
             )
             ctx.logger.info("[segment] TotalSegmentator %s on %s", task, device)
             try:

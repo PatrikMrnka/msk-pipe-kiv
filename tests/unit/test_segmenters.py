@@ -310,3 +310,38 @@ def test_split_labels_without_totalsegmentator_keeps_all(monkeypatch):
         frozenset({"vertebrae_S1"}),
         frozenset(),
     )
+
+
+def test_saving_workers_auto():
+    gib = 2**30
+    # Windows Sandbox: 16 GB RAM + 4 GB page file, CUDA build -> 2 workers (failed with 6)
+    assert ts.saving_workers("auto", "cuda", commit_limit=20 * gib)[0] == 2
+    assert ts.saving_workers("auto", "cpu", commit_limit=20 * gib)[0] == 5
+    assert ts.saving_workers("auto", "cuda", commit_limit=96 * gib)[0] == 6  # TS default
+    assert ts.saving_workers("auto", "cuda", commit_limit=8 * gib)[0] == 1
+    assert ts.saving_workers(3, "cuda", commit_limit=8 * gib) == (3, "configured")
+    workers, why = ts.saving_workers("auto", "cpu")  # real machine
+    assert 1 <= workers <= 6 and why.startswith("auto")
+
+
+def test_build_command_saving_workers():
+    cfg = load_config().segmentation.totalsegmentator
+    argv = ts.build_command(
+        Path("i"), Path("o"), "total", {"femur_left"}, cfg, device="cpu", saving=2
+    )
+    assert argv[argv.index("-ns") + 1] == "2"
+    custom = load_config(
+        overrides=['segmentation.totalsegmentator.extra_args=["--nr_thr_saving", "1"]']
+    ).segmentation.totalsegmentator
+    argv = ts.build_command(
+        Path("i"), Path("o"), "total", {"femur_left"}, custom, device="cpu", saving=2
+    )
+    assert "-ns" not in argv and argv[-2:] == ["--nr_thr_saving", "1"]
+
+
+def test_saving_workers_config_validation():
+    from mskpipe.config.loader import ConfigError
+
+    assert load_config(overrides=["segmentation.totalsegmentator.nr_thr_saving=1"])
+    with pytest.raises(ConfigError):
+        load_config(overrides=["segmentation.totalsegmentator.nr_thr_saving=0"])

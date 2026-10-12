@@ -124,9 +124,20 @@ class TotalSegmentatorConfig(StrictModel):
         True,
         description="Predict only the structures the pipeline needs (tasks total/total_mr).",
     )
+    nr_thr_saving: int | Literal["auto"] = Field(
+        "auto",
+        description="Worker processes exporting the segmentation (--nr_thr_saving); each loads "
+        "PyTorch. 'auto' = from RAM + page file (1-6), fewer on small machines.",
+    )
     extra_args: list[str] = Field(
         default_factory=list, description="Extra CLI arguments passed verbatim."
     )
+
+    @model_validator(mode="after")
+    def _check_saving(self) -> TotalSegmentatorConfig:
+        if isinstance(self.nr_thr_saving, int) and not 1 <= self.nr_thr_saving <= 16:
+            raise ValueError("nr_thr_saving must be 1-16 or 'auto'")
+        return self
 
 
 class MuscleMapConfig(StrictModel):

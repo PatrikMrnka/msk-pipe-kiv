@@ -106,9 +106,16 @@ segmentation.totalsegmentator.roi_subset:
     Predict only the structures the pipeline needs instead of all 117. Faster and lighter on
     memory, same masks of the needed structures.
   example: On (default).
+segmentation.totalsegmentator.nr_thr_saving:
+  help: >-
+    Number of worker processes that write the segmentation. Each one loads PyTorch (with the
+    GPU build about 3 GB of reserved memory on Windows), so too many of them fail with
+    "the paging file is too small" (WinError 1455) on computers with 16 GB of RAM. auto
+    chooses 1-6 from the RAM and page file size; the segmentation itself does not change.
+  example: 1 on a computer with little memory; 6 = TotalSegmentator's own default.
 segmentation.totalsegmentator.extra_args:
   help: Additional command-line arguments passed to TotalSegmentator unchanged (advanced).
-  example: "[--nr_thr_saving, '1'] to reduce the memory used when saving."
+  example: "[--robust_crop] (see TotalSegmentator --help)."
 segmentation.musclemap:
   help: Settings of MuscleMap.
 segmentation.musclemap.model_version:
