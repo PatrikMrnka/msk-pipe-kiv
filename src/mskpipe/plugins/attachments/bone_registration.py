@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Attachment areas from an atlas by registering its bones (plugin ``bone_registration``).
 
-The atlas is a folder (not distributed with mskpipe, e.g. built from the LHDL dataset)::
+The atlas is a folder (distributed separately from the code under its own licence, see
+:mod:`mskpipe.resources.atlas` for where it is looked up)::
 
     atlas.json                      muscles -> {stem, Ori/Ins: {file, bone, body}}
     bones/pelvis_with_sacrum.obj    and/or pelvis_no_sacrum.obj (the one matching the
@@ -26,7 +27,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -34,19 +34,24 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import Field
 
 from mskpipe.plugins.base import AttachmentsPlugin, PluginParams
+from mskpipe.resources.atlas import ATLAS_ENV, ATLAS_INDEX, resolve_atlas_dir
 
 if TYPE_CHECKING:
     from mskpipe.config import PipelineConfig
     from mskpipe.core.step import StepContext
 
-ATLAS_ENV = "MSKPIPE_ATLAS_DIR"
-ATLAS_INDEX = "atlas.json"
 TRANSFER_FILE = "transfer.json"
+NO_ATLAS = (
+    "No attachment atlas: install one with `mskpipe setup atlas <zip|folder|url>`, or set "
+    f"attachments.params.atlas_dir or {ATLAS_ENV}"
+)
 
 
 class BoneRegistrationParams(PluginParams):
     atlas_dir: str | None = Field(
-        None, description=f"Atlas folder (atlas.json, bones/, muscles/); default ${ATLAS_ENV}."
+        None,
+        description=f"Atlas folder (atlas.json, bones/, muscles/); default ${ATLAS_ENV}, "
+        "else the atlas installed by `mskpipe setup atlas`.",
     )
     n_points: int = Field(
         3000, ge=200, le=20000, description="Atlas surface samples per bone (ICP source)."
@@ -112,8 +117,7 @@ def atlas_dir(params: Mapping[str, Any] | BoneRegistrationParams) -> Path | None
     value = (
         params.atlas_dir if isinstance(params, BoneRegistrationParams) else params.get("atlas_dir")
     )
-    value = value or os.environ.get(ATLAS_ENV)
-    return Path(value) if value else None
+    return resolve_atlas_dir(value)[0]
 
 
 def atlas_fingerprint(folder: Path | None) -> str:
@@ -157,7 +161,7 @@ class BoneRegistration(AttachmentsPlugin):
         problems = []
         folder = atlas_dir(params)
         if folder is None:
-            problems.append(f"No attachment atlas: set attachments.params.atlas_dir or {ATLAS_ENV}")
+            problems.append(NO_ATLAS)
         elif not (folder / ATLAS_INDEX).is_file():
             problems.append(f"Attachment atlas index not found: {folder / ATLAS_INDEX}")
         if params.get("nonrigid") == "fast_rnrr":
@@ -195,10 +199,7 @@ class BoneRegistration(AttachmentsPlugin):
         side = ctx.config.skeleton.side
         folder = atlas_dir(params)
         if folder is None:
-            raise ValueError(
-                "No atlas: set attachments.params.atlas_dir "
-                f"or the {ATLAS_ENV} environment variable"
-            )
+            raise ValueError(NO_ATLAS)
         index_path = folder / ATLAS_INDEX
         if not index_path.is_file():
             raise FileNotFoundError(f"Atlas index not found: {index_path}")

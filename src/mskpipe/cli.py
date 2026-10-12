@@ -40,8 +40,25 @@ config_app = typer.Typer(
     help="Create, show and validate configuration files.", no_args_is_help=True
 )
 app.add_typer(config_app, name="config")
+setup_app = typer.Typer(
+    help="Model weights, TotalSegmentator licence key and attachment atlas.",
+    no_args_is_help=True,
+)
+app.add_typer(setup_app, name="setup")
 
 EXIT_SETUP = 2
+
+
+class SetupModality(StrEnum):
+    CT = "ct"
+    MRI = "mri"
+    ALL = "all"
+
+
+class SetupTool(StrEnum):
+    ALL = "all"
+    TOTALSEGMENTATOR = "totalsegmentator"
+    MUSCLEMAP = "musclemap"
 
 
 class EventFormat(StrEnum):
@@ -540,6 +557,172 @@ def gui() -> None:
         )
         raise typer.Exit(1) from None
     raise typer.Exit(gui_main([]))
+
+
+# ---------------------------------------------------------------------------- setup
+
+
+def _modalities(choice: SetupModality) -> tuple[str, ...]:
+    return ("ct", "mri") if choice == SetupModality.ALL else (choice.value,)
+
+
+def _setup_config(config: Path | None, overrides: list[str] | None):
+    from mskpipe import api
+
+    try:
+        return api.resolved_config(config, overrides or ())
+    except api.SetupError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(EXIT_SETUP) from None
+
+
+@setup_app.command("status")
+def setup_status(
+    config: Annotated[Path | None, typer.Option("--config", "-c", help="YAML config.")] = None,
+    overrides: Annotated[
+        list[str] | None,
+        typer.Option("--set", metavar="KEY=VALUE", help="Override a config value (repeatable)."),
+    ] = None,
+    modality: Annotated[
+        SetupModality, typer.Option("--modality", "-m", help="Modalities to check.")
+    ] = SetupModality.ALL,
+    as_json: Annotated[bool, typer.Option("--json", help="Print as JSON.")] = False,
+) -> None:
+    """Show whether weights, licence key and atlas are in place.
+
+    Also prints where msk-pipe keeps its data. Exit code 0 = ready, 1 = something is
+    missing (missing weights are otherwise downloaded on the first run, with internet).
+    """
+    from mskpipe.resources.status import collect
+
+    status = collect(_setup_config(config, overrides), _modalities(modality))
+    if as_json:
+        typer.echo(status.model_dump_json(indent=2))
+        raise typer.Exit(0 if status.ready else 1)
+    typer.echo(f"msk-pipe data:    {status.home}")
+    typer.echo(f"TotalSegmentator: {status.totalseg_home}")
+    lic = status.licence
+    state = "set" if lic.present and not lic.problem else lic.problem or "not set"
+    need = "" if lic.needed else " (not needed by this config)"
+    typer.echo(f"Licence key:      {state}{need}")
+    atlas = status.atlas
+    where = f"{atlas.path} ({atlas.source})" if atlas.path else "not found"
+    mark = "ok" if atlas.ok else "MISSING"
+    typer.echo(f"Atlas:            {mark} - {where}" if atlas.needed else "Atlas: not needed")
+    typer.echo("Weights:")
+    for w in status.weights:
+        lock = " [licence]" if w.licensed else ""
+        detail = f" - {w.detail}" if w.detail else ""
+        typer.echo(f"  {w.tool:<17}{w.name + lock:<32}{w.status:<9}{detail}")
+    if not status.ready:
+        typer.echo("\nGet what is missing: mskpipe setup weights / licence <key> / atlas <zip>")
+    raise typer.Exit(0 if status.ready else 1)
+
+
+@setup_app.command("weights")
+def setup_weights(
+    config: Annotated[Path | None, typer.Option("--config", "-c", help="YAML config.")] = None,
+    overrides: Annotated[
+        list[str] | None,
+        typer.Option("--set", metavar="KEY=VALUE", help="Override a config value (repeatable)."),
+    ] = None,
+    modality: Annotated[
+        SetupModality, typer.Option("--modality", "-m", help="Modalities to prepare.")
+    ] = SetupModality.ALL,
+    tool: Annotated[SetupTool, typer.Option("--tool", "-t", help="Segmenter.")] = SetupTool.ALL,
+) -> None:
+    """Download the model weights the configuration needs, in advance.
+
+    Use it before working offline; weights already present are skipped.
+
+    \b
+    Examples:
+      mskpipe setup weights
+      mskpipe setup weights -m ct --set segmentation.tibia_fibula=musclemap
+    """
+    from mskpipe.plugins.segmenters.musclemap import model_version
+    from mskpipe.resources.licence import licence_number
+    from mskpipe.resources.weights import (
+        WeightsError,
+        download_musclemap,
+        download_ts,
+        weights_status,
+    )
+
+    resolved = _setup_config(config, overrides)
+    failed = 0
+    for item in weights_status(resolved, _modalities(modality)):
+        if tool != SetupTool.ALL and item.tool != tool.value:
+            continue
+        if item.status == "unknown":
+            typer.echo(f"{item.tool} {item.name}: skipped ({item.detail})", err=True)
+            failed += 1
+            continue
+        if item.licensed and licence_number() is None:
+            typer.echo(
+                f"totalsegmentator {item.name}: skipped, needs the licence key "
+                "(mskpipe setup licence <key>)",
+                err=True,
+            )
+            failed += 1
+            continue
+        try:
+            if item.tool == "totalsegmentator":
+                download_ts(item.name, typer.echo)
+            else:
+                download_musclemap(model_version(resolved), typer.echo)
+        except WeightsError as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            failed += 1
+    raise typer.Exit(1 if failed else 0)
+
+
+@setup_app.command("licence")
+def setup_licence(
+    key: Annotated[str, typer.Argument(help="Key such as aca_XXXXXXXXXXXXXX.", show_default=False)],
+    skip_validation: Annotated[
+        bool, typer.Option("--skip-validation", help="Do not check the key online.")
+    ] = False,
+) -> None:
+    """Store the TotalSegmentator licence key (free for non-commercial use).
+
+    Needed for tibia/fibula from TotalSegmentator (segmentation.tibia_fibula=ts_appendicular).
+    """
+    from mskpipe.resources.licence import LICENCE_URL, LicenceError, set_licence
+
+    try:
+        set_licence(key, typer.echo, skip_validation=skip_validation)
+    except LicenceError as exc:
+        typer.echo(f"Error: {exc}. Get a key at {LICENCE_URL}", err=True)
+        raise typer.Exit(1) from None
+    typer.echo("Licence key stored.")
+
+
+@setup_app.command("atlas")
+def setup_atlas(
+    source: Annotated[
+        str, typer.Argument(help="Atlas folder, .zip file or URL of a zip.", show_default=False)
+    ],
+    name: Annotated[str, typer.Option("--name", help="Folder name under <home>/atlas.")] = "lhdl",
+    sha256: Annotated[
+        str | None, typer.Option("--sha256", help="Expected SHA-256 of the zip.")
+    ] = None,
+    force: Annotated[
+        bool, typer.Option("--force", "-f", help="Replace an installed atlas.")
+    ] = False,
+) -> None:
+    """Install an attachment atlas from a folder, zip or URL.
+
+    It is used when neither attachments.params.atlas_dir nor MSKPIPE_ATLAS_DIR is set.
+    """
+    from mskpipe.resources.atlas import AtlasError, install_atlas
+    from mskpipe.resources.download import DownloadError
+
+    try:
+        install_atlas(source, typer.echo, name=name, sha256=sha256, force=force)
+    except (AtlasError, DownloadError, OSError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from None
 
 
 # ---------------------------------------------------------------------------- config

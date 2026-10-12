@@ -9,8 +9,6 @@ The tool runs as ``python -m totalsegmentator.bin.TotalSegmentator`` in a subpro
 
 from __future__ import annotations
 
-import json
-import os
 import sys
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable
@@ -23,6 +21,7 @@ from mskpipe.plugins.base import (
     SegmentationRequest,
     SegmenterPlugin,
 )
+from mskpipe.resources.licence import LICENCE_LENGTH, LICENCE_URL, licence_number
 
 if TYPE_CHECKING:
     from mskpipe.config import PipelineConfig
@@ -34,31 +33,14 @@ ROI_TASKS = frozenset({"total", "total_mr"})  # tasks supporting --roi_subset an
 LICENSED_TASKS = frozenset({"appendicular_bones", "appendicular_bones_mr"})
 LICENCE_HINT = (
     "TotalSegmentator task '{task}' needs a licence key (free for non-commercial use: "
-    "https://backend.totalsegmentator.com/license-academic/). Set it once with "
-    "`pixi run -e cpu totalseg_set_license -l <key>`, or take tibia/fibula from MuscleMap: "
+    f"{LICENCE_URL}). Set it once with `mskpipe setup licence <key>`, or take "
+    "tibia/fibula from MuscleMap: "
     "--set segmentation.tibia_fibula=musclemap."
 )
 
 
-LICENCE_LENGTH = 18  # TotalSegmentator's own offline check (config.has_valid_license_offline)
-
-
 class TotalSegmentatorError(RuntimeError):
     """TotalSegmentator output cannot be used."""
-
-
-def licence_number() -> str | None:
-    """Licence key stored by ``totalseg_set_license`` (``$TOTALSEG_HOME_DIR`` or
-    ``~/.totalsegmentator``, ``config.json``); read directly, because
-    ``totalsegmentator.config`` imports torch."""
-    home = os.environ.get("TOTALSEG_HOME_DIR")
-    folder = Path(home) if home else Path.home() / ".totalsegmentator"
-    try:
-        data = json.loads((folder / "config.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    key = data.get("license_number") if isinstance(data, dict) else None
-    return key if isinstance(key, str) and key else None
 
 
 def choose_task(tasks: Iterable[str], modality: str) -> str:

@@ -258,7 +258,7 @@ def test_missing_atlas_is_step_error(tmp_path, spec, monkeypatch):
     monkeypatch.delenv(ATLAS_ENV, raising=False)
     with pytest.raises(PipelineError) as info:
         run_pipeline([FakeMesh(), AttachmentsStep()], spec, config(tmp_path, None))
-    assert "No atlas" in str(info.value.__cause__)
+    assert "No attachment atlas" in str(info.value.__cause__)
 
 
 def test_atlas_from_environment(tmp_path, spec, atlas, monkeypatch):
