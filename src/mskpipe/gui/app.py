@@ -57,6 +57,7 @@ from mskpipe.core.registry import Registry
 from mskpipe.gui.config_form import ConfigForm
 from mskpipe.gui.help_badge import HelpBadge, help_html, label_with_badge
 from mskpipe.gui.process import ChildRequest, PipelineProcess, child_command, mskpipe_command
+from mskpipe.gui.setup_dialog import SetupDialog, needs_attention
 
 __all__ = ["STEP_LABELS", "MainWindow", "main"]
 
@@ -106,6 +107,7 @@ class MainWindow(QMainWindow):
         self._run_started: float | None = None
         self._stderr_tail: list[str] = []
         self._cancelling = False
+        self.setup_dialog: SetupDialog | None = None
 
         self.setWindowTitle(f"msk-pipe {__version__}")
         self.resize(1280, 820)
@@ -163,6 +165,7 @@ class MainWindow(QMainWindow):
         self.device_combo.currentIndexChanged.connect(lambda _=None: self.detect_device())
         self.device_label = QLabel()
         self.device_label.setWordWrap(True)
+        self.device_label.linkActivated.connect(lambda _link: self.open_setup())
 
         self.runs_edit = QLineEdit()
         browse_runs = QPushButton("Browse…")
@@ -254,6 +257,9 @@ class MainWindow(QMainWindow):
         self.open_mw2_button.clicked.connect(
             lambda: self._open(self.summary.mw2_dir if self.summary else None)
         )
+        self.setup_button = QPushButton("Setup…")
+        self.setup_button.setToolTip("Licence key, attachment atlas, model weights and GPU support")
+        self.setup_button.clicked.connect(lambda: self.open_setup())
 
         right = QWidget()
         right_layout = QVBoxLayout(right)
@@ -270,12 +276,13 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(log_box, 1)
         right_layout.addLayout(
             _hbox(
+                self.setup_button,
                 self.open_run_button,
                 self.open_mw2_button,
                 self.cancel_button,
                 self.run_button,
                 stretch_first=False,
-                stretch_at=2,
+                stretch_at=3,
             )
         )
 
@@ -438,6 +445,79 @@ class MainWindow(QMainWindow):
             )
         return guess.modality
 
+    # ------------------------------------------------------------------ setup
+
+    def setup_status(self):
+        """What a run with the current settings needs (:mod:`mskpipe.resources.status`)."""
+        from mskpipe.resources.status import collect
+
+        config = api.resolved_config(None, tuple(self.form.overrides()))
+        return collect(config, self.setup_modalities())
+
+    def setup_modalities(self) -> tuple[str, ...]:
+        """CT/MRI of the current input if known (no detection here), else both."""
+        chosen = self.modality_combo.currentData()
+        if chosen in ("ct", "mri"):
+            return (chosen,)
+        image = self.image_edit.text().strip()
+        guess = self._modalities.get(str(Path(image).resolve())) if image else None
+        modality = getattr(guess, "modality", None)
+        return (modality,) if modality in ("ct", "mri") else ("ct", "mri")
+
+    def open_setup(self, *, at_start: bool = False) -> SetupDialog:
+        """Show the setup window (one instance)."""
+        if self.setup_dialog is not None and self.setup_dialog.isVisible():
+            self.setup_dialog.raise_()
+            self.setup_dialog.activateWindow()
+            return self.setup_dialog
+        show_at_start = str(self.settings.value("setup_at_start", "true")).lower() == "true"
+        dialog = SetupDialog(
+            self.setup_status,
+            command=self.command,
+            modalities=self.setup_modalities(),
+            overrides_fn=self.form.overrides,
+            show_at_start=show_at_start if at_start else None,
+            parent=self,
+        )
+        dialog.use_musclemap.connect(
+            lambda: self.apply_setting(("segmentation", "tibia_fibula"), "musclemap")
+        )
+        dialog.gpu_changed.connect(self.detect_device)
+        dialog.finished.connect(lambda _code: self._setup_closed(dialog, at_start))
+        self.setup_dialog = dialog
+        dialog.show()
+        return dialog
+
+    def _setup_closed(self, dialog: SetupDialog, at_start: bool) -> None:
+        if at_start:
+            value = "true" if dialog.at_start_check.isChecked() else "false"
+            self.settings.setValue("setup_at_start", value)
+            self.settings.sync()
+
+    def check_setup(self) -> SetupDialog | None:
+        """At start: open the setup window if a run would stop on a missing licence key or
+        atlas (unless the user turned that off)."""
+        if str(self.settings.value("setup_at_start", "true")).lower() != "true":
+            return None
+        try:
+            missing = needs_attention(self.setup_status())
+        except Exception:  # invalid remembered settings: the form reports them
+            return None
+        if not missing:
+            return None
+        self.statusBar().showMessage(f"Missing: {', '.join(missing)}", 10_000)
+        return self.open_setup(at_start=True)
+
+    def apply_setting(self, path: Sequence[str], value: Any) -> None:
+        """Set one config value in the form (e.g. from the setup window)."""
+        data = self.form.values()
+        node = data
+        for key in path[:-1]:
+            node = node.setdefault(key, {})
+        node[path[-1]] = value
+        self.form.set_values(data)
+        self.statusBar().showMessage(f"{'.'.join(path)} = {value}", 5000)
+
     # ------------------------------------------------------------------ help
 
     def _label(self, text: str, key: str) -> QWidget:
@@ -471,10 +551,15 @@ class MainWindow(QMainWindow):
             from mskpipe.core.device import DeviceReport
 
             try:
-                self.device_label.setText(DeviceReport.model_validate_json(out).summary())
-                return
+                report = DeviceReport.model_validate_json(out)
             except ValueError:
                 pass
+            else:
+                text = html.escape(report.summary())
+                if "mskpipe setup gpu" in report.reason:
+                    text += ' - <a href="setup">install GPU support…</a>'
+                self.device_label.setText(text)
+                return
         message = err.strip().removeprefix("Error: ") or "device detection failed"
         self.device_label.setText(_colored(message, "#c0392b"))
 
@@ -587,7 +672,8 @@ class MainWindow(QMainWindow):
         answer = QMessageBox.warning(
             self,
             "Pre-run checks failed",
-            f"The run would probably fail:\n\n{text}\n\nStart anyway?",
+            f"The run would probably fail:\n\n{text}\n\n"
+            "Missing licence key, atlas or weights can be set up with Setup….\n\nStart anyway?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -783,6 +869,8 @@ class MainWindow(QMainWindow):
             if not self.process.wait(self.process.cancel_grace_ms):
                 self.process.kill()
                 self.process.wait(5000)
+        if self.setup_dialog is not None:
+            self.setup_dialog.cancel()  # a download must not outlive the window
         self._pool.waitForDone(30_000)  # a modality detection still reading the volume
         self._store()
         event.accept()
@@ -857,6 +945,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     app.setOrganizationName("KIV ZCU")
     window = MainWindow()
     window.show()
+    QTimer.singleShot(0, window.check_setup)
     return app.exec()
 
 
