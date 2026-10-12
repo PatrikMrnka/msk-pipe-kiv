@@ -49,6 +49,9 @@ Issues = "https://github.com/kivzcu/msk-pipe/issues"
 [tool.hatch.version]
 source = "vcs"
 fallback-version = "0.0.0"
+# Only release tags vX.Y.Z give the version; other tags (atlas-lhdl-v1 of the atlas
+# asset) would otherwise be taken as version 1.
+raw-options = { tag_regex = '^v(?P<version>\d+(?:\.\d+){0,2}[^\+]*)(?:\+.*)?$', git_describe_command = ["git", "describe", "--dirty", "--tags", "--long", "--match", "v[0-9]*"] }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mskpipe"]

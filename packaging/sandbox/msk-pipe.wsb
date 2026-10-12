@@ -1,0 +1,17 @@
+<!-- Windows Sandbox: a clean Windows without Python, pixi or an NVIDIA driver.
+     Put the release zip into C:\msk-pipe-sandbox (see CHECKLIST.md), then double-click. -->
+<Configuration>
+  <VGpu>Disable</VGpu>
+  <Networking>Enable</Networking>
+  <MemoryInMB>16384</MemoryInMB>
+  <MappedFolders>
+    <MappedFolder>
+      <HostFolder>C:\msk-pipe-sandbox</HostFolder>
+      <SandboxFolder>C:\Users\WDAGUtilityAccount\Desktop\shared</SandboxFolder>
+      <ReadOnly>false</ReadOnly>
+    </MappedFolder>
+  </MappedFolders>
+  <LogonCommand>
+    <Command>explorer.exe C:\Users\WDAGUtilityAccount\Desktop\shared</Command>
+  </LogonCommand>
+</Configuration>

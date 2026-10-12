@@ -1,0 +1,26 @@
+msk-pipe attachment atlas "lhdl" - licence
+==========================================
+
+This atlas is a derivative work of the Living Human Digital Library (LHDL) dataset
+Cadaver #1 and is licensed under the
+
+    Creative Commons Attribution-NonCommercial-ShareAlike 2.0 Belgium licence
+    (CC BY-NC-SA 2.0 BE)
+    https://creativecommons.org/licenses/by-nc-sa/2.0/be/
+    Legal code: https://creativecommons.org/licenses/by-nc-sa/2.0/be/legalcode
+
+the licence of the original data, as required by its share-alike condition.
+
+Attribution
+  Original work: Living Human Digital Library (LHDL), Cadaver #1, Istituto Ortopedico
+  Rizzoli (IOR), Bologna, and Universite Libre de Bruxelles (ULB), Brussels; project
+  LHDL, EU FP6 IST-2004-026932 (www.livinghuman.org); distributed through Physiome Space
+  (B3C). Derived by Patrik Mrnka and Josef Kohout, University of West Bohemia in Pilsen,
+  for msk-pipe (https://github.com/kivzcu/msk-pipe). The changes are listed in README.md.
+
+You may copy, distribute and adapt the atlas for non-commercial purposes only, with the
+attribution above, and only under a licence identical to this one. Commercial use
+(including the development and testing of products) is not permitted; a licence for it
+must be obtained from the rights holders of the LHDL data.
+
+The atlas is NOT covered by the Apache-2.0 licence of the msk-pipe source code.
