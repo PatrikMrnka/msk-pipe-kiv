@@ -195,7 +195,10 @@ def test_ts_status(fake_ts):
 
 
 def test_ts_status_without_totalsegmentator(monkeypatch):
+    # None in sys.modules makes the import fail even if the module was imported before
+    # (TotalSegmentator is installed in dev-cpu)
     monkeypatch.setitem(sys.modules, "totalsegmentator", None)
+    monkeypatch.setitem(sys.modules, "totalsegmentator.map_tasks_config", None)
     assert weights.ts_status("total").status == "unknown"
     assert weights.ts_folders("unknown_task") is None
 

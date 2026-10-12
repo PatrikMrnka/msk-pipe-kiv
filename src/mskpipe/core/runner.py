@@ -14,7 +14,7 @@ from pathlib import Path
 
 from mskpipe.config import InputSpec, PipelineConfig
 from mskpipe.core.device import DeviceReport, resolve_device
-from mskpipe.core.manifest import Manifest
+from mskpipe.core.manifest import Manifest, overlay_package_info
 from mskpipe.core.step import Step, StepCancelled, StepContext
 from mskpipe.core.workspace import STEPS, Workspace
 
@@ -88,6 +88,8 @@ def run_pipeline(
         ws = Workspace.create(spec, config)
         manifest = Manifest.create(ws)
     manifest.device = device.model_dump(mode="json")
+    if device.selected == "cuda" and device.torch_overlay:
+        manifest.environment.packages.update(overlay_package_info(Path(device.torch_overlay)))
     manifest.save()
 
     handler = _attach_log(ws, config)

@@ -35,6 +35,7 @@ TRACKED_PACKAGES: dict[str, str] = {
     "pystaple": "pystaple",
     "fast-simplification": "fast-simplification",
     "torch": "torch",
+    "torchvision": "torchvision",
     "numpy": "numpy",
     "simpleitk": "SimpleITK",
     "vtk": "vtk",
@@ -199,6 +200,19 @@ def capture_environment() -> Environment:
         packages={name: package_info(dist) for name, dist in TRACKED_PACKAGES.items()},
         git=git_info(Path(__file__).resolve().parent),
     )
+
+
+def overlay_package_info(site: Path) -> dict[str, PackageInfo]:
+    """Tracked packages found in the GPU overlay (they replace the environment's builds in
+    the child processes of a cuda run, see :mod:`mskpipe.resources.gpu`)."""
+    from mskpipe.resources.gpu import overlay_packages
+
+    found = overlay_packages(site)
+    return {
+        name: PackageInfo(version=found[dist.lower()])
+        for name, dist in TRACKED_PACKAGES.items()
+        if dist.lower() in found
+    }
 
 
 def package_info(dist_name: str) -> PackageInfo:

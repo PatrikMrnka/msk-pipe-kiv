@@ -609,6 +609,11 @@ def setup_status(
     where = f"{atlas.path} ({atlas.source})" if atlas.path else "not found"
     mark = "ok" if atlas.ok else "MISSING"
     typer.echo(f"Atlas:            {mark} - {where}" if atlas.needed else "Atlas: not needed")
+    gpu = status.gpu
+    if gpu is not None and gpu.installed:
+        typer.echo(f"GPU support:      {gpu.tag} - {gpu.path}")
+    elif gpu is not None and gpu.supported:
+        typer.echo(f"GPU support:      not installed (optional: mskpipe setup gpu, {gpu.tag})")
     typer.echo("Weights:")
     for w in status.weights:
         lock = " [licence]" if w.licensed else ""
@@ -723,6 +728,58 @@ def setup_atlas(
     except (AtlasError, DownloadError, OSError) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1) from None
+
+
+@setup_app.command("gpu")
+def setup_gpu(
+    remove: Annotated[bool, typer.Option("--remove", help="Delete the GPU support.")] = False,
+    force: Annotated[bool, typer.Option("--force", "-f", help="Reinstall.")] = False,
+    wheel_dir: Annotated[
+        Path | None,
+        typer.Option("--wheel-dir", help="Folder with the wheels already downloaded (offline)."),
+    ] = None,
+    keep_downloads: Annotated[
+        bool, typer.Option("--keep-downloads", help="Keep the downloaded wheels.")
+    ] = False,
+) -> None:
+    """Install GPU support for the Windows release (CUDA build of PyTorch, ~3.5 GB).
+
+    Downloads the torch/torchvision CUDA wheels pinned in pixi.lock, checks their SHA-256
+    and unpacks them next to the environment; runs on the GPU use them, CPU runs do not.
+    Needs an NVIDIA driver 570 or newer. From the sources use `pixi run -e gpu` instead.
+    """
+    from mskpipe.resources.download import DownloadError
+    from mskpipe.resources.gpu import GpuSetupError, install_gpu, remove_gpu
+
+    if remove:
+        remove_gpu(typer.echo)
+        return
+
+    def progress(wheel):
+        last = [-1]
+
+        def report(done: int, total: int | None) -> None:
+            if not total:
+                return
+            pct = int(100 * done / total) // 5 * 5
+            if pct != last[0]:
+                last[0] = pct
+                typer.echo(f"  {wheel.name}: {pct:3d} % of {total / 2**30:.2f} GiB")
+
+        return report
+
+    try:
+        install_gpu(
+            typer.echo,
+            progress=progress,
+            force=force,
+            keep_downloads=keep_downloads,
+            wheel_dir=wheel_dir,
+        )
+    except (GpuSetupError, DownloadError, OSError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from None
+    typer.echo("Check it with: mskpipe device -d gpu")
 
 
 # ---------------------------------------------------------------------------- config

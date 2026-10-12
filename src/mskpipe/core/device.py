@@ -16,10 +16,12 @@ is required from the user; CUDA itself comes with the torch wheel.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
 from contextlib import suppress
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -33,8 +35,9 @@ MIN_DRIVER = 570  # needed by torch wheels built with CUDA 12.8 (Blackwell, RTX 
 PROBE_TIMEOUT_S = 120
 
 _GPU_HINT = (
-    "Run msk-pipe in its GPU environment (e.g. `pixi run -e gpu mskpipe ...`) with an NVIDIA "
-    f"driver {MIN_DRIVER} or newer, or use runtime.device=cpu (or auto)."
+    f"Needs an NVIDIA driver {MIN_DRIVER} or newer and a CUDA build of PyTorch: in the "
+    "Windows release install GPU support (`mskpipe setup gpu`), from the sources use the GPU "
+    "environment (`pixi run -e gpu mskpipe ...`); or use runtime.device=cpu (or auto)."
 )
 
 
@@ -76,6 +79,7 @@ class DeviceReport(BaseModel):
     driver_cuda: str | None = None  # highest CUDA version the driver supports
     gpus: list[GpuInfo] = Field(default_factory=list)
     torch: TorchInfo | None = None
+    torch_overlay: str | None = None  # GPU overlay site-packages used by cuda runs (release)
 
     @property
     def gpu(self) -> GpuInfo | None:
@@ -91,6 +95,10 @@ class DeviceReport(BaseModel):
         """Environment variables for external tools run by the steps."""
         env = {"CUDA_DEVICE_ORDER": "PCI_BUS_ID"}  # same numbering as NVML/nvidia-smi
         env["CUDA_VISIBLE_DEVICES"] = "" if self.selected == "cpu" else str(self.gpu_index)
+        if self.selected == "cuda" and self.torch_overlay:
+            from mskpipe.resources.gpu import with_overlay
+
+            env = with_overlay(env, Path(self.torch_overlay))
         if threads is not None:
             for var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
                 env[var] = str(threads)
@@ -137,11 +145,16 @@ def resolve_device(requested: str, *, probe_torch: bool | None = None) -> Device
     if probe_torch is False:
         return fallback("torch probe disabled")
 
-    torch = probe_torch_cuda()
+    from mskpipe.resources.gpu import installed_overlay
+
+    overlay = installed_overlay()
+    torch = probe_torch_cuda(overlay=overlay)
     if torch.version is None:
         return fallback("PyTorch is not installed in this environment", torch)
     if not torch.cuda_available:
         build = f"CPU-only build {torch.version}" if torch.cuda is None else torch.version
+        if torch.cuda is None and overlay is None:
+            build += "; GPU support not installed (mskpipe setup gpu)"
         return fallback(f"torch.cuda is not available ({build})", torch)
     if not torch.kernel_ok:
         cc = gpus[0].compute_capability
@@ -156,6 +169,7 @@ def resolve_device(requested: str, *, probe_torch: bool | None = None) -> Device
         gpu_index=gpus[0].index,
         reason="requested" if requested == "gpu" else "auto: usable NVIDIA GPU",
         torch=torch,
+        torch_overlay=str(overlay) if overlay else None,
         **base,
     )
 
@@ -278,11 +292,18 @@ print(json.dumps(info))
 """
 
 
-def probe_torch_cuda(python: str | None = None) -> TorchInfo:
-    """Check PyTorch CUDA support in a separate interpreter (default: the current one)."""
+def probe_torch_cuda(python: str | None = None, overlay: Path | None = None) -> TorchInfo:
+    """Check PyTorch CUDA support in a separate interpreter (default: the current one),
+    with the GPU overlay (``mskpipe.resources.gpu``) first on ``PYTHONPATH`` if given."""
+    env = None
+    if overlay is not None:
+        from mskpipe.resources.gpu import with_overlay
+
+        env = with_overlay(os.environ, overlay)
     try:
         out = subprocess.run(
             [python or sys.executable, "-c", _PROBE],
+            env=env,
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,

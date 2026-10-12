@@ -1,0 +1,21 @@
+{
+  "format": "mskpipe.gpu_wheels",
+  "version": 1,
+  "tag": "torch-2.7.1+cu128",
+  "python": "cp311",
+  "platform": "win_amd64",
+  "wheels": [
+    {
+      "name": "torch",
+      "version": "2.7.1+cu128",
+      "url": "https://download-r2.pytorch.org/whl/cu128/torch-2.7.1%2Bcu128-cp311-cp311-win_amd64.whl",
+      "sha256": "138c66dcd0ed2f07aafba3ed8b7958e2bed893694990e0b4b55b6b2b4a336aa6"
+    },
+    {
+      "name": "torchvision",
+      "version": "0.22.1+cu128",
+      "url": "https://download-r2.pytorch.org/whl/cu128/torchvision-0.22.1%2Bcu128-cp311-cp311-win_amd64.whl",
+      "sha256": "85ecd729c947151eccea502853be6efc2c0029dc26e6e5148e04684aed008390"
+    }
+  ]
+}
