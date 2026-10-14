@@ -1,0 +1,168 @@
+{
+  "format": "mskpipe.fast_rnrr_build",
+  "version": 1,
+  "notice": "Fast-RNRR (Yao, Deng, Xu, Zhang; https://github.com/Juyong/Fast_RNRR) is protected under patent and may only be used for research purposes. For business or for-profit use contact Juyong Zhang (juyong@ustc.edu.cn). msk-pipe does not distribute it: it is downloaded from the authors' repository and built on this computer.",
+  "citation": "Yao Y., Deng B., Xu W., Zhang J. (2020). Quasi-Newton Solver for Robust Non-Rigid Registration. IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR). https://arxiv.org/abs/2004.04322",
+  "fast_rnrr": {
+    "repository": "https://github.com/Juyong/Fast_RNRR",
+    "commit": "9c6e336e6f1096ae8144d64d9d8009183d622fba",
+    "raw_url": "https://raw.githubusercontent.com/Juyong/Fast_RNRR/{commit}/{path}",
+    "files": [
+      {
+        "path": "include/median.h",
+        "sha256": "bd11cfa949c5453ff773c6e4c931808147ac4ad670e578aeedad8c0285a7497f"
+      },
+      {
+        "path": "include/nanoflann.hpp",
+        "sha256": "296157ebba4285e49c8d7e4fa18880d399534a94811bd25d65f64c1b3eb391b4"
+      },
+      {
+        "path": "src/NonRigidreg.cpp",
+        "sha256": "53e37ef5e8081e5e8bb70a85d9be8cbdb216b117b5b9a1824dc646ac05a4a5f9"
+      },
+      {
+        "path": "src/NonRigidreg.h",
+        "sha256": "2b984bc122e8ccf2092be071681169c8806d72ed246f3dbd7a36be50b312c88b"
+      },
+      {
+        "path": "src/Registration.cpp",
+        "sha256": "da459366328ef6c3b55477009f5b3e2c0b8b4cb2e9518b13b7b5ed3b23624e0a"
+      },
+      {
+        "path": "src/Registration.h",
+        "sha256": "748f2a56da53d0d19efad46bc66c445459c83db330ebe4582b8bbb713ce9d7a3"
+      },
+      {
+        "path": "src/geodesic/geodesic_algorithm_base.h",
+        "sha256": "c431111950a8f48c30804ba5c3a3d0d285267eec0052b03a2f7474b896c1c6b0"
+      },
+      {
+        "path": "src/geodesic/geodesic_algorithm_exact.h",
+        "sha256": "7b291734fe482c16764fb4eef5fd303216c0683da3ba30a0390f909ccc1bea95"
+      },
+      {
+        "path": "src/geodesic/geodesic_algorithm_exact_elements.h",
+        "sha256": "dc21b8549bc0544bc2deba19b7ad9733c76f58a89e2112b5912ed4e8008c03e3"
+      },
+      {
+        "path": "src/geodesic/geodesic_constants_and_simple_functions.h",
+        "sha256": "eab027673b4b737a4164d7ae2bc14d1ca223b6b94b5515cc00c50b9cf75f4217"
+      },
+      {
+        "path": "src/geodesic/geodesic_memory.h",
+        "sha256": "4fd38c5f51298adbdac440652426624a2982f2fbac6de385589c31fb3a008d2c"
+      },
+      {
+        "path": "src/main.cpp",
+        "sha256": "ca23bea62f1f9ccf9651ca32841a47234834360bb02ba1902f4b06d3d05d337f"
+      },
+      {
+        "path": "src/tools/OmpHelper.h",
+        "sha256": "ad37b4a841b60e618a9eb7fac7098c0bf72904f62538f50bf22b993feaa01f3b"
+      },
+      {
+        "path": "src/tools/Types.h",
+        "sha256": "63086d6f2a4877a4ff343581661a4e351dcbce08fe4c0c2d025efb727257de82"
+      },
+      {
+        "path": "src/tools/io_mesh.h",
+        "sha256": "8cc42956f62e70d8251875d0ac93819c54ef80f368fb65ece81f16b499a4f63a"
+      },
+      {
+        "path": "src/tools/nanoflann.h",
+        "sha256": "836e7f8a21b8d016d6015b8e46921afd74536aaa0f382049a1a5685610265147"
+      },
+      {
+        "path": "src/tools/nodeSampler.cpp",
+        "sha256": "2a91184bcf6e4a8854079949cf0b311b7b4b2d1ed3413977864ed5ede0e4f124"
+      },
+      {
+        "path": "src/tools/nodeSampler.h",
+        "sha256": "7dcfab53a62f04820c56b3d4a3958aacecf99db60b2d1450a7c741e1f24a2ce2"
+      },
+      {
+        "path": "src/tools/tools.cpp",
+        "sha256": "57c9c352249b22fd66a1bfd2fdcc00fb6b7abf3393830e4edf93b532ff500710"
+      },
+      {
+        "path": "src/tools/tools.h",
+        "sha256": "25ad8fa7985dea7831bd67f4a5a38bd723e41ea5c9847df5f1a90df9bcb85236"
+      },
+      {
+        "path": "data/test/source.obj",
+        "sha256": "9938f69a8e1c8d1d63a913b95f7d84a935e6b51d2938537c4d1b8e2360976266"
+      },
+      {
+        "path": "data/test/target_mesh.obj",
+        "sha256": "7c1bc26f14fd80d06abc9315917406c9ec40334deb1f0d119608903edb70bbfd"
+      },
+      {
+        "path": "data/test/mesh_res.obj",
+        "sha256": "da61b9aea43d5423e05816a0adb33348d2b321a18e38653c7f3f11ff640654d9"
+      }
+    ],
+    "sources": [
+      "src/*.cpp",
+      "src/geodesic/*.cpp",
+      "src/tools/*.cpp"
+    ],
+    "include_dirs": [
+      "src",
+      "include"
+    ],
+    "check": {
+      "source": "data/test/source.obj",
+      "target": "data/test/target_mesh.obj",
+      "expected": "data/test/mesh_res.obj"
+    }
+  },
+  "openmesh": {
+    "name": "openmesh",
+    "version": "9.1.0",
+    "licence": "BSD-3-Clause",
+    "url": "https://files.pythonhosted.org/packages/66/34/fd86bf3ca48d010f3a588fa997595c13162bc07563382f9a4d5ec8855dfb/openmesh-1.2.1.tar.gz",
+    "sha256": "6fd3fa41a68148e4a7523f562426aa9758bf65ccc6642abcf79c37bae9c6af3c",
+    "root": "openmesh-1.2.1/OpenMesh/src"
+  },
+  "openmesh_sources": [
+    "OpenMesh/Core/**/*.cc"
+  ],
+  "eigen": {
+    "name": "eigen",
+    "version": "3.4.0",
+    "licence": "MPL-2.0",
+    "url": "https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.tar.gz",
+    "sha256": "8586084f71f9bde545ee7fa6d00288b264a2b7ac3607b974e54d13e7162c1c72",
+    "root": "eigen-3.4.0"
+  },
+  "flags": [
+    "-std=c++14",
+    "-O3",
+    "-DNDEBUG",
+    "-D_USE_MATH_DEFINES",
+    "-DOM_STATIC_BUILD",
+    "-w"
+  ],
+  "defines": {
+    "win_amd64": [
+      "NOMINMAX"
+    ]
+  },
+  "compilers": {
+    "win_amd64": {
+      "name": "zig",
+      "version": "0.13.0",
+      "url": "https://files.pythonhosted.org/packages/e0/0c/66f4710aedf5544e15779ff9c6e770322986e15daf9299b1a4df0be19e09/ziglang-0.13.0-py3-none-win_amd64.whl",
+      "sha256": "b64b2aa936ebbfeecfbb2611df331a5474edebe1246b98c2f56d6ae4d58b71fc",
+      "target": "x86_64-windows-gnu"
+    },
+    "manylinux_x86_64": {
+      "name": "zig",
+      "version": "0.13.0",
+      "url": "https://files.pythonhosted.org/packages/0c/b7/ecfdce6368cc3664d301f7f52db4fe1004aa7da7a12c4a9bf1de534ff6ab/ziglang-0.13.0-py3-none-manylinux_2_12_x86_64.manylinux2010_x86_64.musllinux_1_1_x86_64.whl",
+      "sha256": "3ce0c9f16547e5d61b32e0d226926e9a2552ef4b91fccf7ab5ea1a623a77824b",
+      "target": "native"
+    }
+  },
+  "tolerance": 0.0001
+}

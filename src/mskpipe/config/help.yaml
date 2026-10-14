@@ -303,8 +303,8 @@ plugins.attachments.bone_registration.trim:
 plugins.attachments.bone_registration.nonrigid:
   help: >-
     Non-rigid stage after the rigid alignment, adapting the atlas bone to the subject's
-    shape: coherent_icp (default), cpd (Coherent Point Drift), fast_rnrr (external program,
-    not distributed) or none (rigid only).
+    shape: coherent_icp (default), cpd (Coherent Point Drift), fast_rnrr (Fast-RNRR, research
+    use only: built on this computer with Setup… -> Fast-RNRR) or none (rigid only).
   example: none, to compare with the rigid transfer only.
 plugins.attachments.bone_registration.nonrigid_points:
   help: Atlas points driving the non-rigid stage (coherent_icp and cpd).
@@ -343,7 +343,8 @@ plugins.attachments.bone_registration.cpd_sigma_init_mm:
 plugins.attachments.bone_registration.fast_rnrr_exe:
   help: >-
     fast_rnrr: path to your own build of Fast_RNRR.exe (research-only licence, not
-    distributed). Empty = MSKPIPE_FAST_RNRR or PATH.
+    distributed). Empty = MSKPIPE_FAST_RNRR, the build of Setup… -> Fast-RNRR
+    (mskpipe setup fast-rnrr) or PATH.
   example: C:\tools\Fast_RNRR\Fast_RNRR.exe
 plugins.attachments.bone_registration.fast_rnrr_max_faces:
   help: "fast_rnrr: the atlas bone is decimated to at most this many triangles."

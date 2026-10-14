@@ -636,6 +636,13 @@ def setup_status(
         typer.echo(f"GPU support:      {gpu.tag} - {gpu.path}")
     elif gpu is not None and gpu.supported:
         typer.echo(f"GPU support:      not installed (optional: mskpipe setup gpu, {gpu.tag})")
+    rnrr = status.fast_rnrr
+    if rnrr is not None and (rnrr.needed or rnrr.ok):
+        if rnrr.ok:
+            text = f"ok - {rnrr.path} ({rnrr.source})"
+        else:
+            text = "MISSING (research use only: mskpipe setup fast-rnrr)"
+        typer.echo(f"Fast-RNRR:        {text}")
     typer.echo("Weights:")
     for w in status.weights:
         lock = " [licence]" if w.licensed else ""
@@ -816,6 +823,75 @@ def setup_gpu(
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1) from None
     typer.echo("Check it with: mskpipe device -d gpu")
+
+
+@setup_app.command("fast-rnrr")
+def setup_fast_rnrr(
+    accept: Annotated[
+        bool,
+        typer.Option(
+            "--accept-research-licence",
+            help="Confirm that you use Fast-RNRR for research purposes only (its authors' terms).",
+        ),
+    ] = False,
+    remove: Annotated[bool, typer.Option("--remove", help="Delete the built program.")] = False,
+    force: Annotated[bool, typer.Option("--force", "-f", help="Build again.")] = False,
+    keep_build_files: Annotated[
+        bool, typer.Option("--keep-build-files", help="Keep sources, compiler and objects.")
+    ] = False,
+    jobs: Annotated[
+        int | None, typer.Option("--jobs", "-j", min=1, help="Parallel compiler processes.")
+    ] = None,
+) -> None:
+    """Build Fast-RNRR on this computer (optional non-rigid registration of attachments).
+
+    Fast-RNRR (Yao et al., CVPR 2020) is patented and may be used for research purposes only,
+    so msk-pipe does not distribute it. This downloads the authors' source (pinned commit),
+    OpenMesh, Eigen and the Zig compiler (~110 MB, SHA-256 checked), builds the program in a
+    few minutes and checks it against the authors' test result. Nothing else is installed.
+    Then use: --set attachments.params.nonrigid=fast_rnrr
+    """
+    from mskpipe.resources.download import DownloadError
+    from mskpipe.resources.fast_rnrr import (
+        FastRnrrSetupError,
+        build_fast_rnrr,
+        load_spec,
+        remove_fast_rnrr,
+    )
+    from mskpipe.resources.tool import ToolCancelled
+
+    if remove:
+        try:
+            with _setup_locked("removing Fast-RNRR"):
+                remove_fast_rnrr(typer.echo)
+        except (FastRnrrSetupError, OSError) as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(1) from None
+        return
+    if not accept:
+        spec = load_spec()
+        typer.echo(spec.notice)
+        typer.echo(
+            "\nTo build it, confirm that you use it for research purposes only:\n"
+            "  mskpipe setup fast-rnrr --accept-research-licence",
+            err=True,
+        )
+        raise typer.Exit(EXIT_SETUP)
+    try:
+        with _setup_locked("building Fast-RNRR"):
+            build_fast_rnrr(
+                typer.echo,
+                accepted=True,
+                force=force,
+                keep_build_files=keep_build_files,
+                jobs=jobs,
+            )
+    except ToolCancelled:
+        raise typer.Exit(EXIT_CANCELLED) from None
+    except (FastRnrrSetupError, DownloadError, OSError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from None
+    typer.echo("Use it with: --set attachments.params.nonrigid=fast_rnrr")
 
 
 # ---------------------------------------------------------------------------- config

@@ -26,3 +26,7 @@ msk-pipe-atlas-lhdl-v1.zip) derived from the Living Human Digital Library (LHDL)
 (Istituto Ortopedico Rizzoli, Universite Libre de Bruxelles; EU FP6 IST-2004-026932). It
 is NOT licensed under Apache-2.0 but under CC BY-NC-SA 2.0 BE, see its LICENSE and
 README.md.
+
+Fast-RNRR (optional, Yao et al. 2020; patented, research use only) is not distributed
+with msk-pipe. `mskpipe setup fast-rnrr --accept-research-licence` downloads its source
+from the authors' repository and builds it on the user's computer.

@@ -49,8 +49,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 - Release: Visual C++ runtime DLLs (`vcruntime140*.dll` from the environment's `vc14_runtime`) next to `bin/pixi-unpack.exe`, which needs them before the environment exists; a clean Windows (Windows Sandbox) reported a missing `VCRUNTIME140.dll` at the first start.
 - `mskpipe/build_info.json` (written into the release wheel): msk-pipe commit and commits of git packages, used by the manifest and the skeleton parity check when `direct_url.json` and a git checkout are missing.
 - MuscleMap model kept in a per-user store (`<home>/weights/musclemap`) and linked into environments that lack it (hard link, else copy), so a new release or the GPU environment does not download it again.
+- `mskpipe setup fast-rnrr --accept-research-licence [--remove] [--force] [--keep-build-files] [-j N]` and *Setup… → Fast-RNRR* in the GUI (`mskpipe.resources.fast_rnrr`): Fast-RNRR (research use only, not distributed) is built on the user's computer after an explicit confirmation. The pinned source files of the authors' repository (commit `9c6e336`), OpenMesh 9.1 (C++ library of the `openmesh` sdist on PyPI), Eigen 3.4.0 and the Zig 0.13 C/C++ compiler (`ziglang` wheel on PyPI) are downloaded with SHA-256 checks (`fast_rnrr_build.json`, written by `tools/fast_rnrr_pins.py`); no Visual Studio or CMake is needed. The authors' source is compiled unchanged with their flags (`-O3 -std=c++14`) plus a serial `omp.h` (Zig has no OpenMP runtime); all OpenMesh sources are linked in directly so that its file readers are registered. The new program must reproduce the authors' test result (`data/test`, max deviation <= 1e-4 of the size; 4e-7 measured) before it is installed into `<MSKPIPE_HOME>/fast_rnrr/<commit>/` with `build.json` (sources, compiler, check, consent) and `NOTICE.txt`. The executable is found after `fast_rnrr_exe` and `MSKPIPE_FAST_RNRR`, before `PATH`; `setup status` and the GUI report it, the GUI opens Setup when `nonrigid = fast_rnrr` and it is missing; registration metrics record the build (`nonrigid_info.build`). Manual CI job *Fast-RNRR build on Windows* (workflow_dispatch, nothing uploaded).
 
 ### Changed
+- README: what the pipeline produces, a) the Windows release, b) building from source (ba: pixi with locked dependencies, bb: everything from source with the STAPLE parity check and the release build), configuration, troubleshooting, licences and citation.
+- Release workflow: `actions/upload-artifact@v6` and `actions/download-artifact@v7` (Node.js 24; v4/v5 of upload and v4–v6 of download still run on the deprecated Node.js 20).
+- `CITATION.cff`: version 0.1.0.
 - Attachment atlas lookup: `attachments.params.atlas_dir`, else `MSKPIPE_ATLAS_DIR`, else the atlas installed by `mskpipe setup atlas`.
 - Package version only from tags `vX.Y.Z` (hatch-vcs `--match v[0-9]*`), so the tag of the atlas asset is not taken as a version.
 - Device: a CPU-only torch without GPU support installed says so (`mskpipe setup gpu`); the manifest tracks `torchvision` too.
@@ -69,6 +73,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 - GUI setup window: closing it during a download and opening it again created a new window in which another download could be started, while the first one kept running (several `python` processes downloading the same files). There is now one setup window for the life of the main window; closing it (Close, Esc, X) keeps a running task in the background and reopening shows its progress; only one task runs at a time; setup tasks are refused during a pipeline run and the run is refused during a setup task; quitting the GUI asks before cancelling a running download.
 
 ### Removed
+- `release_log.txt` (a CI log committed by mistake; `*_log.txt` is ignored).
 - `ci.yml` in the repository root (the CI workflow is `.github/workflows/ci.yml`).
 - `tools/run_steps.py` (use `mskpipe run`).
 

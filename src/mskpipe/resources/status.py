@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel
 
 from mskpipe.resources.atlas import ATLAS_INDEX, Source, resolve_atlas_dir
+from mskpipe.resources.fast_rnrr import FastRnrrStatus, fast_rnrr_status, locate
 from mskpipe.resources.gpu import GpuStatus, gpu_status
 from mskpipe.resources.licence import format_problem, licence_number
 from mskpipe.resources.paths import home, totalseg_home
@@ -32,6 +33,17 @@ class AtlasStatus(BaseModel):
     ok: bool
 
 
+class FastRnrrNeed(BaseModel):
+    needed: bool  # attachments.params.nonrigid == fast_rnrr
+    path: str | None = None  # executable a run would use
+    source: str = "none"  # config, env, build, path or none
+    build: FastRnrrStatus | None = None  # the build of `mskpipe setup fast-rnrr`
+
+    @property
+    def ok(self) -> bool:
+        return self.path is not None
+
+
 class SetupStatus(BaseModel):
     home: str
     totalseg_home: str
@@ -39,13 +51,16 @@ class SetupStatus(BaseModel):
     weights: list[WeightsItem]
     atlas: AtlasStatus
     gpu: GpuStatus | None = None  # None: the GPU wheel list could not be read
+    fast_rnrr: FastRnrrNeed | None = None
 
     @property
     def ready(self) -> bool:
         """Everything present (weights may still be downloaded on the first run)."""
         licence_ok = not self.licence.needed or (self.licence.present and not self.licence.problem)
         atlas_ok = not self.atlas.needed or self.atlas.ok
-        return licence_ok and atlas_ok and all(w.status == "ok" for w in self.weights)
+        rnrr_ok = self.fast_rnrr is None or not self.fast_rnrr.needed or self.fast_rnrr.ok
+        weights_ok = all(w.status == "ok" for w in self.weights)
+        return licence_ok and atlas_ok and rnrr_ok and weights_ok
 
 
 def collect(config: PipelineConfig, modalities: Iterable[str] = ("ct", "mri")) -> SetupStatus:
@@ -74,6 +89,7 @@ def collect(config: PipelineConfig, modalities: Iterable[str] = ("ct", "mri")) -
         weights=weights_status(config, modalities),
         atlas=atlas,
         gpu=_gpu(),
+        fast_rnrr=_fast_rnrr(config),
     )
 
 
@@ -82,3 +98,16 @@ def _gpu() -> GpuStatus | None:
         return gpu_status()
     except (OSError, ValueError):
         return None
+
+
+def _fast_rnrr(config: PipelineConfig) -> FastRnrrNeed:
+    params = config.attachments.params
+    needed = config.attachments.method == "bone_registration" and (
+        params.get("nonrigid") == "fast_rnrr"
+    )
+    path, source = locate(params.get("fast_rnrr_exe"))
+    try:
+        build = fast_rnrr_status()
+    except (OSError, ValueError):
+        build = None
+    return FastRnrrNeed(needed=needed, path=str(path) if path else None, source=source, build=build)

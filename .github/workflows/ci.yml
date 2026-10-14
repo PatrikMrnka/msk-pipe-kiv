@@ -57,3 +57,30 @@ jobs:
           pixi run -e cpu python -c "import vtk; v = vtk.vtkVersion.GetVTKVersion(); assert v == '9.4.2', v"
       - name: Skeleton parity with MATLAB STAPLE
         run: pixi run -e cpu python tools/skeleton_parity.py --fetch
+
+  fast-rnrr:
+    # Manual only ("Run workflow"): builds Fast-RNRR from the authors' source on a clean
+    # Windows runner exactly as `mskpipe setup fast-rnrr` does for a user, including the
+    # authors' test. Research use only and not redistributable: nothing is uploaded.
+    name: Fast-RNRR build on Windows
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: prefix-dev/setup-pixi@v0.10.2
+        with:
+          pixi-version: v0.81.0
+          environments: default
+          locked: true
+          cache: true
+      - name: Empty per-user folder
+        run: '"MSKPIPE_HOME=$env:RUNNER_TEMP\mskpipe-home" >> $env:GITHUB_ENV'
+      - name: Build and check
+        run: pixi run mskpipe setup fast-rnrr --accept-research-licence
+      - name: Found by the pipeline
+        run: |
+          pixi run mskpipe setup status --set attachments.params.nonrigid=fast_rnrr --json > status.json
+          pixi run python -c "import json; s = json.load(open('status.json', encoding='utf-8')); f = s['fast_rnrr']; print(f); assert f['source'] == 'build' and f['path']"

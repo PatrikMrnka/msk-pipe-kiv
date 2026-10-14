@@ -2,9 +2,10 @@
 """Fast-RNRR (Yao et al., CVPR 2020) as an external non-rigid registration.
 
 Fast-RNRR (https://github.com/Juyong/Fast_RNRR) is research-only and patented, and has
-no licence that allows redistribution: mskpipe neither ships nor builds it. The user
-points to an executable built by themselves (``<exe> <src.obj> <tar.obj> <out_prefix>``,
-result ``<out_prefix>res.obj``).
+no licence that allows redistribution: mskpipe does not ship it. With the user's consent
+``mskpipe setup fast-rnrr`` downloads the authors' source and builds it on the user's
+computer (:mod:`mskpipe.resources.fast_rnrr`); an executable built otherwise can be given
+instead (``<exe> <src.obj> <tar.obj> <out_prefix>``, result ``<out_prefix>res.obj``).
 
 The executable deforms the vertices of the source mesh (embedded deformation graph,
 robust Welsch metric, quasi-Newton solver; its own rigid stage is off in the reference
@@ -15,7 +16,6 @@ point near the source surface: barycentric transport on the closest source trian
 from __future__ import annotations
 
 import os
-import shutil
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,9 +25,7 @@ import vtk
 
 from mskpipe.geometry.surface import to_polydata
 from mskpipe.io.mesh_io import TriMesh, read_mesh, write_mesh
-
-FAST_RNRR_ENV = "MSKPIPE_FAST_RNRR"
-EXECUTABLE_NAMES = ("Fast_RNRR.exe", "Fast_RNRR")
+from mskpipe.resources.fast_rnrr import FAST_RNRR_ENV
 
 
 class FastRnrrError(RuntimeError):
@@ -35,21 +33,22 @@ class FastRnrrError(RuntimeError):
 
 
 def find_executable(value: str | os.PathLike[str] | None = None) -> Path:
-    """``value``, else ``$MSKPIPE_FAST_RNRR``, else ``Fast_RNRR`` on PATH."""
-    candidate = value or os.environ.get(FAST_RNRR_ENV)
-    if candidate:
-        path = Path(candidate)
-        if path.is_file():
-            return path
-        raise FastRnrrError(f"Fast-RNRR executable not found: {path}")
-    for name in EXECUTABLE_NAMES:
-        found = shutil.which(name)
-        if found:
-            return Path(found)
+    """``value``, else ``$MSKPIPE_FAST_RNRR``, else the executable built by
+    ``mskpipe setup fast-rnrr``, else ``Fast_RNRR`` on PATH."""
+    from mskpipe.resources.fast_rnrr import locate
+
+    path, source = locate(value)
+    if path is not None:
+        return path
+    if source == "config":
+        raise FastRnrrError(f"Fast-RNRR executable not found: {value}")
+    if source == "env":
+        raise FastRnrrError(f"Fast-RNRR executable not found: {os.environ[FAST_RNRR_ENV]}")
     raise FastRnrrError(
-        "Fast-RNRR is not distributed with mskpipe (research-only licence): build it "
-        "(https://github.com/Juyong/Fast_RNRR) and set attachments.params.fast_rnrr_exe "
-        f"or the {FAST_RNRR_ENV} environment variable"
+        "Fast-RNRR is not distributed with msk-pipe (research-only licence). Build it on "
+        "this computer: mskpipe setup fast-rnrr --accept-research-licence (GUI: Setup… -> "
+        "Fast-RNRR), or set attachments.params.fast_rnrr_exe or the "
+        f"{FAST_RNRR_ENV} environment variable"
     )
 
 

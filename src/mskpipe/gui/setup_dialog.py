@@ -3,7 +3,8 @@
 
 The status is collected in the GUI process (:func:`mskpipe.resources.status.collect`, file
 checks only); every action - storing the TotalSegmentator licence key, downloading model
-weights, installing an atlas, installing or removing GPU support - runs as a child process
+weights, installing an atlas, installing or removing GPU support, building Fast-RNRR - runs
+as a child process
 ``python -m mskpipe setup ...`` so that the window stays responsive, the output goes to the
 log and a download can be cancelled.
 
@@ -32,6 +33,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
@@ -52,12 +54,19 @@ CANCELLED = 130
 BUSY = 3  # mskpipe.cli.EXIT_BUSY: another msk-pipe process holds the setup lock
 ATLAS_FILTER = "Atlas (*.zip);;All files (*)"
 _PROGRESS = re.compile(r"^\s*(?P<name>[\w.-]+):\s+(?P<pct>\d+)\s*%")
+_COMPILED = re.compile(r"^\s*compiled (?P<done>\d+)/(?P<total>\d+)")  # mskpipe setup fast-rnrr
 
 
 def parse_progress(line: str) -> tuple[str, int] | None:
-    """``"  torch:  35 % of 3.05 GiB"`` (``mskpipe setup gpu``) -> ``("torch", 35)``."""
+    """``"  torch:  35 % of 3.05 GiB"`` (``mskpipe setup gpu``) -> ``("torch", 35)``;
+    ``"  compiled 3/30: x.cc"`` (``mskpipe setup fast-rnrr``) -> ``("compiling", 10)``."""
     m = _PROGRESS.match(line)
-    return (m["name"], int(m["pct"])) if m else None
+    if m:
+        return m["name"], int(m["pct"])
+    m = _COMPILED.match(line)
+    if m and int(m["total"]):
+        return "compiling", 100 * int(m["done"]) // int(m["total"])
+    return None
 
 
 def weights_args(modalities: Sequence[str], overrides: Sequence[str]) -> list[str]:
@@ -78,6 +87,9 @@ def needs_attention(status: SetupStatus) -> list[str]:
         out.append("TotalSegmentator licence key")
     if status.atlas.needed and not status.atlas.ok:
         out.append("attachment atlas")
+    rnrr = status.fast_rnrr
+    if rnrr is not None and rnrr.needed and not rnrr.ok:
+        out.append("Fast-RNRR")
     return out
 
 
@@ -92,6 +104,12 @@ class SetupDialog(QDialog):
     not allowed now (e.g. a pipeline run is active) or None. Signals: ``use_musclemap``
     (tibia/fibula from MuscleMap, no licence key), ``gpu_changed`` (re-detect the device),
     ``task_changed`` (a task started / finished)."""
+
+    FAST_RNRR_QUESTION = (
+        "{notice}\n\nmsk-pipe downloads its source from the authors' repository, OpenMesh, "
+        "Eigen and the Zig compiler (~110 MB) and builds it on this computer (a few minutes).\n\n"
+        "Do you use Fast-RNRR for research purposes only?"
+    )
 
     use_musclemap = Signal()
     gpu_changed = Signal()
@@ -181,6 +199,19 @@ class SetupDialog(QDialog):
         self.gpu_remove = QPushButton("Remove")
         self.gpu_remove.clicked.connect(self.remove_gpu)
 
+        # fast-rnrr
+        self.rnrr_label = QLabel()
+        self.rnrr_label.setWordWrap(True)
+        self.rnrr_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.rnrr_build = QPushButton("Build…")
+        self.rnrr_build.setToolTip(
+            "Optional non-rigid registration of attachments (nonrigid = fast_rnrr); "
+            "research use only, built on this computer"
+        )
+        self.rnrr_build.clicked.connect(lambda: self.build_fast_rnrr())
+        self.rnrr_remove = QPushButton("Remove")
+        self.rnrr_remove.clicked.connect(self.remove_fast_rnrr)
+
         box = QGroupBox("What a run needs")
         form = QFormLayout(box)
         form.addRow("Data folder", _row(self.home_label, open_home))
@@ -190,6 +221,7 @@ class SetupDialog(QDialog):
         form.addRow("Attachment atlas", _row(self.atlas_label, self.atlas_button))
         form.addRow("Model weights", _row(self.weights_label, self.weights_button))
         form.addRow("GPU support", _row(self.gpu_label, self.gpu_install, self.gpu_remove))
+        form.addRow("Fast-RNRR", _row(self.rnrr_label, self.rnrr_build, self.rnrr_remove))
 
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
@@ -329,6 +361,30 @@ class SetupDialog(QDialog):
             )
             self.gpu_install.setEnabled(not busy)
             self.gpu_remove.setEnabled(False)
+        self._show_fast_rnrr(busy)
+
+    def _show_fast_rnrr(self, busy: bool) -> None:
+        rnrr = self.status.fast_rnrr if self.status is not None else None
+        build = rnrr.build if rnrr is not None else None
+        if rnrr is None or build is None:
+            self.rnrr_label.setText(_colored("unknown", NOTE))
+            self.rnrr_build.setEnabled(False)
+            self.rnrr_remove.setEnabled(False)
+            return
+        if rnrr.ok and (rnrr.source != "build" or build.built):
+            where = "built here" if rnrr.source == "build" else rnrr.source
+            text = _colored("ok", OK) + " - " + html.escape(f"{rnrr.path} ({where})")
+        elif rnrr.needed:
+            text = _colored("missing", MISSING) + _colored(
+                " - needed by nonrigid = fast_rnrr; research use only", NOTE
+            )
+        else:
+            text = _colored("not built - optional, research use only", NOTE)
+        if not build.supported:
+            text += _colored(" (building is not supported on this system)", NOTE)
+        self.rnrr_label.setText(text)
+        self.rnrr_build.setEnabled(not busy and build.supported and not build.built)
+        self.rnrr_remove.setEnabled(not busy and build.built)
 
     def _actions(self) -> list[QPushButton]:
         return [
@@ -338,6 +394,8 @@ class SetupDialog(QDialog):
             self.weights_button,
             self.gpu_install,
             self.gpu_remove,
+            self.rnrr_build,
+            self.rnrr_remove,
         ]
 
     # ------------------------------------------------------------------ actions
@@ -380,6 +438,28 @@ class SetupDialog(QDialog):
         return self.run_task(
             "Removing GPU support", ["setup", "gpu", "--remove"], after=self.gpu_changed.emit
         )
+
+    def build_fast_rnrr(self, *, confirmed: bool = False) -> bool:
+        """Ask for the research-use confirmation, then build (``mskpipe setup fast-rnrr``)."""
+        if not confirmed:
+            from mskpipe.resources.fast_rnrr import load_spec
+
+            answer = QMessageBox.question(
+                self,
+                "Fast-RNRR - research use only",
+                self.FAST_RNRR_QUESTION.format(notice=load_spec().notice),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                self.log("Fast-RNRR: not built (research use not confirmed).")
+                return False
+        return self.run_task(
+            "Building Fast-RNRR", ["setup", "fast-rnrr", "--accept-research-licence"]
+        )
+
+    def remove_fast_rnrr(self) -> bool:
+        return self.run_task("Removing Fast-RNRR", ["setup", "fast-rnrr", "--remove"])
 
     # ------------------------------------------------------------------ child process
 

@@ -16,7 +16,8 @@ point-to-point, then point-to-plane), then one non-rigid stage (``nonrigid``):
 * ``coherent_icp`` - non-rigid ICP with a Gaussian motion-coherence field, hard
   point-to-plane correspondences (default; :func:`~mskpipe.geometry.register.fit_coherent_icp`),
 * ``cpd`` - Coherent Point Drift (Myronenko & Song 2010), soft GMM correspondences,
-* ``fast_rnrr`` - Fast-RNRR (Yao et al. 2020), external executable supplied by the user,
+* ``fast_rnrr`` - Fast-RNRR (Yao et al. 2020), external executable built on the user's
+  computer (``mskpipe setup fast-rnrr``, research use only) or supplied by the user,
 * ``none`` - similarity only.
 
 The outlines are mapped by the same transforms, snapped onto the subject's bone surface
@@ -102,7 +103,10 @@ class BoneRegistrationParams(PluginParams):
     )
     fast_rnrr_exe: str | None = Field(
         None,
-        description="fast_rnrr: executable (not distributed); default $MSKPIPE_FAST_RNRR or PATH.",
+        description=(
+            "fast_rnrr: executable (not distributed); default $MSKPIPE_FAST_RNRR, the build "
+            "of 'mskpipe setup fast-rnrr' or PATH."
+        ),
     )
     fast_rnrr_max_faces: int = Field(
         20000, ge=1000, le=500000, description="fast_rnrr: atlas bone decimated to this size."
@@ -419,7 +423,12 @@ def _nonrigid(ctx, params, rng, moved, dst, dst_n, src_moved_mesh, dst_mesh, wor
         exe = find_executable(params.fast_rnrr_exe)
         source = decimate(src_moved_mesh, params.fast_rnrr_max_faces)
         deformed = run_fast_rnrr(exe, source, dst_mesh, work, ctx.run_command)
+        from mskpipe.resources.fast_rnrr import describe_executable
+
         info = {"executable": str(exe), "vertices": len(source.vertices)}
+        build = describe_executable(exe)
+        if build:
+            info["build"] = build
         return MeshWarp(source, deformed.vertices), {
             **info,
             "time_s": round(time.perf_counter() - t0, 3),
