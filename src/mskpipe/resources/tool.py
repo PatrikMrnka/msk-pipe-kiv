@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import re
 import subprocess
 import threading
 from collections.abc import Callable, Sequence
@@ -18,13 +19,40 @@ _ENV = {"PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"}
 POLL_S = 0.5
 
 
+_BAR = re.compile(r"(?P<pct>\d{1,3})%\|")  # tqdm: "Downloading:  35%|███  | 81M/232M [...]"
+PROGRESS_STEP = 10
+
+
+class ProgressFilter:
+    """Passes a tool's output on, but of a tqdm progress bar only one line per
+    ``step`` percent (and 100 %). tqdm redraws its bar with '\\r', which reading the output
+    as text turns into one line per redraw: hundreds of log lines per download."""
+
+    def __init__(self, log: Log, step: int = PROGRESS_STEP) -> None:
+        self.log = log
+        self.step = step
+        self._last: int | None = None
+
+    def __call__(self, text: str) -> None:
+        match = _BAR.search(text)
+        if match is None:
+            self.log(text)
+            return
+        pct = min(100, int(match["pct"]))
+        bucket = pct // self.step
+        if bucket != self._last:  # first line of a bar, the next step or a new bar
+            self._last = bucket
+            self.log(text)
+
+
 class ToolCancelled(RuntimeError):
     """The helper command was cancelled (its process tree was terminated)."""
 
 
 def run_tool(argv: Sequence[str], log: Log, *, cancelled: Cancelled | None = None) -> int:
     """Run ``argv`` with stdin closed and no console window; every output line goes to
-    ``log``. Returns the exit code (``127`` if the program cannot be started). If
+    ``log`` (progress bars thinned out, see :class:`ProgressFilter`). Returns the exit
+    code (``127`` if the program cannot be started). If
     ``cancelled()`` becomes true, the command and its children are terminated and
     :class:`ToolCancelled` is raised."""
     try:
@@ -43,7 +71,7 @@ def run_tool(argv: Sequence[str], log: Log, *, cancelled: Cancelled | None = Non
         log(f"Cannot start {argv[0]}: {exc}")
         return 127
     assert proc.stdout is not None
-    reader = threading.Thread(target=_pump, args=(proc.stdout, log), daemon=True)
+    reader = threading.Thread(target=_pump, args=(proc.stdout, ProgressFilter(log)), daemon=True)
     reader.start()
     try:
         while True:
