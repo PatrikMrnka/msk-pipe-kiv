@@ -47,6 +47,7 @@ setup_app = typer.Typer(
 app.add_typer(setup_app, name="setup")
 
 EXIT_SETUP = 2
+EXIT_BUSY = 3  # another msk-pipe process holds the setup lock
 
 
 class SetupModality(StrEnum):
@@ -576,6 +577,23 @@ def _setup_config(config: Path | None, overrides: list[str] | None):
         raise typer.Exit(EXIT_SETUP) from None
 
 
+@contextmanager
+def _setup_locked(purpose: str) -> Iterator[None]:
+    """Hold the msk-pipe setup lock (one download/installation at a time across all GUI
+    windows, consoles and runs); exit code 3 if another process holds it."""
+    from mskpipe.resources.lock import BusyError, setup_lock
+
+    try:
+        lock = setup_lock(purpose).acquire()
+    except BusyError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(EXIT_BUSY) from None
+    try:
+        yield
+    finally:
+        lock.release()
+
+
 @setup_app.command("status")
 def setup_status(
     config: Annotated[Path | None, typer.Option("--config", "-c", help="YAML config.")] = None,
@@ -645,6 +663,13 @@ def setup_weights(
       mskpipe setup weights
       mskpipe setup weights -m ct --set segmentation.tibia_fibula=musclemap
     """
+    resolved = _setup_config(config, overrides)
+    with _setup_locked("downloading model weights"):
+        failed = _download_weights(resolved, modality, tool)
+    raise typer.Exit(1 if failed else 0)
+
+
+def _download_weights(resolved, modality: SetupModality, tool: SetupTool) -> int:
     from mskpipe.plugins.segmenters.musclemap import model_version
     from mskpipe.resources.licence import licence_number
     from mskpipe.resources.weights import (
@@ -654,7 +679,6 @@ def setup_weights(
         weights_status,
     )
 
-    resolved = _setup_config(config, overrides)
     failed = 0
     for item in weights_status(resolved, _modalities(modality)):
         if tool != SetupTool.ALL and item.tool != tool.value:
@@ -679,7 +703,7 @@ def setup_weights(
         except WeightsError as exc:
             typer.echo(f"Error: {exc}", err=True)
             failed += 1
-    raise typer.Exit(1 if failed else 0)
+    return failed
 
 
 @setup_app.command("licence")
@@ -696,7 +720,8 @@ def setup_licence(
     from mskpipe.resources.licence import LICENCE_URL, LicenceError, set_licence
 
     try:
-        set_licence(key, typer.echo, skip_validation=skip_validation)
+        with _setup_locked("storing the TotalSegmentator licence key"):
+            set_licence(key, typer.echo, skip_validation=skip_validation)
     except LicenceError as exc:
         typer.echo(f"Error: {exc}. Get a key at {LICENCE_URL}", err=True)
         raise typer.Exit(1) from None
@@ -724,7 +749,8 @@ def setup_atlas(
     from mskpipe.resources.download import DownloadError
 
     try:
-        install_atlas(source, typer.echo, name=name, sha256=sha256, force=force)
+        with _setup_locked("installing an attachment atlas"):
+            install_atlas(source, typer.echo, name=name, sha256=sha256, force=force)
     except (AtlasError, DownloadError, OSError) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1) from None
@@ -752,7 +778,12 @@ def setup_gpu(
     from mskpipe.resources.gpu import GpuSetupError, install_gpu, remove_gpu
 
     if remove:
-        remove_gpu(typer.echo)
+        try:
+            with _setup_locked("removing GPU support"):
+                remove_gpu(typer.echo)
+        except (GpuSetupError, OSError) as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(1) from None
         return
 
     def progress(wheel):
@@ -769,13 +800,14 @@ def setup_gpu(
         return report
 
     try:
-        install_gpu(
-            typer.echo,
-            progress=progress,
-            force=force,
-            keep_downloads=keep_downloads,
-            wheel_dir=wheel_dir,
-        )
+        with _setup_locked("installing GPU support"):
+            install_gpu(
+                typer.echo,
+                progress=progress,
+                force=force,
+                keep_downloads=keep_downloads,
+                wheel_dir=wheel_dir,
+            )
     except (GpuSetupError, DownloadError, OSError) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1) from None

@@ -108,6 +108,8 @@ class MainWindow(QMainWindow):
         self._stderr_tail: list[str] = []
         self._cancelling = False
         self.setup_dialog: SetupDialog | None = None
+        self._setup_opened_at_start = False
+        self._run_active = False
 
         self.setWindowTitle(f"msk-pipe {__version__}")
         self.resize(1280, 820)
@@ -465,34 +467,56 @@ class MainWindow(QMainWindow):
         return (modality,) if modality in ("ct", "mri") else ("ct", "mri")
 
     def open_setup(self, *, at_start: bool = False) -> SetupDialog:
-        """Show the setup window (one instance)."""
-        if self.setup_dialog is not None and self.setup_dialog.isVisible():
-            self.setup_dialog.raise_()
-            self.setup_dialog.activateWindow()
-            return self.setup_dialog
+        """Show the setup window. There is one for the life of the main window: a task
+        started in it keeps running when it is closed, and reopening shows its progress
+        (a new window would allow a second download next to the first one)."""
         show_at_start = str(self.settings.value("setup_at_start", "true")).lower() == "true"
-        dialog = SetupDialog(
-            self.setup_status,
-            command=self.command,
-            modalities=self.setup_modalities(),
-            overrides_fn=self.form.overrides,
-            show_at_start=show_at_start if at_start else None,
-            parent=self,
-        )
-        dialog.use_musclemap.connect(
-            lambda: self.apply_setting(("segmentation", "tibia_fibula"), "musclemap")
-        )
-        dialog.gpu_changed.connect(self.detect_device)
-        dialog.finished.connect(lambda _code: self._setup_closed(dialog, at_start))
-        self.setup_dialog = dialog
+        dialog = self.setup_dialog
+        if dialog is None:
+            dialog = SetupDialog(
+                self.setup_status,
+                command=self.command,
+                modalities=self.setup_modalities(),
+                overrides_fn=self.form.overrides,
+                busy_fn=self._setup_blocked,
+                parent=self,
+            )
+            dialog.use_musclemap.connect(
+                lambda: self.apply_setting(("segmentation", "tibia_fibula"), "musclemap")
+            )
+            dialog.gpu_changed.connect(self.detect_device)
+            dialog.task_changed.connect(self._setup_task_changed)
+            dialog.finished.connect(lambda _code: self._setup_closed())
+            self.setup_dialog = dialog
+        if not dialog.isVisible():  # settings of the main window may have changed
+            dialog.modalities = self.setup_modalities()
+            dialog.set_at_start(show_at_start if at_start else None)
+            self._setup_opened_at_start = at_start
+            dialog.refresh()
         dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
         return dialog
 
-    def _setup_closed(self, dialog: SetupDialog, at_start: bool) -> None:
-        if at_start:
+    def _setup_closed(self) -> None:
+        dialog = self.setup_dialog
+        if dialog is not None and self._setup_opened_at_start:
             value = "true" if dialog.at_start_check.isChecked() else "false"
             self.settings.setValue("setup_at_start", value)
             self.settings.sync()
+
+    def setup_running(self) -> bool:
+        return self.setup_dialog is not None and self.setup_dialog.is_running()
+
+    def _setup_blocked(self) -> str | None:
+        return "A pipeline run is in progress" if self._run_active else None
+
+    def _setup_task_changed(self, running: bool) -> None:
+        if running and self.setup_dialog is not None:
+            self.statusBar().showMessage(f"Setup: {self.setup_dialog.blocked_reason()}")
+        else:
+            self.statusBar().clearMessage()
+        self._set_running(self._run_active)
 
     def check_setup(self) -> SetupDialog | None:
         """At start: open the setup window if a run would stop on a missing licence key or
@@ -571,7 +595,7 @@ class MainWindow(QMainWindow):
     def _validate(self) -> bool:
         ok = self.form.validate() is None
         if not self.process.is_running():
-            self.run_button.setEnabled(ok)
+            self.run_button.setEnabled(ok and not self.setup_running())
         return ok
 
     def _load_config(self) -> None:
@@ -627,6 +651,15 @@ class MainWindow(QMainWindow):
     def start_run(self) -> bool:
         """Check the input and settings, run the pre-run checks and start the child."""
         if self.process.is_running():
+            return False
+        if self.setup_running():
+            QMessageBox.warning(
+                self,
+                "Setup task running",
+                "A setup task (download or installation) is running. Wait until it has "
+                "finished or cancel it in the Setup… window, then start the run.",
+            )
+            self.open_setup()
             return False
         if not self._validate():
             QMessageBox.warning(self, "Invalid settings", self.form.error_label.text())
@@ -831,6 +864,7 @@ class MainWindow(QMainWindow):
         )
 
     def _set_running(self, running: bool) -> None:
+        self._run_active = running
         for widget in (
             self.image_edit,
             self.modality_combo,
@@ -843,7 +877,11 @@ class MainWindow(QMainWindow):
         ):
             widget.setEnabled(not running)
         self.cancel_button.setEnabled(running)
-        self.run_button.setEnabled(not running and self.form.error_label.isHidden())
+        self.run_button.setEnabled(
+            not running and not self.setup_running() and self.form.error_label.isHidden()
+        )
+        if self.setup_dialog is not None and not self.setup_running():
+            self.setup_dialog.refresh()  # its actions are disabled while a run is active
         self.open_run_button.setEnabled(not running and self.process.run_dir is not None)
         self.open_mw2_button.setEnabled(
             not running and self.summary is not None and self.summary.mw2_dir is not None
@@ -854,6 +892,17 @@ class MainWindow(QMainWindow):
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        if self.setup_running():
+            answer = QMessageBox.question(
+                self,
+                "Setup task running",
+                "A download or installation is running. Cancel it and quit?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                event.ignore()
+                return
         if self.process.is_running():
             answer = QMessageBox.question(
                 self,
@@ -870,7 +919,7 @@ class MainWindow(QMainWindow):
                 self.process.kill()
                 self.process.wait(5000)
         if self.setup_dialog is not None:
-            self.setup_dialog.cancel()  # a download must not outlive the window
+            self.setup_dialog.shutdown()  # a download must not outlive the window
         self._pool.waitForDone(30_000)  # a modality detection still reading the volume
         self._store()
         event.accept()

@@ -6,6 +6,12 @@ checks only); every action - storing the TotalSegmentator licence key, downloadi
 weights, installing an atlas, installing or removing GPU support - runs as a child process
 ``python -m mskpipe setup ...`` so that the window stays responsive, the output goes to the
 log and a download can be cancelled.
+
+One window per main window, for the life of the GUI: closing it while a task runs keeps
+the task running in the background (reopening shows its progress), and only one task runs
+at a time. Tasks are refused while a pipeline run is active (``busy_fn``), and the child
+``mskpipe setup`` holds the setup lock (:mod:`mskpipe.resources.lock`) against other
+msk-pipe windows and consoles.
 """
 
 from __future__ import annotations
@@ -43,6 +49,7 @@ OK = "#1e8449"
 MISSING = "#c0392b"
 NOTE = "#7f8c8d"
 CANCELLED = 130
+BUSY = 3  # mskpipe.cli.EXIT_BUSY: another msk-pipe process holds the setup lock
 ATLAS_FILTER = "Atlas (*.zip);;All files (*)"
 _PROGRESS = re.compile(r"^\s*(?P<name>[\w.-]+):\s+(?P<pct>\d+)\s*%")
 
@@ -81,11 +88,14 @@ def _colored(text: str, color: str) -> str:
 class SetupDialog(QDialog):
     """``status_fn`` returns the current :class:`SetupStatus` and ``overrides_fn`` the
     ``--set`` values of the main window (both are asked again after every change);
-    ``command`` starts the CLI (``python -m mskpipe``). Signals: ``use_musclemap``
-    (tibia/fibula from MuscleMap, no licence key), ``gpu_changed`` (re-detect the device)."""
+    ``command`` starts the CLI (``python -m mskpipe``); ``busy_fn`` returns why tasks are
+    not allowed now (e.g. a pipeline run is active) or None. Signals: ``use_musclemap``
+    (tibia/fibula from MuscleMap, no licence key), ``gpu_changed`` (re-detect the device),
+    ``task_changed`` (a task started / finished)."""
 
     use_musclemap = Signal()
     gpu_changed = Signal()
+    task_changed = Signal(bool)
 
     def __init__(
         self,
@@ -95,6 +105,7 @@ class SetupDialog(QDialog):
         modalities: Sequence[str] = ("ct", "mri"),
         overrides_fn: Callable[[], Sequence[str]] = tuple,
         show_at_start: bool | None = None,
+        busy_fn: Callable[[], str | None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -104,6 +115,7 @@ class SetupDialog(QDialog):
         self.command = list(command or mskpipe_command())
         self.modalities = tuple(modalities)
         self.overrides_fn = overrides_fn
+        self.busy_fn = busy_fn or (lambda: None)
         self.status: SetupStatus | None = None
         self.last_exit: int | None = None
         self._task: str | None = None
@@ -190,9 +202,11 @@ class SetupDialog(QDialog):
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self.cancel)
         self.cancel_button.setEnabled(False)
+        self.blocked_label = QLabel()
+        self.blocked_label.setWordWrap(True)
+        self.blocked_label.setVisible(False)
         self.at_start_check = QCheckBox("Open at start when something is missing")
-        self.at_start_check.setChecked(True if show_at_start is None else show_at_start)
-        self.at_start_check.setVisible(show_at_start is not None)
+        self.set_at_start(show_at_start)
         close = QPushButton("Close")
         close.clicked.connect(self.accept)
 
@@ -206,6 +220,7 @@ class SetupDialog(QDialog):
         bottom.addStretch(1)
         bottom.addWidget(close)
         layout = QVBoxLayout(self)
+        layout.addWidget(self.blocked_label)
         layout.addWidget(box)
         layout.addWidget(log_box, 1)
         layout.addLayout(bottom)
@@ -220,9 +235,27 @@ class SetupDialog(QDialog):
             self.log(f"Cannot read the setup status: {exc}")
         self._show()
 
+    def set_at_start(self, show_at_start: bool | None) -> None:
+        """Show the 'open at start' check box (opened at start) with its value, or hide it."""
+        self.at_start_check.setChecked(True if show_at_start is None else show_at_start)
+        self.at_start_check.setVisible(show_at_start is not None)
+
+    def blocked_reason(self) -> str | None:
+        """Why no task may start now (another task here, or a pipeline run)."""
+        if self._task is not None:
+            return f"{self._task} is running"
+        return self.busy_fn()
+
     def _show(self) -> None:
         s = self.status
-        busy = self._task is not None
+        blocked = self.busy_fn()
+        self.blocked_label.setText(
+            _colored(f"{blocked} - setup changes are possible when it has finished.", MISSING)
+            if blocked
+            else ""
+        )
+        self.blocked_label.setVisible(bool(blocked))
+        busy = self._task is not None or blocked is not None
         if s is None:
             for button in self._actions():
                 button.setEnabled(False)
@@ -356,7 +389,9 @@ class SetupDialog(QDialog):
     def run_task(
         self, title: str, args: Sequence[str], *, after: Callable[[], None] | None = None
     ) -> bool:
-        if self._task is not None:
+        reason = self.blocked_reason()
+        if reason is not None:
+            self.log(f"Not started: {reason}.")
             return False
         self._task = title
         self._after = after
@@ -371,6 +406,7 @@ class SetupDialog(QDialog):
         self._show()
         argv = [*self.command, *args]
         self._proc.start(argv[0], argv[1:])
+        self.task_changed.emit(True)
         return True
 
     def cancel(self) -> None:
@@ -422,7 +458,11 @@ class SetupDialog(QDialog):
         title, after = self._task, self._after
         self.last_exit = code
         self._task, self._after = None, None
-        result = {0: "done", CANCELLED: "cancelled"}.get(code, f"failed (exit code {code})")
+        result = {
+            0: "done",
+            CANCELLED: "cancelled",
+            BUSY: "not started, another msk-pipe window or console is changing the setup",
+        }.get(code, f"failed (exit code {code})")
         self.log(f"== {title}: {result}")
         self.task_label.setText("")
         self.progress.setVisible(False)
@@ -432,6 +472,7 @@ class SetupDialog(QDialog):
         if after is not None:
             after()
         self.refresh()
+        self.task_changed.emit(False)
 
     # ------------------------------------------------------------------ helpers
 
@@ -443,13 +484,17 @@ class SetupDialog(QDialog):
             Path(self.status.home).mkdir(parents=True, exist_ok=True)
             QDesktopServices.openUrl(QUrl.fromLocalFile(self.status.home))
 
-    def closeEvent(self, event) -> None:
-        self.cancel()
-        super().closeEvent(event)
+    def done(self, result: int) -> None:
+        """Close / Esc / the window's X: a running task keeps running in the background."""
+        if self._task is not None:
+            self.log(f"{self._task} continues in the background; reopen Setup… to follow it.")
+        super().done(result)
 
-    def reject(self) -> None:
-        self.cancel()
-        super().reject()
+    def shutdown(self, msecs: int = 10_000) -> None:
+        """Cancel a running task and wait for its process (the GUI is closing)."""
+        if self._task is not None:
+            self.cancel()
+            self.wait(msecs)
 
 
 def _row(*widgets: QWidget) -> QWidget:

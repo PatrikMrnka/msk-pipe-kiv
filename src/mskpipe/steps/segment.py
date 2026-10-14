@@ -101,6 +101,7 @@ class SegmentStep(Step):
         for tool, request in requests.items():
             ctx.check_cancel()
             plugin = plugins[tool]
+            lock = download_lock(ctx, tool, modality)
             start = time.perf_counter()
             try:
                 outputs = plugin.segment(ctx, image, ctx.out_dir, plugin.Params(), request)
@@ -108,6 +109,9 @@ class SegmentStep(Step):
                 raise
             except (OSError, ValueError, RuntimeError, NotImplementedError) as exc:
                 raise StepError(f"{tool}: {exc}") from exc
+            finally:
+                if lock is not None:
+                    lock.release()
             elapsed = time.perf_counter() - start
             if not outputs:
                 raise StepError(f"Segmenter '{tool}' returned no output")
@@ -237,3 +241,30 @@ def _coverage(
         "voxels": dict(sorted(voxels.items())),
         "warnings": warnings,
     }
+
+
+def download_lock(ctx: StepContext, tool: str, modality: str):
+    """Setup lock held while ``tool`` downloads missing weights (first run), so that two
+    runs, or a run and ``mskpipe setup weights``, never write the same files at once.
+    Waits (cancellable) for another holder; None when the weights are already present."""
+    from mskpipe.resources.lock import LockCancelled, setup_lock
+    from mskpipe.resources.weights import tool_weights_missing
+
+    try:
+        missing = tool_weights_missing(ctx.config, modality, tool)
+    except (ImportError, OSError, ValueError, RuntimeError):
+        return None  # status unknown: the tool reports its own problems
+    if not missing:
+        return None
+    lock = setup_lock(f"run {ctx.ws.root.name}: downloading {tool} weights")
+    try:
+        lock.acquire(
+            wait_s=float("inf"),
+            cancelled=lambda: ctx.cancelled,
+            on_wait=lambda msg: ctx.logger.warning("[segment] %s", msg),
+        )
+    except LockCancelled:
+        ctx.check_cancel()
+        raise
+    ctx.logger.info("[segment] %s downloads its model weights (first run)", tool)
+    return lock

@@ -276,3 +276,11 @@ def weights_status(
     if any("musclemap" in scheme.requests(config, m) for m in modalities):
         items.append(mm_status(model_version(config)))
     return items
+
+
+def tool_weights_missing(config: PipelineConfig, modality: str, tool: str) -> bool:
+    """Whether ``tool`` will download weights when it runs (a run then holds the setup
+    lock, see :mod:`mskpipe.resources.lock`)."""
+    return any(
+        i.tool == tool and i.status == "missing" for i in weights_status(config, (modality,))
+    )

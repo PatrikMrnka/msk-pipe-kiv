@@ -245,3 +245,88 @@ def test_device_label_links_to_setup(window, monkeypatch):
     window.device_label.linkActivated.emit("setup")
     assert window.setup_dialog is not None and window.setup_dialog.isVisible()
     window.setup_dialog.accept()
+
+
+# ---------------------------------------------------------------------------- one task at a time
+
+SLOW = "import time\nprint('downloading', flush=True)\ntime.sleep(60)\n"
+
+
+def _slow_dialog(window, tmp_path):
+    """The window's setup dialog with a slow fake 'download' as its command."""
+    script = tmp_path / "slow.py"
+    script.write_text(SLOW, encoding="utf-8")
+    dlg = window.open_setup()
+    dlg.command = [sys.executable, str(script)]
+    return dlg
+
+
+def test_close_during_download_keeps_one_task(window, tmp_path):
+    """Reported: Download now -> Close -> Setup… again -> Download now started a second
+    download (a new window each time); the closed one kept running."""
+    dlg = _slow_dialog(window, tmp_path)
+    assert dlg.run_task("Downloading model weights", [])
+    wait_until(lambda: "downloading" in dlg.log_view.toPlainText())
+    pid = dlg._proc.processId()
+    dlg.accept()  # Close button
+    assert dlg.is_running()  # keeps running in the background
+    assert "continues in the background" in dlg.log_view.toPlainText()
+    again = window.open_setup()
+    assert again is dlg and again.isVisible()  # same window, shows the progress
+    assert not again.run_task("Downloading model weights", [])  # no second download
+    assert not again.weights_button.isEnabled() and not again.gpu_install.isEnabled()
+    assert "is running" in again.log_view.toPlainText()
+    again.reject()  # Esc / X behave the same
+    assert again.is_running() and again._proc.processId() == pid
+    again.cancel()
+    wait_until(lambda: not again.is_running(), 15)
+    assert again.last_exit == sd.CANCELLED
+
+
+def test_run_refused_while_setup_task_runs(window, tmp_path, monkeypatch):
+    dlg = _slow_dialog(window, tmp_path)
+    dlg.run_task("Installing GPU support", [])
+    wait_until(lambda: "downloading" in dlg.log_view.toPlainText())
+    assert not window.run_button.isEnabled()
+    assert "Installing GPU support" in window.statusBar().currentMessage()
+    started = []
+    monkeypatch.setattr(window.process, "start", lambda *a: started.append(a))
+    assert window.start_run() is False and started == []
+    dlg.cancel()
+    wait_until(lambda: not dlg.is_running(), 15)
+    assert window.statusBar().currentMessage() == ""
+
+
+def test_setup_actions_blocked_while_run_active(window):
+    dlg = window.open_setup()
+    window._set_running(True)  # a pipeline run started
+    assert dlg.blocked_label.isVisible() or not dlg.isVisible()
+    assert "pipeline run" in dlg.blocked_label.text()
+    for button in (dlg.weights_button, dlg.atlas_button, dlg.key_button, dlg.gpu_install):
+        assert not button.isEnabled()
+    assert not dlg.install_atlas("C:/atlas.zip")
+    assert "A pipeline run is in progress" in dlg.log_view.toPlainText()
+    window._set_running(False)
+    assert not dlg.blocked_label.isVisible() and dlg.atlas_button.isEnabled()
+
+
+def test_quitting_cancels_the_setup_task(window, tmp_path, monkeypatch):
+    dlg = _slow_dialog(window, tmp_path)
+    dlg.run_task("Downloading model weights", [])
+    wait_until(lambda: "downloading" in dlg.log_view.toPlainText())
+    answers = [QMessageBox.StandardButton.No, QMessageBox.StandardButton.Yes]
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: answers.pop(0)))
+    assert window.close() is False and dlg.is_running()  # "No": keep running, stay open
+    assert window.close() is True  # "Yes": the download is cancelled
+    wait_until(lambda: not dlg.is_running(), 15)
+    assert dlg.last_exit == sd.CANCELLED
+
+
+def test_busy_exit_code_is_explained(qapp, tmp_path):
+    script = tmp_path / "busy.py"
+    script.write_text("raise SystemExit(3)\n", encoding="utf-8")
+    dlg = sd.SetupDialog(status_fn(), command=[sys.executable, str(script)])
+    dlg.run_task("Downloading model weights", [])
+    wait_until(lambda: not dlg.is_running(), 15)
+    assert "another msk-pipe window or console" in dlg.log_view.toPlainText()
+    dlg.deleteLater()
