@@ -330,3 +330,42 @@ def test_busy_exit_code_is_explained(qapp, tmp_path):
     wait_until(lambda: not dlg.is_running(), 15)
     assert "another msk-pipe window or console" in dlg.log_view.toPlainText()
     dlg.deleteLater()
+
+
+# ---------------------------------------------------------------------------- Fast-RNRR
+
+
+def test_parse_progress_of_fast_rnrr_build():
+    assert sd.parse_progress("  compiled 3/30: Registration.cpp") == ("compiling", 10)
+    assert sd.parse_progress("  compiled 30/30: tools.cpp") == ("compiling", 100)
+
+
+def test_needs_attention_fast_rnrr(monkeypatch):
+    monkeypatch.delenv("MSKPIPE_FAST_RNRR", raising=False)
+    monkeypatch.setenv("PATH", "")
+    status = status_fn(
+        **{
+            "segmentation.tibia_fibula": "musclemap",
+            "attachments.params.nonrigid": "fast_rnrr",
+        }
+    )()
+    assert sd.needs_attention(status) == ["attachment atlas", "Fast-RNRR"]
+
+
+def test_fast_rnrr_build_asks_first(qapp, monkeypatch):
+    monkeypatch.delenv("MSKPIPE_FAST_RNRR", raising=False)
+    dlg = dialog(qapp)
+    assert "not built" in dlg.rnrr_label.text() or "not supported" in dlg.rnrr_label.text()
+    started = []
+    monkeypatch.setattr(dlg, "run_task", lambda title, args, **kw: started.append(args) or True)
+    monkeypatch.setattr(
+        QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.No)
+    )
+    assert not dlg.build_fast_rnrr()
+    assert not started and "not confirmed" in dlg.log_view.toPlainText()
+    monkeypatch.setattr(
+        QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes)
+    )
+    assert dlg.build_fast_rnrr()
+    assert started == [["setup", "fast-rnrr", "--accept-research-licence"]]
+    dlg.deleteLater()
