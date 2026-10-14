@@ -93,7 +93,7 @@ jobs:
             --maxpath build/maxpath.txt --runtime-from build/test/env --out dist @atlas
           if ($LASTEXITCODE) { throw "assemble failed" }
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: release
           path: dist/
@@ -110,7 +110,7 @@ jobs:
       QT_QPA_PLATFORM: offscreen
     steps:
       - uses: actions/checkout@v7  # only for tools/skeleton_parity.py
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: release
           path: dist
@@ -171,7 +171,7 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: release
           path: dist

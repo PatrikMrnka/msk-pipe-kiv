@@ -2,6 +2,7 @@ cff-version: 1.2.0
 message: "If you use msk-pipe, please cite it as below, together with the tools listed under references."
 title: "msk-pipe: automatic generation of Muscle Wrapping inputs from CT and MRI"
 type: software
+version: "0.1.0"
 authors:
   - family-names: Mrnka
     given-names: Patrik
