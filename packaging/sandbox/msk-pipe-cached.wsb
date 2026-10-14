@@ -1,0 +1,32 @@
+<!-- Windows Sandbox for repeated tests WITHOUT downloading again: GPU support (torch CUDA),
+     model weights and the TotalSegmentator key live in C:\msk-pipe-sandbox-cache on the
+     host and are mapped into the sandbox, so they survive closing it.
+     Prepare once:  packaging\sandbox\prepare_cache.ps1 -FromHost
+     NOT a clean first start: test the release itself with msk-pipe.wsb before a tag.
+     GPU test: VGpu Enable needs MemoryInMB 24576 (host with 32 GB RAM); with less memory
+     set VGpu Disable / MemoryInMB 16384 and test on the CPU. -->
+<Configuration>
+  <VGpu>Enable</VGpu>
+  <Networking>Enable</Networking>
+  <MemoryInMB>24576</MemoryInMB>
+  <MappedFolders>
+    <MappedFolder>
+      <HostFolder>C:\msk-pipe-sandbox</HostFolder>
+      <SandboxFolder>C:\Users\WDAGUtilityAccount\Desktop\shared</SandboxFolder>
+      <ReadOnly>false</ReadOnly>
+    </MappedFolder>
+    <MappedFolder>
+      <HostFolder>C:\msk-pipe-sandbox-cache\msk-pipe</HostFolder>
+      <SandboxFolder>C:\Users\WDAGUtilityAccount\AppData\Local\msk-pipe</SandboxFolder>
+      <ReadOnly>false</ReadOnly>
+    </MappedFolder>
+    <MappedFolder>
+      <HostFolder>C:\msk-pipe-sandbox-cache\totalsegmentator</HostFolder>
+      <SandboxFolder>C:\Users\WDAGUtilityAccount\.totalsegmentator</SandboxFolder>
+      <ReadOnly>false</ReadOnly>
+    </MappedFolder>
+  </MappedFolders>
+  <LogonCommand>
+    <Command>explorer.exe C:\Users\WDAGUtilityAccount\Desktop\shared</Command>
+  </LogonCommand>
+</Configuration>

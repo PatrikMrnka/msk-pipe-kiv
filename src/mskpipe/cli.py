@@ -47,6 +47,7 @@ setup_app = typer.Typer(
 app.add_typer(setup_app, name="setup")
 
 EXIT_SETUP = 2
+EXIT_CANCELLED = 130
 EXIT_BUSY = 3  # another msk-pipe process holds the setup lock
 
 
@@ -208,6 +209,9 @@ def run(
             raise typer.Exit(summary.exit_code)
         with _console_log(level, sys.stderr if as_json else sys.stdout):
             summary = api.run(prepared, cancel=cancel)
+    except api.SetupCancelled as exc:
+        typer.echo(f"Cancelled: {exc}", err=True)
+        raise typer.Exit(EXIT_CANCELLED) from None
     except api.SetupError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(EXIT_SETUP) from None

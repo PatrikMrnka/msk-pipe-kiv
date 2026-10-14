@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import BaseModel
 
 from mskpipe.resources.paths import totalseg_weights_dir, weights_dir
-from mskpipe.resources.tool import Log, run_tool
+from mskpipe.resources.tool import Cancelled, Log, run_tool
 
 if TYPE_CHECKING:
     from mskpipe.config import PipelineConfig
@@ -120,7 +120,7 @@ def ts_download_command(task: str) -> list[str]:
     return [sys.executable, "-m", TS_DOWNLOAD_MODULE, "-t", task]
 
 
-def download_ts(task: str, log: Log) -> WeightsItem:
+def download_ts(task: str, log: Log, *, cancelled: Cancelled | None = None) -> WeightsItem:
     """Download the weights of one TotalSegmentator task (skips present ones)."""
     from mskpipe.resources.licence import licence_number
 
@@ -133,7 +133,7 @@ def download_ts(task: str, log: Log) -> WeightsItem:
             f"TotalSegmentator {task} needs the licence key first: mskpipe setup licence <key>"
         )
     log(f"TotalSegmentator {task}: downloading ...")
-    code = run_tool(ts_download_command(task), log)
+    code = run_tool(ts_download_command(task), log, cancelled=cancelled)
     item = ts_status(task)
     if code != 0 or item.status != "ok":
         raise WeightsError(f"TotalSegmentator {task}: download failed (exit code {code})")
@@ -236,7 +236,9 @@ def mm_download_command(version: str) -> list[str]:
     return [sys.executable, "-c", MM_DOWNLOAD.format(region=REGION, version=version)]
 
 
-def download_musclemap(version: str, log: Log) -> WeightsItem:
+def download_musclemap(
+    version: str, log: Log, *, cancelled: Cancelled | None = None
+) -> WeightsItem:
     """Download the pinned MuscleMap model (MuscleMap's own Zenodo download) and keep a
     copy in the per-user store."""
     if mm_env_dir(version) is None:
@@ -248,7 +250,7 @@ def download_musclemap(version: str, log: Log) -> WeightsItem:
         log(f"MuscleMap {version}: cannot use the per-user store: {exc}")
     if not _complete(mm_env_dir(version), mm_files(version)):
         log(f"MuscleMap {version}: downloading ...")
-        code = run_tool(mm_download_command(version), log)
+        code = run_tool(mm_download_command(version), log, cancelled=cancelled)
         if code != 0 or not _complete(mm_env_dir(version), mm_files(version)):
             raise WeightsError(f"MuscleMap {version}: download failed (exit code {code})")
     else:
@@ -284,3 +286,46 @@ def tool_weights_missing(config: PipelineConfig, modality: str, tool: str) -> bo
     return any(
         i.tool == tool and i.status == "missing" for i in weights_status(config, (modality,))
     )
+
+
+def ensure_weights(
+    config: PipelineConfig,
+    modality: str,
+    log: Log,
+    *,
+    cancelled: Cancelled | None = None,
+) -> list[WeightsItem]:
+    """Download the weights a run with ``config`` on ``modality`` needs and that are
+    missing, before the run starts (so the download is not part of the measured step
+    times). Holds the setup lock (waits for another download, cancellable). Returns the
+    items downloaded. Raises :class:`WeightsError` (e.g. offline), ``LockCancelled`` or
+    ``ToolCancelled``.
+
+    Licensed TotalSegmentator tasks without a key and tools that are not installed are
+    left out: the pre-run checks report them.
+    """
+    from mskpipe.plugins.segmenters.musclemap import model_version
+    from mskpipe.resources.licence import licence_number
+    from mskpipe.resources.lock import setup_lock
+
+    def todo() -> list[WeightsItem]:
+        return [
+            i
+            for i in weights_status(config, (modality,))
+            if i.status == "missing" and not (i.licensed and licence_number() is None)
+        ]
+
+    if not todo():
+        return []
+    done: list[WeightsItem] = []
+    lock = setup_lock("downloading model weights for a run")
+    lock.acquire(wait_s=float("inf"), cancelled=cancelled, on_wait=log)
+    try:
+        for item in todo():  # again: another process may have downloaded them meanwhile
+            if item.tool == "totalsegmentator":
+                done.append(download_ts(item.name, log, cancelled=cancelled))
+            else:
+                done.append(download_musclemap(model_version(config), log, cancelled=cancelled))
+    finally:
+        lock.release()
+    return done

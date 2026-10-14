@@ -25,3 +25,17 @@ the situation of a new user. Run before every tag.
    With 16 GB the sandbox runs out of commit memory in TotalSegmentator `total`
    (WinError 1455 / OSError 22); a real computer grows its page file instead.
 5. Note the version, date and result in the release notes / CHANGELOG.
+
+## Repeated tests without downloading again
+
+`msk-pipe-cached.wsb` maps `C:\msk-pipe-sandbox-cache` into the sandbox as its
+`%LOCALAPPDATA%\msk-pipe` (GPU support, MuscleMap, atlas) and `.totalsegmentator`
+(weights, licence key), so they survive closing the sandbox:
+
+```powershell
+packaging\sandbox\prepare_cache.ps1 -FromHost      # once; -NoLicence to test the key dialog
+Start-Process packaging\sandbox\msk-pipe-cached.wsb
+```
+
+Only the release itself is unpacked again in each session. This is not a first start
+on a clean computer: before a tag, run the checklist above with `msk-pipe.wsb`.

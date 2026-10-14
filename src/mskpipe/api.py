@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -57,6 +58,7 @@ __all__ = [
     "RunEvent",
     "RunRequest",
     "RunSummary",
+    "SetupCancelled",
     "SetupError",
     "StepSummary",
     "check_image",
@@ -83,6 +85,10 @@ MW2_SETUP_FILE = "setup_MuscleGeneratorTool.xml"
 RunStatus = Literal["running", "completed", "failed", "interrupted"]
 EXIT_CODES: dict[str, int] = {"completed": 0, "failed": 1, "running": 1, "interrupted": 130}
 EXIT_SETUP = 2  # bad request, config or device: nothing was run
+
+
+class SetupCancelled(Exception):
+    """The run was cancelled before it started (e.g. while downloading model weights)."""
 
 
 class SetupError(ValueError):
@@ -598,6 +604,8 @@ def run(
     for note in prepared.notes:
         logger.info("%s", note)
     try:
+        if "segment" in prepared.steps:
+            prefetch_weights(prepared, cancel)
         try:
             if prepared.workspace is not None:
                 result = run_pipeline(
@@ -649,6 +657,49 @@ def run(
         )
     )
     return summary
+
+
+def prefetch_weights(prepared: PreparedRun, cancel: threading.Event | None = None) -> float:
+    """Download the model weights the run needs before it starts, so that downloading
+    is not part of the measured step times; returns the seconds spent (0 if all present).
+
+    Raises :class:`SetupError` when a download fails (offline) and :class:`SetupCancelled`
+    when ``cancel`` is set meanwhile.
+    """
+    from mskpipe.resources.lock import LockCancelled
+    from mskpipe.resources.tool import ToolCancelled
+    from mskpipe.resources.weights import WeightsError, ensure_weights
+
+    start = time.perf_counter()
+    announced: list[bool] = []
+
+    def log(text: str) -> None:
+        if not announced:
+            logger.info("Downloading model weights before the run (first use) ...")
+            announced.append(True)
+        logger.info("  %s", text)
+
+    try:
+        done = ensure_weights(
+            prepared.config,
+            prepared.modality,
+            log,
+            cancelled=(lambda: cancel.is_set()) if cancel is not None else None,
+        )
+    except (LockCancelled, ToolCancelled) as exc:
+        raise SetupCancelled(f"Cancelled while downloading model weights ({exc})") from None
+    except WeightsError as exc:
+        raise SetupError(
+            f"Model weights could not be downloaded: {exc}. The first run needs internet; "
+            "on an offline computer run `mskpipe setup weights` while online first."
+        ) from None
+    elapsed = time.perf_counter() - start
+    if done:
+        names = ", ".join(f"{i.tool} {i.name}" for i in done)
+        logger.info(
+            "Model weights ready in %.0f s (%s; not part of the step times)", elapsed, names
+        )
+    return elapsed if done else 0.0
 
 
 def _resolve_device(requested: str) -> DeviceReport:

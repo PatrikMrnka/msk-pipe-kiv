@@ -19,6 +19,7 @@ from mskpipe.cli import app
 configure_from_env()
 api.default_steps = lambda registry=None: fake_steps()
 api.preflight = lambda prepared, registry=None: []
+api.prefetch_weights = lambda prepared, cancel=None: 0.0  # never download in tests
 
 if __name__ == "__main__":
     app(prog_name="mskpipe")

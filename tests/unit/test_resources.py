@@ -9,15 +9,19 @@ import sys
 import types
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from typer.testing import CliRunner
 
+from mskpipe.api import prefetch_weights
 from mskpipe.cli import app
 from mskpipe.config import PipelineConfig
 from mskpipe.plugins.segmenters import musclemap as mm
 from mskpipe.resources import atlas, download, licence, paths, weights
 from mskpipe.resources.status import collect
+
+REAL_PREFETCH = prefetch_weights  # imported before conftest replaces it in api
 
 runner = CliRunner()
 KEY = "aca_ABCDEFGHIJKLMN"
@@ -126,7 +130,7 @@ def test_set_licence(tmp_path, monkeypatch):
     home = _ts_home(tmp_path, monkeypatch)
     calls = []
 
-    def fake_run(argv, log):
+    def fake_run(argv, log, **_kw):
         calls.append(argv)
         (home / "config.json").write_text(json.dumps({"license_number": argv[4]}), "utf-8")
         log("License has been successfully saved.")
@@ -143,12 +147,12 @@ def test_set_licence(tmp_path, monkeypatch):
 
 def test_set_licence_errors(tmp_path, monkeypatch):
     _ts_home(tmp_path, monkeypatch)
-    monkeypatch.setattr(licence, "run_tool", lambda argv, log: 1)
+    monkeypatch.setattr(licence, "run_tool", lambda argv, log, **_kw: 1)
     with pytest.raises(licence.LicenceError, match="must start"):
         licence.set_licence("wrong", print)
     with pytest.raises(licence.LicenceError, match="exit code 1"):
         licence.set_licence(KEY, print)
-    monkeypatch.setattr(licence, "run_tool", lambda argv, log: 0)
+    monkeypatch.setattr(licence, "run_tool", lambda argv, log, **_kw: 0)
     with pytest.raises(licence.LicenceError, match="not stored"):
         licence.set_licence(KEY, print)
 
@@ -206,7 +210,7 @@ def test_ts_status_without_totalsegmentator(monkeypatch):
 def test_download_ts(fake_ts, monkeypatch):
     calls = []
 
-    def fake_run(argv, log):
+    def fake_run(argv, log, **_kw):
         calls.append(argv)
         _make_ts_weights(fake_ts, argv[-1])
         return 0
@@ -218,7 +222,7 @@ def test_download_ts(fake_ts, monkeypatch):
     assert len(calls) == 1
     with pytest.raises(weights.WeightsError, match="licence key"):
         weights.download_ts("appendicular_bones", print)
-    monkeypatch.setattr(weights, "run_tool", lambda argv, log: 0)
+    monkeypatch.setattr(weights, "run_tool", lambda argv, log, **_kw: 0)
     with pytest.raises(weights.WeightsError, match="download failed"):
         weights.download_ts("total_mr", print)
 
@@ -292,7 +296,7 @@ def test_musclemap_not_installed(monkeypatch):
 def test_download_musclemap(fake_mm, monkeypatch):
     calls = []
 
-    def fake_run(argv, log):
+    def fake_run(argv, log, **_kw):
         calls.append(argv)
         _write_model(fake_mm)
         return 0
@@ -303,7 +307,7 @@ def test_download_musclemap(fake_mm, monkeypatch):
     assert (weights.mm_store_dir("1.4") / mm.MODEL_PTH).is_file()
     weights.download_musclemap("1.4", print)
     assert len(calls) == 1
-    monkeypatch.setattr(weights, "run_tool", lambda argv, log: 0)
+    monkeypatch.setattr(weights, "run_tool", lambda argv, log, **_kw: 0)
     for f in fake_mm.iterdir():
         f.unlink()
     for f in weights.mm_store_dir("1.4").iterdir():
@@ -434,7 +438,7 @@ def test_cli_setup_status(fake_ts, fake_mm, monkeypatch):
 
 
 def test_cli_setup_weights(fake_ts, fake_mm, monkeypatch):
-    def fake_run(argv, log):
+    def fake_run(argv, log, **_kw):
         if "-t" in argv:
             _make_ts_weights(fake_ts, argv[-1])
         else:
@@ -459,3 +463,129 @@ def test_cli_setup_licence_and_atlas(tmp_path, monkeypatch):
     assert runner.invoke(app, ["setup", "atlas", str(src)]).exit_code == 0
     assert runner.invoke(app, ["setup", "atlas", str(src)]).exit_code == 1
     assert runner.invoke(app, ["setup", "atlas", str(src), "--force"]).exit_code == 0
+
+
+# ------------------------------------------------------------------ weights before a run
+
+
+def test_ensure_weights_downloads_missing_under_lock(fake_ts, fake_mm, monkeypatch, tmp_path):
+    from mskpipe.resources import lock as lock_mod
+
+    _ts_home(tmp_path, monkeypatch, {"license_number": KEY})
+    calls = []
+
+    def fake_run(argv, log, **_kw):
+        calls.append(argv)
+        with pytest.raises(lock_mod.BusyError):  # held while downloading
+            lock_mod.setup_lock("other window").acquire()
+        if "-t" in argv:
+            _make_ts_weights(fake_ts, argv[-1])
+        else:
+            _write_model(fake_mm)
+        return 0
+
+    monkeypatch.setattr(weights, "run_tool", fake_run)
+    lines = []
+    done = weights.ensure_weights(_config(), "ct", lines.append)
+    assert {(i.tool, i.name) for i in done} == {
+        ("totalsegmentator", "total"),
+        ("totalsegmentator", "appendicular_bones"),
+        ("musclemap", "wholebody v1.4"),
+    }
+    assert len(calls) == 3
+    assert weights.ensure_weights(_config(), "ct", lines.append) == []  # all present now
+    assert len(calls) == 3
+    with lock_mod.setup_lock("free again"):
+        pass
+
+
+def test_ensure_weights_skips_licensed_task_without_key(fake_ts, fake_mm, monkeypatch):
+    def fake_run(argv, log, **_kw):
+        if "-t" in argv:
+            _make_ts_weights(fake_ts, argv[-1])
+        else:
+            _write_model(fake_mm)
+        return 0
+
+    monkeypatch.setattr(weights, "run_tool", fake_run)
+    done = weights.ensure_weights(_config(), "ct", print)
+    assert "appendicular_bones" not in {i.name for i in done}  # pre-run checks report it
+
+
+def test_ensure_weights_offline(fake_ts, fake_mm, monkeypatch):
+    monkeypatch.setattr(weights, "run_tool", lambda argv, log, **_kw: 1)
+    with pytest.raises(weights.WeightsError, match="download failed"):
+        weights.ensure_weights(_config(), "ct", print)
+
+
+def test_run_tool_cancel_kills_the_download(tmp_path):
+    import time
+
+    from mskpipe.resources.tool import ToolCancelled, run_tool
+
+    pid_file = tmp_path / "pid"
+    script = (
+        "import os, sys, time\n"
+        f"open({str(pid_file)!r}, 'w').write(str(os.getpid()))\n"
+        "print('downloading', flush=True)\n"
+        "time.sleep(60)\n"
+    )
+    start = time.monotonic()
+    lines = []
+    with pytest.raises(ToolCancelled):
+        run_tool(
+            [sys.executable, "-c", script],
+            lines.append,
+            cancelled=lambda: time.monotonic() - start > 1.0,
+        )
+    assert time.monotonic() - start < 20 and lines == ["downloading"]
+    import psutil
+
+    pid = int(pid_file.read_text())
+    assert not psutil.pid_exists(pid) or psutil.Process(pid).status() == psutil.STATUS_ZOMBIE
+
+
+def test_prefetch_weights_errors(monkeypatch):
+    """The real api.prefetch_weights (conftest replaces it for api.run in unit tests)."""
+    import threading
+
+    from mskpipe import api
+    from mskpipe.resources.lock import LockCancelled
+    from mskpipe.resources.tool import ToolCancelled
+
+    prepared = SimpleNamespace(config=_config(), modality="ct")
+    monkeypatch.setattr(weights, "ensure_weights", lambda *a, **k: [])
+    assert REAL_PREFETCH(prepared) == 0.0
+
+    def offline(*a, **k):
+        raise weights.WeightsError("TotalSegmentator total: download failed (exit code 1)")
+
+    monkeypatch.setattr(weights, "ensure_weights", offline)
+    with pytest.raises(api.SetupError, match="first run needs internet"):
+        REAL_PREFETCH(prepared)
+    for exc in (ToolCancelled("x"), LockCancelled("y")):
+
+        def cancelled(*a, _exc=exc, **k):
+            raise _exc
+
+        monkeypatch.setattr(weights, "ensure_weights", cancelled)
+        with pytest.raises(api.SetupCancelled):
+            REAL_PREFETCH(prepared, threading.Event())
+
+
+def test_run_prefetches_only_when_segment_runs(monkeypatch, tmp_path):
+    """api.run downloads before the first step, outside the step times."""
+    from fake_pipeline import fake_steps, write_nifti
+
+    from mskpipe import api
+
+    calls = []
+    monkeypatch.setattr(api, "prefetch_weights", lambda p, cancel=None: calls.append(p.steps))
+    image = write_nifti(tmp_path / "s01.nii.gz")
+    runs = tmp_path / "runs"
+    req = api.RunRequest(image=image, modality="ct", runs_dir=runs)
+    first = api.run(req, steps=fake_steps())
+    assert first.status == "completed" and calls and "segment" in calls[0]
+    calls.clear()
+    api.run(api.RunRequest(resume=first.run_dir, from_step="mesh"), steps=fake_steps())
+    assert calls == []
