@@ -296,10 +296,7 @@ def install_gpu(
     marker = {"tag": spec.tag, "wheels": [w.model_dump() for w in spec.wheels]}
     (staging / MARKER).write_text(json.dumps(marker, indent=2), encoding="utf-8")
     if final.exists():
-        old = root / f"{spec.tag}.old"
-        shutil.rmtree(old, ignore_errors=True)
-        final.replace(old)
-        shutil.rmtree(old, ignore_errors=True)
+        _move_aside(final, root / f"{spec.tag}.old")
     staging.replace(final)
     if not keep_downloads:
         for path in paths:
@@ -334,12 +331,33 @@ def _fetch_wheel(
     return target
 
 
+IN_USE = (
+    "GPU support is in use, probably by a run on the GPU (Windows does not allow changing "
+    "loaded DLLs). Wait until it finishes, close the other msk-pipe windows and try again."
+)
+
+
+def _move_aside(folder: Path, old: Path) -> None:
+    """Rename ``folder`` out of the way, then delete it. The rename fails as a whole on
+    Windows while one of its DLLs is loaded, so a GPU run never sees a half-deleted
+    overlay; deleting the renamed copy may leave files behind, removed next time."""
+    shutil.rmtree(old, ignore_errors=True)
+    try:
+        folder.replace(old)
+    except OSError as exc:
+        raise GpuSetupError(f"{IN_USE} ({exc})") from exc
+    shutil.rmtree(old, ignore_errors=True)
+
+
 def remove_gpu(log: Log, spec: GpuSpec | None = None) -> bool:
-    """Delete the overlay and leftover downloads; False if nothing was installed."""
+    """Delete the overlay and leftover downloads; False if nothing was installed.
+    Raises :class:`GpuSetupError` if the overlay is in use."""
     root = overlay_root()
     folder = overlay_dir(spec)
     existed = folder.exists()
-    for path in (folder, root / f"{folder.name}.partial", root / "downloads"):
+    if existed:
+        _move_aside(folder, root / f"{folder.name}.old")
+    for path in (root / f"{folder.name}.partial", root / "downloads"):
         shutil.rmtree(path, ignore_errors=True)
     log(f"GPU support removed: {folder}" if existed else "GPU support was not installed")
     return existed
