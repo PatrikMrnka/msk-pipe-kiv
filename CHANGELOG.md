@@ -59,6 +59,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 - Config `labelmap.*`: `closing_radius_mm`, `opening_radius_mm` (default 1.5 mm = BP SimpleITK radius 1 voxel), `min_component_fraction` replace `closing_kernel`, `opening_kernel`, `keep_largest`; `bone_subtraction_dilation_radius` removed (bones always win over muscles).
 - External tools (and `nvidia-smi`, the torch probe, `git`) are started with stdin closed and, on Windows, without a console window (`CREATE_NO_WINDOW`); a run started from the GUI no longer hangs before the first step (Windows: `Popen` duplicating a stdin pipe blocked by the cancel watcher, which now polls the pipe).
 
+### Fixed
+- A run could hang forever when writing the output of a tool to `logs/<step>.log` failed (Windows Sandbox low on memory during TotalSegmentator `total` on the GPU: `OSError: [Errno 22] Invalid argument` on flush): the reader thread ended, nobody read the tool's stdout any more and the tool blocked on the full pipe. The output is now always read to the end (`OutputPump`); failed log writes are counted and reported as a warning of the step.
+
 ### Removed
 - `ci.yml` in the repository root (the CI workflow is `.github/workflows/ci.yml`).
 - `tools/run_steps.py` (use `mskpipe run`).

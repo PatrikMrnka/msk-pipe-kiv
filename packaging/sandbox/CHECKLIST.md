@@ -18,4 +18,10 @@ the situation of a new user. Run before every tag.
          *Open Muscle Wrapping input* shows `setup_MuscleGeneratorTool.xml`, `.osim`, meshes
    - [ ] `mskpipe.cmd setup status` in a console lists the downloaded weights as `ok`
    - [ ] second start of `msk-pipe.cmd` opens the GUI without unpacking
-4. Note the version, date and result in the release notes / CHANGELOG.
+4. Optional GPU test (host with an NVIDIA driver 570+ and 32 GB RAM): in `msk-pipe.wsb`
+   set `<VGpu>Enable</VGpu>` and `<MemoryInMB>24576</MemoryInMB>`, then
+   - [ ] Setup… -> GPU support -> Install; Device *GPU* -> `cuda:0 (...)`
+   - [ ] a run on the GPU completes (slower than on the host: the GPU is paravirtualised)
+   With 16 GB the sandbox runs out of commit memory in TotalSegmentator `total`
+   (WinError 1455 / OSError 22); a real computer grows its page file instead.
+5. Note the version, date and result in the release notes / CHANGELOG.

@@ -109,9 +109,8 @@ class StepContext:
             )
             assert proc.stdout is not None
             tail: deque[str] = deque(maxlen=TAIL_LINES)
-            reader = threading.Thread(
-                target=_pump, args=(proc.stdout, log, self.logger, tail), daemon=True
-            )
+            pump = OutputPump(proc.stdout, log, self.logger, tail)
+            reader = threading.Thread(target=pump.run, daemon=True)
             reader.start()
             try:
                 code = self._wait(proc, tool)
@@ -121,6 +120,16 @@ class StepContext:
             finally:
                 reader.join(timeout=KILL_GRACE_S)
                 proc.stdout.close()
+        if pump.write_errors:
+            self.logger.warning(
+                "[%s] %d line(s) of the output of '%s' could not be written to %s (%s); "
+                "low on memory or disk space?",
+                self.step_name,
+                pump.write_errors,
+                tool,
+                log_path.name,
+                pump.first_error,
+            )
         if code != 0:
             last = next((line for line in reversed(tail) if line.strip()), "")
             detail = f": {last.strip()[:300]}" if last else ""
@@ -163,12 +172,42 @@ def terminate_tree(proc: subprocess.Popen[Any], grace_s: float = KILL_GRACE_S) -
     psutil.wait_procs(alive, timeout=grace_s)
 
 
-def _pump(stream: IO[str], log: IO[str], logger: logging.Logger, tail: deque[str]) -> None:
-    for line in stream:
-        log.write(line)
-        log.flush()
-        tail.append(line)
-        logger.debug("%s", line.rstrip())
+class OutputPump:
+    """Reads a tool's output until it ends and copies it to the step log file.
+
+    It must never stop early: if nobody reads the pipe, the tool blocks as soon as the
+    pipe buffer (64 kB on Windows) is full and the run hangs forever. A failing write to
+    the log file (seen on Windows low on memory: ``OSError: [Errno 22] Invalid argument``
+    on flush) is therefore counted and the reading goes on; later lines are tried again.
+    """
+
+    def __init__(
+        self, stream: IO[str], log: IO[str], logger: logging.Logger, tail: deque[str]
+    ) -> None:
+        self.stream = stream
+        self.log = log
+        self.logger = logger
+        self.tail = tail
+        self.write_errors = 0
+        self.first_error: str | None = None
+
+    def run(self) -> None:
+        try:
+            for line in self.stream:
+                self.tail.append(line)
+                self._write(line)
+                self.logger.debug("%s", line.rstrip())
+        except (OSError, ValueError):  # pipe closed (cancel, kill): nothing more to read
+            return
+
+    def _write(self, line: str) -> None:
+        try:
+            self.log.write(line)
+            self.log.flush()
+        except (OSError, ValueError) as exc:
+            self.write_errors += 1
+            if self.first_error is None:
+                self.first_error = f"{type(exc).__name__}: {exc}"
 
 
 class Step(ABC):
