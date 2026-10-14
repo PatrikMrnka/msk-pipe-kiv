@@ -4,7 +4,7 @@
      the GPU is paravirtualised in the sandbox (several times slower), so do not take
      timings from it. -->
 <Configuration>
-  <VGpu>Disable</VGpu>
+  <VGpu>Enable</VGpu>
   <Networking>Enable</Networking>
   <MemoryInMB>16384</MemoryInMB>
   <MappedFolders>

@@ -385,6 +385,8 @@ def run_batch(
             summary = run_one(prepared, on_event=callback, cancel=cancel, device=devices[requested])
         except KeyboardInterrupt:  # between runs (the runner handles it inside a run)
             entry.status, entry.exit_code, entry.error = "interrupted", 130, "interrupted"
+        except api.SetupCancelled as exc:  # cancelled while downloading model weights
+            entry.status, entry.exit_code, entry.error = "interrupted", 130, str(exc)
         except (api.SetupError, DeviceError) as exc:
             entry.status, entry.exit_code, entry.error = "setup_error", api.EXIT_SETUP, str(exc)
         except Exception as exc:  # a bug must not lose a long batch: record it and go on

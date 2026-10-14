@@ -692,7 +692,9 @@ class MainWindow(QMainWindow):
         self._stderr_tail = []
         self._cancelling = False
         self._reset_steps(prepared.steps)
-        self.status_label.setText("Starting… (device detection, copying the input)")
+        self.status_label.setText(
+            "Starting… (device detection, missing model weights, copying the input)"
+        )
         self.run_dir_label.setText("")
         self._run_started = time.monotonic()
         self._set_running(True)
@@ -766,6 +768,11 @@ class MainWindow(QMainWindow):
         s = self.summary
         if s is None:
             detail = "\n".join(self._stderr_tail[-12:]) or f"exit code {code}"
+            if self._cancelling:
+                self.status_label.setText(
+                    _colored("Cancelled before the run started", STATUS_COLORS["interrupted"])
+                )
+                return
             self.status_label.setText(_colored("The run did not start", "#c0392b"))
             if not self._cancelling:
                 QMessageBox.critical(self, "The run did not start", detail)
