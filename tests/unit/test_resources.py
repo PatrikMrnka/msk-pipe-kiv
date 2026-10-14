@@ -589,3 +589,37 @@ def test_run_prefetches_only_when_segment_runs(monkeypatch, tmp_path):
     calls.clear()
     api.run(api.RunRequest(resume=first.run_dir, from_step="mesh"), steps=fake_steps())
     assert calls == []
+
+
+def test_progress_filter_thins_out_tqdm_bars():
+    """TotalSegmentator's download bar produced ~190 log lines per model (one per redraw)."""
+    from mskpipe.resources.tool import ProgressFilter
+
+    out = []
+    log = ProgressFilter(out.append)
+    log("Downloading model for Task 855 ...")
+    for i in range(0, 1001):  # 0.0 % ... 100.0 % in 0.1 % redraws
+        pct = i // 10
+        log(f"Downloading: {pct:3d}%|{'#' * (pct // 10):<10}| {i * 0.232:.1f}M/232M [00:01<00:17]")
+    log("Download finished. Extracting...")
+    bars = [line for line in out if "%|" in line]
+    assert [int(b.split("%")[0].split()[-1]) for b in bars] == list(range(0, 101, 10))
+    assert out[0].startswith("Downloading model") and out[-1].startswith("Download finished")
+    log("Downloading:   0%|          | 0/10M")  # a second bar starts again
+    assert out[-1].endswith("0/10M")
+
+
+def test_run_tool_thins_out_progress(tmp_path):
+    from mskpipe.resources.tool import run_tool
+
+    script = (
+        "import sys\n"
+        "for i in range(101):\n"
+        "    sys.stdout.write(f'\\rDownloading: {i:3d}%|bar| {i}M/100M')\n"
+        "    sys.stdout.flush()\n"
+        "print()\n"
+        "print('done')\n"
+    )
+    lines = []
+    assert run_tool([sys.executable, "-c", script], lines.append) == 0
+    assert len(lines) == 12 and lines[-1] == "done"  # 0, 10, ..., 100 % and the last line
