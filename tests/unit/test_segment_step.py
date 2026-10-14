@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Step ``segment`` with fake segmenters, and cancellation of external tools."""
 
+import subprocess
 import sys
 import threading
 import time
@@ -287,3 +288,92 @@ def test_tool_error_message_contains_last_output_line(tmp_path, spec):
     message = str(err.value.__cause__)
     assert "exited with code 1: RuntimeError: operator torchvision::nms missing" in message
     assert "logs/segment.log" in message
+
+
+# ---------------------------------------------------------------- tool output pump
+
+LOUD = (
+    "import sys\n"
+    "for i in range(30000):\n"
+    "    print(f'line {i:06d} ' + 'x' * 60)\n"  # ~2 MB, far more than a pipe buffer
+    "print('DONE', flush=True)\n"
+)
+
+
+class _FailingLog:
+    """A log file whose writes fail like on the Windows Sandbox low on memory."""
+
+    def __init__(self, fail_after: int = 0) -> None:
+        self.lines = 0
+        self.fail_after = fail_after
+
+    def write(self, text: str) -> int:
+        self.lines += 1
+        if self.lines > self.fail_after:
+            raise OSError(22, "Invalid argument")
+        return len(text)
+
+    def flush(self) -> None:
+        if self.lines > self.fail_after:
+            raise OSError(22, "Invalid argument")
+
+
+def test_pump_keeps_reading_when_the_log_cannot_be_written():
+    """Reported: OSError [Errno 22] on log.flush() ended the reader thread; TotalSegmentator
+    then blocked on its full stdout pipe and the run hung forever."""
+    import logging
+    from collections import deque
+
+    from mskpipe.core.step import OutputPump
+
+    proc = subprocess.Popen(
+        [sys.executable, "-c", LOUD],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    tail: deque[str] = deque(maxlen=5)
+    pump = OutputPump(proc.stdout, _FailingLog(fail_after=3), logging.getLogger("t"), tail)
+    reader = threading.Thread(target=pump.run, daemon=True)
+    reader.start()
+    try:
+        assert proc.wait(timeout=60) == 0  # hangs (pipe full) if the reader dies
+    finally:
+        proc.kill()
+    reader.join(10)
+    assert not reader.is_alive()
+    assert tail[-1].strip() == "DONE"
+    assert pump.write_errors == 30001 - 3
+    assert pump.first_error.startswith("OSError")
+
+
+def test_run_command_survives_log_write_errors(tmp_path, spec, monkeypatch, caplog):
+    real_open = Path.open
+
+    class BrokenLog(_FailingLog):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def open_(self, mode="r", *args, **kwargs):
+        if self.name == "segment.log" and "a" in mode:
+            return BrokenLog()
+        return real_open(self, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", open_)
+
+    class Loud(Step):
+        name = "segment"
+
+        def run(self, ctx: StepContext) -> None:
+            ctx.run_command([sys.executable, "-c", LOUD])
+
+    start = time.monotonic()
+    with caplog.at_level("WARNING", logger="mskpipe"):
+        run_pipeline([Loud()], spec, config(tmp_path))
+    assert time.monotonic() - start < 60
+    assert "30001 line(s) of the output" in caplog.text
+    assert "could not be written to segment.log" in caplog.text
