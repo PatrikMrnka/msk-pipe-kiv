@@ -20,3 +20,4 @@ data/
 .cache/
 stats/
 /mskpipe.yaml
+*_log.txt
