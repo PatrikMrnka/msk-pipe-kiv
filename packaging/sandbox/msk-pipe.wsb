@@ -6,7 +6,7 @@
 <Configuration>
   <VGpu>Enable</VGpu>
   <Networking>Enable</Networking>
-  <MemoryInMB>16384</MemoryInMB>
+  <MemoryInMB>24576</MemoryInMB>
   <MappedFolders>
     <MappedFolder>
       <HostFolder>C:\msk-pipe-sandbox</HostFolder>

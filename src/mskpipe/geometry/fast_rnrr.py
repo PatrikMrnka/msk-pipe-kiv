@@ -60,6 +60,98 @@ def compact(mesh: TriMesh) -> TriMesh:
     return TriMesh(mesh.vertices[used], remap[mesh.faces])
 
 
+def _nonmanifold_edge_faces(faces: np.ndarray) -> np.ndarray:
+    """Faces on an edge shared by > 2 faces or traversed twice in the same direction."""
+    directed = faces[:, [0, 1, 1, 2, 2, 0]].reshape(-1, 2)
+    _, inv, counts = np.unique(
+        np.sort(directed, 1), axis=0, return_inverse=True, return_counts=True
+    )
+    _, dinv, dcounts = np.unique(directed, axis=0, return_inverse=True, return_counts=True)
+    bad = (counts[inv.ravel()] > 2) | (dcounts[dinv.ravel()] > 1)
+    out = np.zeros(len(faces), dtype=bool)
+    out[np.repeat(np.arange(len(faces)), 3)[bad]] = True
+    return out
+
+
+def _split_nonmanifold_vertices(mesh: TriMesh) -> tuple[TriMesh, int]:
+    """Give every fan of faces around a vertex its own copy of the vertex ("bow-ties")."""
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    f = mesh.faces
+    n_inc = 3 * len(f)  # incidence i = corner i % 3 of face i // 3
+    v = f.reshape(-1)
+    nxt = f[:, [1, 2, 0]].reshape(-1)
+    prv = f[:, [2, 0, 1]].reshape(-1)
+    n = np.int64(len(mesh.vertices))
+    inc = np.arange(n_inc)
+    keys = np.concatenate([v * n + nxt, v * n + prv])  # an edge seen from its vertex v
+    owners = np.concatenate([inc, inc])
+    order = np.argsort(keys, kind="stable")
+    keys, owners = keys[order], owners[order]
+    same = keys[1:] == keys[:-1]  # edge-manifold: at most two incidences per key
+    graph = coo_matrix(
+        (np.ones(int(same.sum())), (owners[:-1][same], owners[1:][same])), shape=(n_inc, n_inc)
+    )
+    _, fan = connected_components(graph, directed=False)
+    pairs = np.unique(np.stack([v, fan], 1), axis=0)  # (vertex, fan), sorted by vertex
+    first = np.r_[True, pairs[1:, 0] != pairs[:-1, 0]]
+    extra = pairs[~first]
+    if not len(extra):
+        return mesh, 0
+    new_index = np.full(int(fan.max()) + 1, -1, dtype=np.int64)
+    new_index[extra[:, 1]] = len(mesh.vertices) + np.arange(len(extra))
+    flat = np.where(new_index[fan] >= 0, new_index[fan], v)
+    vertices = np.vstack([mesh.vertices, mesh.vertices[extra[:, 0]]])
+    return TriMesh(vertices, flat.reshape(-1, 3)), len(extra)
+
+
+def prepare_mesh(mesh: TriMesh) -> tuple[TriMesh, list[str]]:
+    """A mesh OpenMesh (inside Fast-RNRR) reads unchanged; returns it and the applied fixes.
+
+    OpenMesh cannot represent non-manifold edges and vertices: on reading it drops such
+    triangles or re-adds them on duplicated vertices, which breaks the vertex
+    correspondence and can make Fast-RNRR return NaN for the whole mesh. Degenerate and
+    duplicate triangles and triangles on non-manifold or inconsistently oriented edges
+    are removed and non-manifold vertices split; vertex order and components are kept
+    (a pelvis may be two hip bones), so a prepared mesh comes back unchanged.
+    """
+    from mskpipe.geometry.topology import DEGENERATE_AREA
+
+    fixes: list[str] = []
+    v, f = np.asarray(mesh.vertices, dtype=np.float64), np.asarray(mesh.faces, dtype=np.int64)
+    tri = v[f]
+    area = 0.5 * np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1)
+    bad = (
+        (f[:, 0] == f[:, 1])
+        | (f[:, 1] == f[:, 2])
+        | (f[:, 0] == f[:, 2])
+        | (area < DEGENERATE_AREA)
+    )
+    if bad.any():
+        fixes.append(f"removed {int(bad.sum())} degenerate faces")
+        f = f[~bad]
+    _, first = np.unique(np.sort(f, axis=1), axis=0, return_index=True)
+    if len(first) < len(f):
+        fixes.append(f"removed {len(f) - len(first)} duplicate faces")
+        f = f[np.sort(first)]
+    removed = 0
+    while len(f):
+        bad = _nonmanifold_edge_faces(f)
+        if not bad.any():
+            break
+        removed += int(bad.sum())
+        f = f[~bad]
+    if removed:
+        fixes.append(f"removed {removed} faces on non-manifold edges")
+    if not len(f):
+        raise FastRnrrError("No usable triangles left for Fast-RNRR")
+    out, split = _split_nonmanifold_vertices(compact(TriMesh(v, f)))
+    if split:
+        fixes.append(f"split {split} non-manifold vertices")
+    return out, fixes
+
+
 def decimate(mesh: TriMesh, max_faces: int) -> TriMesh:
     """Quadric decimation to at most ``max_faces`` triangles (unchanged if smaller)."""
     if len(mesh.faces) <= max_faces:
@@ -89,12 +181,16 @@ def run_fast_rnrr(
 ) -> TriMesh:
     """Deform ``source`` onto ``target``; returns ``source`` with the moved vertices.
 
+    Both meshes go through :func:`prepare_mesh` first; pass ``source`` already prepared
+    when its vertices must match the result (as :class:`MeshWarp` needs).
+
     Both meshes are centred on the target centroid first (Fast-RNRR scales by the joint
     bounding box and rejects pairs farther than 5 % of its diagonal); ``run`` executes
     the command (e.g. ``StepContext.run_command``).
     """
     work_dir.mkdir(parents=True, exist_ok=True)
-    source = compact(source)
+    source, _ = prepare_mesh(source)
+    target, _ = prepare_mesh(target)
     shift = target.vertices.mean(0)
     src_path = write_mesh(work_dir / "source.obj", TriMesh(source.vertices - shift, source.faces))
     tar_path = write_mesh(work_dir / "target.obj", TriMesh(target.vertices - shift, target.faces))
@@ -107,6 +203,12 @@ def run_fast_rnrr(
     moved = read_mesh(result).vertices
     if len(moved) < len(source.vertices):  # OpenMesh may only append (split) vertices
         raise FastRnrrError(f"Fast-RNRR result has {len(moved)} < {len(source.vertices)} vertices")
+    bad = ~np.isfinite(moved[: len(source.vertices)]).all(axis=1)
+    if bad.any():
+        raise FastRnrrError(
+            f"Fast-RNRR returned {int(bad.sum())} of {len(source.vertices)} vertices that are "
+            "not finite (NaN/inf); the registration diverged. Try nonrigid: coherent_icp or cpd"
+        )
     return TriMesh(moved[: len(source.vertices)] + shift, source.faces)
 
 
@@ -168,5 +270,6 @@ __all__ = [
     "compact",
     "decimate",
     "find_executable",
+    "prepare_mesh",
     "run_fast_rnrr",
 ]

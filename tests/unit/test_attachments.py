@@ -17,6 +17,7 @@ from mskpipe.geometry.fast_rnrr import (
     FastRnrrError,
     MeshWarp,
     find_executable,
+    prepare_mesh,
     run_fast_rnrr,
 )
 from mskpipe.geometry.register import (
@@ -348,6 +349,56 @@ def test_fast_rnrr_wrapper_and_mesh_warp(tmp_path):
     pts = sample_surface(source, 200, np.random.default_rng(4))
     want = apply(affine, pts - shift) + shift
     np.testing.assert_allclose(field(pts), want, atol=1e-4)
+
+
+def _octahedron(centre) -> TriMesh:
+    v = np.array(
+        [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]], float
+    ) + np.asarray(centre, float)
+    f = [[0, 2, 4], [2, 1, 4], [1, 3, 4], [3, 0, 4], [2, 0, 5], [1, 2, 5], [3, 1, 5], [0, 3, 5]]
+    return TriMesh(v, np.array(f))
+
+
+def _edge_counts(faces):
+    _, counts = np.unique(
+        np.sort(faces[:, [0, 1, 1, 2, 2, 0]].reshape(-1, 2), 1), axis=0, return_counts=True
+    )
+    return counts
+
+
+def test_prepare_mesh_removes_what_openmesh_cannot_read():
+    a, b = _octahedron((0, 0, 0)), _octahedron((2, 0, 0))
+    # bow-tie: b's vertex 1 is a's vertex 0 (two closed fans share one vertex)
+    bf = b.faces + len(a.vertices)
+    bf[bf == len(a.vertices) + 1] = 0
+    v = np.vstack([a.vertices, b.vertices])
+    # a fin: a third face on the edge (0, 2) of a, plus a degenerate and a duplicate face
+    v = np.vstack([v, [[0.5, 0.5, 0.5]]])
+    fin = [[0, 2, len(v) - 1]]
+    faces = np.vstack([a.faces, bf, fin, [[0, 0, 2]], a.faces[:1]])
+    mesh, fixes = prepare_mesh(TriMesh(v, faces))
+    text = " ".join(fixes)
+    assert "degenerate" in text and "duplicate" in text and "non-manifold edges" in text
+    assert "split 1 non-manifold vertices" in text
+    assert (_edge_counts(mesh.faces) <= 2).all()
+    assert np.isfinite(mesh.vertices).all() and mesh.faces.max() < len(mesh.vertices)
+    again, more = prepare_mesh(mesh)  # idempotent: the vertices stay those of the result
+    assert more == [] and np.array_equal(again.vertices, mesh.vertices)
+    clean, none = prepare_mesh(a)
+    assert none == [] and np.array_equal(clean.faces, a.faces)
+
+
+def test_fast_rnrr_rejects_non_finite_result(tmp_path):
+    source = blob((0, 0, 0), (25, 25, 200), bumps=1.0)
+
+    def nan_run(argv):  # what Fast-RNRR wrote for a non-manifold pelvis on Windows
+        mesh = read_mesh(Path(argv[1]))
+        write_mesh(
+            Path(f"{argv[3]}res.obj"), TriMesh(np.full_like(mesh.vertices, np.nan), mesh.faces)
+        )
+
+    with pytest.raises(FastRnrrError, match="not finite"):
+        run_fast_rnrr(Path("Fast_RNRR"), source, source, tmp_path, nan_run)
 
 
 def test_fast_rnrr_missing_executable(monkeypatch):

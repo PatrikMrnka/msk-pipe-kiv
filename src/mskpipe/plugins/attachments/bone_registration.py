@@ -417,15 +417,19 @@ def _nonrigid(ctx, params, rng, moved, dst, dst_n, src_moved_mesh, dst_mesh, wor
             MeshWarp,
             decimate,
             find_executable,
+            prepare_mesh,
             run_fast_rnrr,
         )
 
         exe = find_executable(params.fast_rnrr_exe)
-        source = decimate(src_moved_mesh, params.fast_rnrr_max_faces)
+        source, source_fixes = prepare_mesh(decimate(src_moved_mesh, params.fast_rnrr_max_faces))
+        _, target_fixes = prepare_mesh(dst_mesh)
         deformed = run_fast_rnrr(exe, source, dst_mesh, work, ctx.run_command)
         from mskpipe.resources.fast_rnrr import describe_executable
 
         info = {"executable": str(exe), "vertices": len(source.vertices)}
+        if source_fixes or target_fixes:
+            info["mesh_fixes"] = {"source": source_fixes, "target": target_fixes}
         build = describe_executable(exe)
         if build:
             info["build"] = build
