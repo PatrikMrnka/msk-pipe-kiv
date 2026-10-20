@@ -12,10 +12,15 @@ All values are sampled and therefore approximate:
 * ``gpu_mem_peak_bytes`` - peak increase of device memory in use over the
   value at step start (device-wide; per-process data is not available
   under Windows WDDM).
+
+Measuring never fails a step: a sample that cannot be taken (e.g. Windows out of
+commit memory, ``OSError: [WinError 1455]`` while listing processes) is skipped and
+counted in ``failed_samples``; the first error is logged once as a warning.
 """
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from contextlib import suppress
@@ -29,6 +34,8 @@ try:
 except ImportError:  # optional: GPU memory is then not measured
     pynvml = None
 
+log = logging.getLogger(__name__)
+
 
 class ResourceUsage(BaseModel):
     wall_s: float
@@ -36,6 +43,7 @@ class ResourceUsage(BaseModel):
     peak_rss_bytes: int
     gpu_mem_peak_bytes: int | None = None
     samples: int
+    failed_samples: int = 0
 
 
 class ResourceSampler:
@@ -52,6 +60,7 @@ class ResourceSampler:
         self._cpu_baseline = 0.0
         self._peak_rss = 0
         self._samples = 0
+        self._failed = 0
         self._gpu = _GpuMemory(gpu_index) if gpu_index is not None else None
         self._t0 = 0.0
 
@@ -84,6 +93,7 @@ class ResourceSampler:
             peak_rss_bytes=self._peak_rss,
             gpu_mem_peak_bytes=gpu_peak,
             samples=self._samples,
+            failed_samples=self._failed,
         )
 
     def _loop(self) -> None:
@@ -91,9 +101,18 @@ class ResourceSampler:
             self._sample()
 
     def _sample(self) -> None:
+        """One sample; any error only skips it (the thread must keep running)."""
+        try:
+            self._take_sample()
+        except Exception as exc:  # measuring must never stop a step
+            self._failed += 1
+            if self._failed == 1:
+                log.warning("Resource sampling skipped (%s: %s)", type(exc).__name__, exc)
+
+    def _take_sample(self) -> None:
         try:
             procs = [self._root, *self._root.children(recursive=True)]
-        except psutil.Error:
+        except (psutil.Error, OSError):  # OSError: e.g. WinError 1455, no commit memory
             procs = [self._root]
         rss = 0
         for proc in procs:
@@ -102,7 +121,7 @@ class ResourceSampler:
                     rss += proc.memory_info().rss
                     times = proc.cpu_times()
                     key = (proc.pid, proc.create_time())
-            except psutil.Error:
+            except (psutil.Error, OSError):
                 continue
             self._cpu[key] = max(self._cpu.get(key, 0.0), times.user + times.system)
         self._peak_rss = max(self._peak_rss, rss)

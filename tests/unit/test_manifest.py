@@ -102,3 +102,37 @@ def test_sampler_counts_child_processes():
     assert usage.wall_s >= 1.0
     assert usage.samples >= 5
     assert usage.gpu_mem_peak_bytes is None
+
+
+def test_sampler_survives_os_errors(monkeypatch, caplog):
+    """WinError 1455 (no commit memory) in psutil must not kill the sampling thread."""
+    import psutil
+
+    calls = {"n": 0}
+    real = psutil.Process.children
+
+    def flaky(self, recursive=False):
+        calls["n"] += 1
+        if calls["n"] % 2:
+            raise OSError(22, "The paging file is too small for this operation to complete")
+        return real(self, recursive=recursive)
+
+    monkeypatch.setattr(psutil.Process, "children", flaky)
+    with caplog.at_level("WARNING"), ResourceSampler(interval_s=0.05) as sampler:
+        time.sleep(0.5)
+        assert sampler._thread.is_alive()
+    usage = sampler.usage
+    assert usage.samples > 3 and usage.peak_rss_bytes > 0
+    assert usage.failed_samples == 0  # a failed process listing still measures the root
+
+
+def test_sampler_counts_failed_samples(monkeypatch, caplog):
+    def broken(self):
+        raise MemoryError("no memory")
+
+    monkeypatch.setattr(ResourceSampler, "_take_sample", broken)
+    with caplog.at_level("WARNING"), ResourceSampler(interval_s=0.05) as sampler:
+        time.sleep(0.3)
+        assert sampler._thread.is_alive()
+    assert sampler.usage.failed_samples >= 3 and sampler.usage.samples == 0
+    assert sum("Resource sampling skipped" in r.message for r in caplog.records) == 1
