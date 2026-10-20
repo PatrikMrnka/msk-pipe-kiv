@@ -124,5 +124,15 @@ def test_defaults_match_bp_config():
     assert (cfg.mesh.bones.smooth_iterations, cfg.mesh.muscles.smooth_iterations) == (40, 30)
     assert cfg.mesh.bones.target_reduction == cfg.mesh.muscles.target_reduction == 0.8
     assert cfg.mesh.bones.passband == cfg.mesh.muscles.passband == 0.01
-    assert cfg.attachments.method == "bone_registration"
+    assert cfg.attachments.method == "atlas_registration"
     assert cfg.attachments.params == {}  # plugin defaults: test_registry.py
+
+
+def test_old_attachment_method_name_still_loads(tmp_path):
+    """``bone_registration`` was renamed to ``atlas_registration`` before 0.1.0."""
+    path = tmp_path / "old.yaml"
+    path.write_text("attachments:\n  method: bone_registration\n", encoding="utf-8")
+    assert load_config(path).attachments.method == "atlas_registration"
+    assert load_config(None, ["attachments.method=bone_registration"]).attachments.method == (
+        "atlas_registration"
+    )

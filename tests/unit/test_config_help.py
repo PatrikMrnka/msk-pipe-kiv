@@ -64,7 +64,7 @@ def test_lookup_and_examples():
     assert (
         help_for("labelmap.muscles.min_voxels").text == help_for("labelmap.bones.min_voxels").text
     )
-    assert plugin_help("attachments", "bone_registration", "nonrigid") is not None
+    assert plugin_help("attachments", "atlas_registration", "nonrigid") is not None
     assert help_for("nope.nope") is None
     leaves, _ = _schema_paths()
     without_example = sorted(k for k in leaves if load_help()[k].example is None)

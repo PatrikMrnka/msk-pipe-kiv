@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Attachment areas from an atlas by registering its bones (plugin ``bone_registration``).
+"""Attachment areas from an atlas by registering its bones (plugin ``atlas_registration``).
 
 The atlas is a folder (distributed separately from the code under its own licence, see
 :mod:`mskpipe.resources.atlas` for where it is looked up)::
@@ -48,7 +48,7 @@ NO_ATLAS = (
 )
 
 
-class BoneRegistrationParams(PluginParams):
+class AtlasRegistrationParams(PluginParams):
     atlas_dir: str | None = Field(
         None,
         description=f"Atlas folder (atlas.json, bones/, muscles/); default ${ATLAS_ENV}, "
@@ -117,9 +117,9 @@ class BoneRegistrationParams(PluginParams):
     seed: int = Field(0, description="Seed of the surface sampling.")
 
 
-def atlas_dir(params: Mapping[str, Any] | BoneRegistrationParams) -> Path | None:
+def atlas_dir(params: Mapping[str, Any] | AtlasRegistrationParams) -> Path | None:
     value = (
-        params.atlas_dir if isinstance(params, BoneRegistrationParams) else params.get("atlas_dir")
+        params.atlas_dir if isinstance(params, AtlasRegistrationParams) else params.get("atlas_dir")
     )
     return resolve_atlas_dir(value)[0]
 
@@ -142,13 +142,13 @@ def atlas_bone_group(bone: str) -> str:
     return "pelvis" if bone.startswith("pelvis") else bone.rsplit("_", 1)[0]
 
 
-class BoneRegistration(AttachmentsPlugin):
-    name = "bone_registration"
+class AtlasRegistration(AttachmentsPlugin):
+    name = "atlas_registration"
     description = (
         "Attachment outlines transferred from an atlas by bone registration "
         "(similarity ICP + coherent_icp | cpd | fast_rnrr)."
     )
-    Params = BoneRegistrationParams
+    Params = AtlasRegistrationParams
     requires_modules = ("vtk", "scipy")
 
     @classmethod
@@ -199,7 +199,7 @@ class BoneRegistration(AttachmentsPlugin):
         from mskpipe.io.attachment_vtk import read_points, write_points
         from mskpipe.io.mesh_io import TriMesh, read_mesh, write_mesh
 
-        assert isinstance(params, BoneRegistrationParams)
+        assert isinstance(params, AtlasRegistrationParams)
         side = ctx.config.skeleton.side
         folder = atlas_dir(params)
         if folder is None:

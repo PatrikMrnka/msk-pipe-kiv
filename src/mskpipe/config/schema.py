@@ -18,7 +18,14 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 CONFIG_VERSION = 1
 
@@ -321,9 +328,12 @@ class SkeletonConfig(StrictModel):
 # --------------------------------------------------------------------------- attachments
 
 
+RENAMED_ATTACHMENT_METHODS = {"bone_registration": "atlas_registration"}
+
+
 class AttachmentsConfig(StrictModel):
     method: str = Field(
-        "bone_registration",
+        "atlas_registration",
         pattern=_IDENT,
         description="Attachment method plugin (see `mskpipe plugins`).",
     )
@@ -337,6 +347,12 @@ class AttachmentsConfig(StrictModel):
             "Omitted ones take the plugin defaults (see `mskpipe plugins`)."
         ),
     )
+
+    @field_validator("method", mode="before")
+    @classmethod
+    def _renamed_method(cls, value: Any) -> Any:
+        # renamed before 0.1.0; configs and experiment files of earlier runs still load
+        return RENAMED_ATTACHMENT_METHODS.get(value, value) if isinstance(value, str) else value
 
 
 # --------------------------------------------------------------------------- export

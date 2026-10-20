@@ -74,7 +74,7 @@ def collect(config: PipelineConfig, modalities: Iterable[str] = ("ct", "mri")) -
         problem=format_problem(key) if key else None,
         file=str(totalseg_home() / "config.json"),
     )
-    needs_atlas = config.attachments.method == "bone_registration"
+    needs_atlas = config.attachments.method == "atlas_registration"
     folder, source = resolve_atlas_dir(config.attachments.params.get("atlas_dir"))
     atlas = AtlasStatus(
         needed=needs_atlas,
@@ -102,7 +102,7 @@ def _gpu() -> GpuStatus | None:
 
 def _fast_rnrr(config: PipelineConfig) -> FastRnrrNeed:
     params = config.attachments.params
-    needed = config.attachments.method == "bone_registration" and (
+    needed = config.attachments.method == "atlas_registration" and (
         params.get("nonrigid") == "fast_rnrr"
     )
     path, source = locate(params.get("fast_rnrr_exe"))

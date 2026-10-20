@@ -261,100 +261,100 @@ attachments:
     atlas onto the subject's bones (05_attachments/).
 attachments.method:
   help: Method computing the attachment areas (see `mskpipe plugins`).
-  example: bone_registration
+  example: atlas_registration
 attachments.atlas:
   help: Name of the attachment atlas, informational; the files come from Atlas dir below.
   example: lhdl
 attachments.params:
   help: Parameters of the selected method.
 
-plugins.attachments.bone_registration.atlas_dir:
+plugins.attachments.atlas_registration.atlas_dir:
   help: >-
     Folder of the attachment atlas (atlas.json, bones/, muscles/). Empty = the
     MSKPIPE_ATLAS_DIR environment variable (set by the Windows release to the bundled
     atlas), else the atlas installed with `mskpipe setup atlas`.
   example: C:\msk-pipe-kiv-zcu\msk-PIPE\data\reference-GT\lhdl_atlas
-plugins.attachments.bone_registration.n_points:
+plugins.attachments.atlas_registration.n_points:
   help: Points sampled on each atlas bone for the rigid registration.
   example: 3000 (default); more = slower, rarely better.
-plugins.attachments.bone_registration.target_points:
+plugins.attachments.atlas_registration.target_points:
   help: >-
     Points sampled on each subject bone (registration target). Denser = closer to the true
     surface.
   example: 50000 (default).
-plugins.attachments.bone_registration.scale:
+plugins.attachments.atlas_registration.scale:
   help: >-
     Allow a uniform scale between atlas and subject in the rigid stage (bones of different
     size).
   example: On (default); the LHDL subject gives a scale of 1.001 to 1.005.
-plugins.attachments.bone_registration.icp_metric:
+plugins.attachments.atlas_registration.icp_metric:
   help: >-
     Distance minimised by the ICP. point_to_plane is more accurate and converges in a few
     iterations; point_to_point is the classic variant.
   example: point_to_plane (default).
-plugins.attachments.bone_registration.icp_iterations:
+plugins.attachments.atlas_registration.icp_iterations:
   help: Maximum number of ICP iterations.
   example: "100"
-plugins.attachments.bone_registration.trim:
+plugins.attachments.atlas_registration.trim:
   help: >-
     Fraction of the closest point pairs used in each ICP iteration; the rest are ignored, so
     that parts present in only one bone (e.g. a cut-off femur) do not pull the alignment.
   example: 0.9 ignores the 10 % worst pairs.
-plugins.attachments.bone_registration.nonrigid:
+plugins.attachments.atlas_registration.nonrigid:
   help: >-
     Non-rigid stage after the rigid alignment, adapting the atlas bone to the subject's
     shape: coherent_icp (default), cpd (Coherent Point Drift), fast_rnrr (Fast-RNRR, research
     use only: built on this computer with Setup… -> Fast-RNRR) or none (rigid only).
   example: none, to compare with the rigid transfer only.
-plugins.attachments.bone_registration.nonrigid_points:
+plugins.attachments.atlas_registration.nonrigid_points:
   help: Atlas points driving the non-rigid stage (coherent_icp and cpd).
   example: "1500"
-plugins.attachments.bone_registration.coherent_beta_mm:
+plugins.attachments.atlas_registration.coherent_beta_mm:
   help: >-
     coherent_icp: width of the smoothing kernel in mm. Larger = smoother deformation that
     moves larger regions together.
   example: 40 (default); 80 for a stiffer pelvis.
-plugins.attachments.bone_registration.coherent_lambda:
+plugins.attachments.atlas_registration.coherent_lambda:
   help: coherent_icp regularisation. Larger = stiffer, smaller deformation.
   example: 2 (default); 10 deforms much less.
-plugins.attachments.bone_registration.coherent_iterations:
+plugins.attachments.atlas_registration.coherent_iterations:
   help: coherent_icp iterations.
   example: "30"
-plugins.attachments.bone_registration.cpd_beta:
+plugins.attachments.atlas_registration.cpd_beta:
   help: cpd kernel width in normalised units (Myronenko & Song 2010 use 2).
   example: "2"
-plugins.attachments.bone_registration.cpd_lambda:
+plugins.attachments.atlas_registration.cpd_lambda:
   help: cpd regularisation (larger = stiffer).
   example: "2"
-plugins.attachments.bone_registration.cpd_w:
+plugins.attachments.atlas_registration.cpd_w:
   help: cpd weight of outliers (0 = none). Raise it when the bones cover different extents.
   example: 0.1 (default); 0 = as in the BP thesis.
-plugins.attachments.bone_registration.cpd_iterations:
+plugins.attachments.atlas_registration.cpd_iterations:
   help: Maximum cpd iterations.
   example: "150"
-plugins.attachments.bone_registration.cpd_target_points:
+plugins.attachments.atlas_registration.cpd_target_points:
   help: Subject points used by cpd; memory grows with points x nonrigid points.
   example: "5000"
-plugins.attachments.bone_registration.cpd_sigma_init_mm:
+plugins.attachments.atlas_registration.cpd_sigma_init_mm:
   help: >-
     cpd initial width in mm. Empty = standard CPD start; a small value (e.g. 5) keeps
     already well aligned bones from sliding.
   example: "5"
-plugins.attachments.bone_registration.fast_rnrr_exe:
+plugins.attachments.atlas_registration.fast_rnrr_exe:
   help: >-
     fast_rnrr: path to your own build of Fast_RNRR.exe (research-only licence, not
     distributed). Empty = MSKPIPE_FAST_RNRR, the build of Setup… -> Fast-RNRR
     (mskpipe setup fast-rnrr) or PATH.
   example: C:\tools\Fast_RNRR\Fast_RNRR.exe
-plugins.attachments.bone_registration.fast_rnrr_max_faces:
+plugins.attachments.atlas_registration.fast_rnrr_max_faces:
   help: "fast_rnrr: the atlas bone is decimated to at most this many triangles."
   example: "20000"
-plugins.attachments.bone_registration.max_projection_mm:
+plugins.attachments.atlas_registration.max_projection_mm:
   help: >-
     Transferred outline points closer to the subject's bone than this are snapped onto its
     surface. 0 = no snapping.
   example: 10 (default).
-plugins.attachments.bone_registration.seed:
+plugins.attachments.atlas_registration.seed:
   help: Seed of the random surface sampling (same seed = same result).
   example: "0"
 

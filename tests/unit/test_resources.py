@@ -396,14 +396,14 @@ def test_install_atlas_rejects_bad_input(tmp_path):
         atlas.install_atlas(str(empty), print, name="../x")
 
 
-def test_bone_registration_uses_installed_atlas(tmp_path, monkeypatch):
-    from mskpipe.plugins.attachments.bone_registration import BoneRegistration
+def test_atlas_registration_uses_installed_atlas(tmp_path, monkeypatch):
+    from mskpipe.plugins.attachments.atlas_registration import AtlasRegistration
 
     monkeypatch.delenv(atlas.ATLAS_ENV, raising=False)
     config = _config()
-    assert "mskpipe setup atlas" in BoneRegistration.preflight(config, "ct")[0]
+    assert "mskpipe setup atlas" in AtlasRegistration.preflight(config, "ct")[0]
     atlas.install_atlas(str(_atlas(tmp_path / "src")), print)
-    assert BoneRegistration.preflight(config, "ct") == []
+    assert AtlasRegistration.preflight(config, "ct") == []
 
 
 # ------------------------------------------------------------------ status + CLI
