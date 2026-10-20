@@ -48,6 +48,13 @@ NO_ATLAS = (
 )
 
 
+# GUI: these parameters are shown only for the named non-rigid stage(s)
+_ONLY_COHERENT_ICP_CPD: dict[str, Any] = {"show_if": {"nonrigid": ["coherent_icp", "cpd"]}}
+_ONLY_COHERENT_ICP: dict[str, Any] = {"show_if": {"nonrigid": ["coherent_icp"]}}
+_ONLY_CPD: dict[str, Any] = {"show_if": {"nonrigid": ["cpd"]}}
+_ONLY_FAST_RNRR: dict[str, Any] = {"show_if": {"nonrigid": ["fast_rnrr"]}}
+
+
 class AtlasRegistrationParams(PluginParams):
     atlas_dir: str | None = Field(
         None,
@@ -76,30 +83,69 @@ class AtlasRegistrationParams(PluginParams):
         "coherent_icp", description="Non-rigid stage after the similarity ICP."
     )
     nonrigid_points: int = Field(
-        1500, ge=100, le=5000, description="Atlas points driving coherent_icp / cpd per bone."
+        1500,
+        ge=100,
+        le=5000,
+        description="Atlas points driving coherent_icp / cpd per bone.",
+        json_schema_extra=_ONLY_COHERENT_ICP_CPD,
     )
     coherent_beta_mm: float = Field(
-        40.0, gt=1.0, le=200.0, description="coherent_icp: width of the Gaussian kernel [mm]."
+        40.0,
+        gt=1.0,
+        le=200.0,
+        description="coherent_icp: width of the Gaussian kernel [mm].",
+        json_schema_extra=_ONLY_COHERENT_ICP,
     )
     coherent_lambda: float = Field(
-        2.0, gt=0.0, le=100.0, description="coherent_icp: regularisation (larger = stiffer)."
+        2.0,
+        gt=0.0,
+        le=100.0,
+        description="coherent_icp: regularisation (larger = stiffer).",
+        json_schema_extra=_ONLY_COHERENT_ICP,
     )
-    coherent_iterations: int = Field(30, ge=1, le=500, description="coherent_icp: iterations.")
+    coherent_iterations: int = Field(
+        30,
+        ge=1,
+        le=500,
+        description="coherent_icp: iterations.",
+        json_schema_extra=_ONLY_COHERENT_ICP,
+    )
     cpd_beta: float = Field(
-        2.0, gt=0.0, le=20.0, description="cpd: kernel width in normalised units (paper: 2)."
+        2.0,
+        gt=0.0,
+        le=20.0,
+        description="cpd: kernel width in normalised units (paper: 2).",
+        json_schema_extra=_ONLY_CPD,
     )
-    cpd_lambda: float = Field(2.0, gt=0.0, le=100.0, description="cpd: regularisation (paper: 2).")
+    cpd_lambda: float = Field(
+        2.0,
+        gt=0.0,
+        le=100.0,
+        description="cpd: regularisation (paper: 2).",
+        json_schema_extra=_ONLY_CPD,
+    )
     cpd_w: float = Field(
-        0.1, ge=0.0, lt=1.0, description="cpd: outlier weight (0 = none, probreg default)."
+        0.1,
+        ge=0.0,
+        lt=1.0,
+        description="cpd: outlier weight (0 = none, probreg default).",
+        json_schema_extra=_ONLY_CPD,
     )
-    cpd_iterations: int = Field(150, ge=1, le=2000, description="cpd: maximum EM iterations.")
+    cpd_iterations: int = Field(
+        150, ge=1, le=2000, description="cpd: maximum EM iterations.", json_schema_extra=_ONLY_CPD
+    )
     cpd_target_points: int = Field(
-        5000, ge=500, le=20000, description="cpd: subject points (memory ~ points x nonrigid)."
+        5000,
+        ge=500,
+        le=20000,
+        description="cpd: subject points (memory ~ points x nonrigid).",
+        json_schema_extra=_ONLY_CPD,
     )
     cpd_sigma_init_mm: float | None = Field(
         None,
         gt=0.0,
         description="cpd: initial GMM width [mm]; None = standard CPD start (all pairs).",
+        json_schema_extra=_ONLY_CPD,
     )
     fast_rnrr_exe: str | None = Field(
         None,
@@ -107,9 +153,14 @@ class AtlasRegistrationParams(PluginParams):
             "fast_rnrr: executable (not distributed); default $MSKPIPE_FAST_RNRR, the build "
             "of 'mskpipe setup fast-rnrr' or PATH."
         ),
+        json_schema_extra=_ONLY_FAST_RNRR,
     )
     fast_rnrr_max_faces: int = Field(
-        20000, ge=1000, le=500000, description="fast_rnrr: atlas bone decimated to this size."
+        20000,
+        ge=1000,
+        le=500000,
+        description="fast_rnrr: atlas bone decimated to this size.",
+        json_schema_extra=_ONLY_FAST_RNRR,
     )
     max_projection_mm: float = Field(
         10.0, ge=0.0, le=100.0, description="Snap points closer than this onto the bone; 0 = off."
