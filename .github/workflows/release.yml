@@ -97,7 +97,9 @@ jobs:
         with:
           name: release
           path: dist/
-          retention-days: 14
+          # only hands the package to the smoke/publish jobs (and to a manual test): it
+          # counts against the Actions artifact storage quota, a full quota fails the upload
+          retention-days: 3
           compression-level: 0
 
   smoke:
@@ -169,6 +171,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write  # delete the run's artifact once it is a release asset
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v7
@@ -183,3 +186,12 @@ jobs:
           gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --verify-tag \
             --title "msk-pipe ${{ needs.build.outputs.version }}" \
             --notes-file packaging/release_notes.md --generate-notes
+
+      - name: Delete the run's artifact (now a release asset)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
+            --jq '.artifacts[].id' | while read -r id; do
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id"
+            done

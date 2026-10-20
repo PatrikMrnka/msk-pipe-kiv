@@ -280,7 +280,12 @@ def test_release_workflow():
     assert triggers["push"]["tags"] == ["v*.*.*"] and "workflow_dispatch" in triggers
     assert set(wf["jobs"]) == {"build", "smoke", "publish"}
     assert wf["jobs"]["publish"]["if"] == "github.ref_type == 'tag'"
-    assert wf["jobs"]["publish"]["permissions"] == {"contents": "write"}
+    assert wf["jobs"]["publish"]["permissions"] == {"contents": "write", "actions": "write"}
+    # the hand-over artifact is short-lived and deleted after publishing (storage quota)
+    upload = next(s for s in wf["jobs"]["build"]["steps"] if "upload-artifact" in s.get("uses", ""))
+    assert upload["with"]["retention-days"] <= 3
+    last = wf["jobs"]["publish"]["steps"][-1]
+    assert "actions/artifacts" in last["run"] and "DELETE" in last["run"]
     assert wf["permissions"] == {"contents": "read"}
     assert not (ROOT / "ci.yml").exists()  # the workflow lives in .github/workflows
     # PowerShell: "$x = if (...) { @(...) }" yields a string for one item; splatting a
