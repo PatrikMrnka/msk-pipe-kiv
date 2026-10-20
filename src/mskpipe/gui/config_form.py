@@ -355,6 +355,9 @@ class ConfigForm(QWidget):
         self._plugin_boxes: dict[Path_, QGroupBox] = {}
         self._badges: dict[Path_, HelpBadge] = {}
         self._pickers: dict[Path_, MusclePicker] = {}
+        # field -> (sibling field it depends on, values for which it is shown) and its form
+        self._show_if: dict[Path_, tuple[Path_, list[Any]]] = {}
+        self._rows: dict[Path_, QFormLayout] = {}
         self._building = False
 
         self.tabs = QTabWidget()
@@ -418,6 +421,9 @@ class ConfigForm(QWidget):
             field.connect(lambda p=child_path: self._on_change(p))
             self._fields[child_path] = field
             form.addRow(label_with_badge(label, self._badge(child_path)), field.widget)
+            self._rows[child_path] = form
+            for key, shown_for in (child.get("show_if") or {}).items():
+                self._show_if[child_path] = ((*path, key), list(shown_for))
 
     def _make_field(self, path: Path_, kind: str, node: dict[str, Any], nullable: bool) -> Field:
         if path == EXCLUDE_PATH:
@@ -518,6 +524,8 @@ class ConfigForm(QWidget):
         assert isinstance(form, QFormLayout)
         for path in [p for p in self._fields if p[: len(params_path)] == params_path]:
             del self._fields[path]
+            self._rows.pop(path, None)
+            self._show_if.pop(path, None)
         for path in [p for p in self._badges if p[: len(params_path)] == params_path]:
             del self._badges[path]
         while form.rowCount():
@@ -543,6 +551,7 @@ class ConfigForm(QWidget):
             field = self._fields.get((*params_path, key))
             if field is not None:
                 field.set(value)
+        self._apply_visibility()
 
     def _plugin_defaults(self, params_path: Path_, method: str) -> dict[str, Any]:
         _, plugin_kind = PLUGIN_PARAMS[params_path]
@@ -681,8 +690,24 @@ class ConfigForm(QWidget):
                     self._build_plugin_params(params_path, {})
                 finally:
                     self._building = False
+        self._apply_visibility()
         self._refresh_marks()
         self.changed.emit()
+
+    def _apply_visibility(self) -> None:
+        """Show a parameter only for the choice it belongs to (``show_if`` in its schema,
+        e.g. the cpd_* parameters only for ``nonrigid: cpd``). Hidden fields keep their
+        values, so a saved or resolved config is the same either way."""
+        for path, (depends_on, shown_for) in self._show_if.items():
+            field, other = self._fields.get(path), self._fields.get(depends_on)
+            if field is None or other is None or path not in self._rows:
+                continue
+            self._rows[path].setRowVisible(field.widget, other.get() in shown_for)
+
+    def is_shown(self, *path: str) -> bool:
+        """Whether the row of a field is visible (the form may itself be hidden)."""
+        form = self._rows.get(path)
+        return form is not None and form.isRowVisible(self._fields[path].widget)
 
     def _refresh_marks(self) -> None:
         ref = self.reference()

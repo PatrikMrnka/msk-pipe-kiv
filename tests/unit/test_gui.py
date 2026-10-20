@@ -164,6 +164,31 @@ def test_form_plugin_params_follow_method(qapp):
     assert form.overrides() == []
 
 
+def test_form_shows_only_params_of_the_nonrigid_stage(qapp):
+    form = ConfigForm()
+    nonrigid = form.field("attachments", "params", "nonrigid")
+
+    def shown(name):
+        return form.is_shown("attachments", "params", name)
+
+    assert nonrigid.get() == "coherent_icp"
+    assert shown("coherent_beta_mm") and shown("nonrigid_points") and shown("atlas_dir")
+    assert not shown("cpd_beta") and not shown("fast_rnrr_exe")
+    nonrigid.set("cpd")
+    assert shown("cpd_beta") and shown("nonrigid_points") and not shown("coherent_beta_mm")
+    nonrigid.set("fast_rnrr")
+    assert shown("fast_rnrr_exe") and shown("fast_rnrr_max_faces")
+    assert not shown("cpd_beta") and not shown("nonrigid_points")
+    nonrigid.set("none")
+    assert not any(shown(n) for n in ("cpd_beta", "coherent_beta_mm", "fast_rnrr_exe"))
+    assert shown("n_points") and shown("trim")  # rigid stage: always
+    # hidden values are kept and still saved
+    form.field("attachments", "params", "cpd_beta").set(3.0)
+    assert form.values()["attachments"]["params"]["cpd_beta"] == 3.0
+    form.set_values({"attachments": {"params": {"nonrigid": "cpd"}}})
+    assert shown("cpd_beta") and not shown("fast_rnrr_exe")
+
+
 def test_form_load_save_roundtrip(qapp, tmp_path):
     source = tmp_path / "in.yaml"
     source.write_text(
