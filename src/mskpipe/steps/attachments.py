@@ -9,7 +9,7 @@ gluteus maximus and piriformis).
 Output (``05_attachments/``)::
 
     <muscle>/<Stem>_Ori.vtk, <Stem>_Ins.vtk   closed outlines, mm, world RAS (Muscle Wrapping)
-    registration/<bone>.stl                   atlas bones after registration (bone_registration)
+    registration/<bone>.stl                   atlas bones after registration (atlas_registration)
     bodies/tibia_<s>.stl                      tibia + fibula given to the method
     bodies/pelvis_with_sacrum.stl             pelvis + sacrum given to the method
     attachments.json                          index: method, atlas, registration, areas

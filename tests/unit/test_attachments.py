@@ -30,7 +30,7 @@ from mskpipe.geometry.register import (
 )
 from mskpipe.io.attachment_vtk import read_points, write_points
 from mskpipe.io.mesh_io import TriMesh, read_mesh, write_mesh
-from mskpipe.plugins.attachments.bone_registration import ATLAS_ENV, atlas_fingerprint
+from mskpipe.plugins.attachments.atlas_registration import ATLAS_ENV, atlas_fingerprint
 from mskpipe.steps.attachments import AttachmentsStep, read_attachments_index
 
 
@@ -272,7 +272,7 @@ def test_fingerprint_follows_atlas_content(atlas):
     cfg = load_config(overrides=[f"attachments.params.atlas_dir={atlas.as_posix()}"])
     step = AttachmentsStep()
     first = step.fingerprint_extra(cfg)
-    assert first["plugin"]["plugin"] == "attachments/bone_registration"
+    assert first["plugin"]["plugin"] == "attachments/atlas_registration"
     assert first["atlas_sha256"] == atlas_fingerprint(atlas) != "missing"
     write_points(atlas / "muscles/iliacus_r/Iliacus_Ins.vtk", np.zeros((3, 3)))
     assert step.fingerprint_extra(cfg)["atlas_sha256"] != first["atlas_sha256"]

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Attachment atlas location and installation (``mskpipe setup atlas``).
 
-The atlas used by ``attachments/bone_registration`` is looked up in this order:
+The atlas used by ``attachments/atlas_registration`` is looked up in this order:
 
 1. ``attachments.params.atlas_dir`` (config),
 2. the ``MSKPIPE_ATLAS_DIR`` environment variable (set by the Windows release launcher

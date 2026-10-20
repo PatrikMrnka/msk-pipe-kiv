@@ -31,7 +31,7 @@ from mskpipe.gui.process import (
     child_command,
     python_executable,
 )
-from mskpipe.plugins.attachments.bone_registration import BoneRegistration
+from mskpipe.plugins.attachments.atlas_registration import AtlasRegistration
 from mskpipe.plugins.base import AttachmentsPlugin, PluginParams
 
 FAKE_CLI = [sys.executable, str(Path(__file__).with_name("fake_cli.py"))]
@@ -159,7 +159,7 @@ def test_form_plugin_params_follow_method(qapp):
     assert form.overrides() == ["attachments.method=other_method"]
     form.field("attachments", "params", "radius_mm").set(7.5)
     assert "attachments.params.radius_mm=7.5" in form.overrides()
-    form.field("attachments", "method").set("bone_registration")
+    form.field("attachments", "method").set("atlas_registration")
     assert form.field("attachments", "params", "nonrigid").get() == "coherent_icp"
     assert form.overrides() == []
 
@@ -405,7 +405,7 @@ def test_window_device_detection(qapp, tmp_path):
 
 def test_gui_does_not_change_registry_default():
     assert "other_method" not in default_registry().names("attachments")
-    assert BoneRegistration.name in default_registry().names("attachments")
+    assert AtlasRegistration.name in default_registry().names("attachments")
 
 
 # ---------------------------------------------------------------------------- explanations

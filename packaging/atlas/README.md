@@ -1,7 +1,7 @@
 # msk-pipe attachment atlas `lhdl`
 
 Muscle attachment areas (origin and insertion outlines) on the bones of one subject, used
-by msk-pipe (`attachments` step, plugin `bone_registration`) to place the attachment areas
+by msk-pipe (`attachments` step, plugin `atlas_registration`) to place the attachment areas
 on a new subject by registering the atlas bones onto the subject's bones.
 
 **Licence:** CC BY-NC-SA 2.0 BE, derived from the LHDL dataset (see `LICENSE`). Not part

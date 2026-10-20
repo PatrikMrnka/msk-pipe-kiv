@@ -53,15 +53,15 @@ class Skel(SkeletonPlugin):
         return out_dir / "m.osim"
 
 
-class BoneRegistration(Demo):
-    name = "bone_registration"
+class AtlasRegistration(Demo):
+    name = "atlas_registration"
     Params = PluginParams
 
 
 @pytest.fixture
 def reg() -> Registry:
     r = Registry()
-    for plugin in (Demo, NeedsTool, Skel, BoneRegistration):
+    for plugin in (Demo, NeedsTool, Skel, AtlasRegistration):
         r.register(plugin)
     return r
 
@@ -71,12 +71,12 @@ def reg() -> Registry:
 
 def test_get_and_names(reg):
     assert reg.get("attachments", "demo") is Demo
-    assert reg.names("attachments") == ["bone_registration", "demo", "needs_tool"]
+    assert reg.names("attachments") == ["atlas_registration", "demo", "needs_tool"]
     assert reg.names("segmenter") == []
 
 
 def test_unknown_plugin_lists_available(reg):
-    with pytest.raises(PluginError, match="available: bone_registration, demo, needs_tool"):
+    with pytest.raises(PluginError, match="available: atlas_registration, demo, needs_tool"):
         reg.get("attachments", "cpd")
     assert issubclass(PluginError, ConfigError)
 
@@ -171,8 +171,8 @@ def test_identity(reg):
         "version": "3",
         "source": "local",
     }
-    builtin = Registry.default(external=False).identity("attachments", "bone_registration")
-    assert builtin == {"plugin": "attachments/bone_registration", "version": "1"}
+    builtin = Registry.default(external=False).identity("attachments", "atlas_registration")
+    assert builtin == {"plugin": "attachments/atlas_registration", "version": "1"}
 
 
 # ---------------------------------------------------------------------- entry points
@@ -191,13 +191,13 @@ def test_entry_points(monkeypatch, tmp_path):
     eps = {
         "mskpipe.attachments": [
             EntryPoint("ext", "ext_plugin_mod:Ext", "mskpipe.attachments"),
-            EntryPoint("bone_registration", "ext_plugin_mod:Ext", "mskpipe.attachments"),  # clash
+            EntryPoint("atlas_registration", "ext_plugin_mod:Ext", "mskpipe.attachments"),  # clash
         ]
     }
     monkeypatch.setattr(registry_mod, "entry_points", lambda group: eps.get(group, []))
     reg = Registry.default()
     assert reg.get("attachments", "ext").name == "ext"
-    assert reg.spec("attachments", "bone_registration").source == "mskpipe"  # built-in wins
+    assert reg.spec("attachments", "atlas_registration").source == "mskpipe"  # built-in wins
     assert reg.identity("attachments", "ext")["source"] == "external"
 
 
@@ -209,9 +209,9 @@ def test_builtins_load_and_resolve_defaults():
     assert {(k, n) for k, n, _ in BUILTINS} == {(i.kind, i.name) for i in reg.describe()}
     assert all(i.error is None for i in reg.describe())
     resolved = resolve_plugins(PipelineConfig(), reg)
-    from mskpipe.plugins.attachments.bone_registration import BoneRegistrationParams
+    from mskpipe.plugins.attachments.atlas_registration import AtlasRegistrationParams
 
-    assert resolved.attachments.params == BoneRegistrationParams().model_dump(mode="json")
+    assert resolved.attachments.params == AtlasRegistrationParams().model_dump(mode="json")
 
 
 def test_listing_builtins_imports_no_heavy_modules(monkeypatch):

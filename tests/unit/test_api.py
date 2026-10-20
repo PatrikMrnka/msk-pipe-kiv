@@ -208,7 +208,7 @@ class _Skel(SkeletonPlugin):
 
 
 class _Att(AttachmentsPlugin):
-    name = "bone_registration"
+    name = "atlas_registration"
 
     @classmethod
     def preflight(cls, config, modality):
@@ -277,16 +277,16 @@ def test_totalsegmentator_licence(tmp_path, monkeypatch):
     assert TotalSegmentator.preflight(no_key, "ct") == []
 
 
-def test_bone_registration_preflight(tmp_path, monkeypatch):
+def test_atlas_registration_preflight(tmp_path, monkeypatch):
     from mskpipe.config import load_config
-    from mskpipe.plugins.attachments.bone_registration import BoneRegistration
+    from mskpipe.plugins.attachments.atlas_registration import AtlasRegistration
 
     monkeypatch.delenv("MSKPIPE_ATLAS_DIR", raising=False)
-    assert "No attachment atlas" in BoneRegistration.preflight(load_config(), "ct")[0]
+    assert "No attachment atlas" in AtlasRegistration.preflight(load_config(), "ct")[0]
     cfg = load_config(overrides=[f"attachments.params.atlas_dir={tmp_path.as_posix()}"])
-    assert "index not found" in BoneRegistration.preflight(cfg, "ct")[0]
+    assert "index not found" in AtlasRegistration.preflight(cfg, "ct")[0]
     (tmp_path / "atlas.json").write_text("{}", encoding="utf-8")
-    assert BoneRegistration.preflight(cfg, "ct") == []
+    assert AtlasRegistration.preflight(cfg, "ct") == []
 
 
 # ---------------------------------------------------------------------------- config
