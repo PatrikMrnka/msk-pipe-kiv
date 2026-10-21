@@ -4,8 +4,8 @@ Windows Sandbox (Windows 10/11 Pro: *Turn Windows features on or off* -> *Window
 is a clean Windows without Python, pixi, Visual C++ redistributables or an NVIDIA driver -
 the situation of a new user. Run before every tag.
 
-1. Download `msk-pipe-<version>-win64.zip` (artifact `release` of the workflow run, or
-   the release) and a test volume (e.g. a small CT `.nii.gz`) into `C:\msk-pipe-sandbox`.
+1. Download `msk-pipe-<version>-win64.zip` (draft release `ci-<run id>` of a manual
+   *Release* run: `gh release download ci-<run id> -D C:\msk-pipe-sandbox`, or the release) and a test volume (e.g. a small CT `.nii.gz`) into `C:\msk-pipe-sandbox`.
 2. Double-click `packaging\sandbox\msk-pipe.wsb`; in the sandbox copy the zip from
    `Desktop\shared` to `C:\` and unzip it there (*Extract all*).
 3. Check:

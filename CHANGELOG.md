@@ -54,7 +54,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 ### Changed
 - GUI, attachments tab: only the parameters of the selected non-rigid stage are shown (`coherent_*` for `coherent_icp`, `cpd_*` for `cpd`, `fast_rnrr_*` for `fast_rnrr`, `nonrigid_points` for both point-based stages). Plugins mark such parameters with `show_if` in their schema; hidden values are kept and saved.
 - Attachment plugin `bone_registration` renamed to `atlas_registration` (module `mskpipe.plugins.attachments.atlas_registration`, help keys `plugins.attachments.atlas_registration.*`); `attachments.method: bone_registration` in older configs is still accepted and read as `atlas_registration`.
-- Release workflow: the package artifact is kept 3 days (was 14) and deleted after publishing; a full Actions artifact storage quota made the upload fail.
+- Release workflow: the package (~1 GB) is handed from job to job through a draft release instead of an Actions artifact (a full artifact storage quota made the upload fail). A tag run creates the draft `vX.Y.Z`, tests it on a clean runner and publishes it; a manual run leaves the draft `ci-<run id>` for testing (only the newest one is kept).
 - README: what the pipeline produces, a) the Windows release, b) building from source (ba: pixi with locked dependencies, bb: everything from source with the STAPLE parity check and the release build), configuration, troubleshooting, licences and citation.
 - Release workflow: `actions/upload-artifact@v6` and `actions/download-artifact@v7` (Node.js 24; v4/v5 of upload and v4–v6 of download still run on the deprecated Node.js 20).
 - `CITATION.cff`: version 0.1.0.
