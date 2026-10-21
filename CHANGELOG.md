@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-21
+
 ### Added
 - Project skeleton: pixi environments (`default`, `cpu`, `gpu`, `dev-cpu`), `mskpipe` CLI, CI on Windows.
 - Step `mesh`: label map -> bone `.stl` / muscle `.obj` meshes in world coordinates (NIfTI RAS+, mm), Python VTK port of the BP `mask_to_mesh` (identical meshes with VTK 9.4.2), `meshes.json` index and per-structure metrics.
@@ -85,3 +87,6 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 ### Fixed (vs. BP pipeline)
 - BP `VotingBinaryIterativeHoleFilling` grew masks instead of filling cavities; BP binarization was correct only for uint8 masks; BP cleaned masks could overlap (e.g. femur/hip).
 - MuscleMap exits with code 0 on errors and stores labels with the input header (8-bit inputs scale label IDs lossily): the output is checked and 8-bit inputs get a float32 copy.
+
+[Unreleased]: https://github.com/kivzcu/msk-pipe/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/kivzcu/msk-pipe/releases/tag/v0.1.0
