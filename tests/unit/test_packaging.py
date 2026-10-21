@@ -280,12 +280,17 @@ def test_release_workflow():
     assert triggers["push"]["tags"] == ["v*.*.*"] and "workflow_dispatch" in triggers
     assert set(wf["jobs"]) == {"build", "smoke", "publish"}
     assert wf["jobs"]["publish"]["if"] == "github.ref_type == 'tag'"
-    assert wf["jobs"]["publish"]["permissions"] == {"contents": "write", "actions": "write"}
-    # the hand-over artifact is short-lived and deleted after publishing (storage quota)
-    upload = next(s for s in wf["jobs"]["build"]["steps"] if "upload-artifact" in s.get("uses", ""))
-    assert upload["with"]["retention-days"] <= 3
-    last = wf["jobs"]["publish"]["steps"][-1]
-    assert "actions/artifacts" in last["run"] and "DELETE" in last["run"]
+    assert wf["jobs"]["publish"]["permissions"] == {"contents": "write"}
+    # the ~1 GB package goes from job to job through a draft release, not an Actions
+    # artifact (the artifact storage quota of a private repository is smaller)
+    text = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    assert "upload-artifact" not in text and "download-artifact" not in text
+    build, smoke = wf["jobs"]["build"], wf["jobs"]["smoke"]
+    assert build["permissions"] == smoke["permissions"] == {"contents": "write"}
+    draft = next(s for s in build["steps"] if s.get("id") == "draft")
+    assert "--draft" in draft["run"] and "--verify-tag" in draft["run"]
+    assert any("gh release download" in s.get("run", "") for s in smoke["steps"])
+    assert "--draft=false" in wf["jobs"]["publish"]["steps"][-1]["run"]
     assert wf["permissions"] == {"contents": "read"}
     assert not (ROOT / "ci.yml").exists()  # the workflow lives in .github/workflows
     # PowerShell: "$x = if (...) { @(...) }" yields a string for one item; splatting a

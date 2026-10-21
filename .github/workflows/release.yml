@@ -1,9 +1,15 @@
 name: Release
 
 # Tag vX.Y.Z on main -> Windows release on GitHub (GitLab: a tag pipeline + release job).
-#   git tag v0.1.0
+#   git tag -a v0.1.0 -m "msk-pipe 0.1.0"
 #   git push origin v0.1.0
-# "Run workflow" (workflow_dispatch) builds and tests the same package without publishing.
+# "Run workflow" (workflow_dispatch) builds and tests the same package and leaves it in the
+# draft release "ci-<run id>" (gh release download ci-<id>; gh release delete ci-<id> --yes).
+#
+# The package (~1 GB) goes from job to job through a draft release, not an Actions
+# artifact: the artifact storage quota of a private repository is smaller than the package.
+# The tag run publishes its draft at the end; a failed tag run leaves the draft behind
+# (delete it before tagging again).
 
 on:
   push:
@@ -25,8 +31,11 @@ jobs:
     name: Build Windows package
     runs-on: windows-latest
     timeout-minutes: 90
+    permissions:
+      contents: write  # draft release with the package
     outputs:
       version: ${{ steps.version.outputs.version }}
+      release: ${{ steps.draft.outputs.release }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -93,29 +102,55 @@ jobs:
             --maxpath build/maxpath.txt --runtime-from build/test/env --out dist @atlas
           if ($LASTEXITCODE) { throw "assemble failed" }
 
-      - uses: actions/upload-artifact@v6
-        with:
-          name: release
-          path: dist/
-          # only hands the package to the smoke/publish jobs (and to a manual test): it
-          # counts against the Actions artifact storage quota, a full quota fails the upload
-          retention-days: 3
-          compression-level: 0
+      - name: Draft release with the package
+        id: draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: pwsh
+        run: |
+          $repo = $env:GITHUB_REPOSITORY
+          $files = @(Get-ChildItem dist/* | ForEach-Object { $_.FullName })
+          $drafts = @(gh release list --repo $repo --json tagName,isDraft | ConvertFrom-Json |
+            Where-Object { $_.isDraft } | ForEach-Object { $_.tagName })
+          if ($env:GITHUB_REF_TYPE -eq "tag") {
+            $name = $env:GITHUB_REF_NAME
+            # re-run after a failed tag run: replace its draft
+            foreach ($t in $drafts | Where-Object { $_ -eq $name }) { gh release delete $t --repo $repo --yes }
+            gh release create $name @files --repo $repo --draft --verify-tag `
+              --title "msk-pipe $env:VERSION" --notes-file packaging/release_notes.md --generate-notes
+          } else {
+            $name = "ci-$env:GITHUB_RUN_ID"
+            # keep only the newest test build
+            foreach ($t in $drafts | Where-Object { $_ -like "ci-*" }) { gh release delete $t --repo $repo --yes }
+            gh release create $name @files --repo $repo --draft --target $env:GITHUB_SHA `
+              --title "msk-pipe $env:VERSION (test build)" `
+              --notes "Test build of $env:GITHUB_SHA (run $env:GITHUB_RUN_ID), not a release."
+          }
+          if ($LASTEXITCODE) { throw "gh release create failed" }
+          "release=$name" >> $env:GITHUB_OUTPUT
 
   smoke:
     name: Test on a clean Windows runner
     needs: build
     runs-on: windows-latest
     timeout-minutes: 60
+    permissions:
+      contents: write  # a draft release is visible only with write access
     env:
       VERSION: ${{ needs.build.outputs.version }}
       QT_QPA_PLATFORM: offscreen
     steps:
       - uses: actions/checkout@v7  # only for tools/skeleton_parity.py
-      - uses: actions/download-artifact@v7
-        with:
-          name: release
-          path: dist
+      - name: Download the package from the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ needs.build.outputs.release }}
+        shell: pwsh
+        run: |
+          gh release download $env:RELEASE --repo $env:GITHUB_REPOSITORY `
+            --pattern "msk-pipe-$env:VERSION-win64.zip" --dir dist
+          if ($LASTEXITCODE) { throw "download failed" }
       - name: Unzip to a short path
         shell: pwsh
         run: |
@@ -171,27 +206,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      actions: write  # delete the run's artifact once it is a release asset
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v7
-        with:
-          name: release
-          path: dist
-      - name: Create release
+      - name: Publish the draft release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: |
-          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --verify-tag \
-            --title "msk-pipe ${{ needs.build.outputs.version }}" \
-            --notes-file packaging/release_notes.md --generate-notes
-
-      - name: Delete the run's artifact (now a release asset)
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
-            --jq '.artifacts[].id' | while read -r id; do
-              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id"
-            done
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
