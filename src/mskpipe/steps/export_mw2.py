@@ -16,6 +16,7 @@ Output (``06_mw2_input/``)::
     muscles/<muscle>/<Stem>_Ins.vtk    insertion outline (mm), inflated when degenerate
     analysis/, fibres/                 output folders of Muscle Wrapping (when enabled)
     export.json                        index: pose, checks, repairs, exclusions
+    defects.json                       muscles whose mesh Muscle Wrapping cannot use (if any)
 
 Coordinates: the OpenSim frame (Y up), i.e. the world frame of the input image (NIfTI
 RAS+) rotated by ``RAS_TO_OPENSIM`` (:mod:`mskpipe.geometry.frames`: X anterior,
@@ -208,6 +209,7 @@ class ExportMw2Step(Step):
             "time_s": round(elapsed, 3),
             "times_s": times_s,
         }
+        _write_defects(out, records)
         index_path = out / EXPORT_FILE
         index_path.write_text(
             json.dumps(index, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
@@ -589,6 +591,33 @@ class ExportMw2Step(Step):
 
 
 # ---------------------------------------------------------------------------- helpers
+
+
+def _write_defects(out: Path, records: list[dict[str, Any]]) -> None:
+    """``defects.json``: muscles with a mesh Muscle Wrapping cannot use (not those excluded
+    by ``export.exclude``, attachment warnings are not defects)."""
+    from mskpipe.qc.defects import DEFECTS_FILE, Defect, DefectReport
+
+    defects = [
+        Defect(
+            structure=r["name"],
+            kind="surface",
+            center_ijk=None,
+            center_mm=None,
+            size_mm=None,
+            fixed=False,
+            method="excluded" if r["status"] == "excluded" else "kept invalid",
+            detail="; ".join(p for p in r["problems"] if p.startswith("mesh")),
+            step="export_mw2",
+        )
+        for r in records
+        if r["status"] != "ok"
+        and not r.get("excluded_by_config")
+        and any(p.startswith("mesh") for p in r.get("problems", []))
+    ]
+    (out / DEFECTS_FILE).unlink(missing_ok=True)
+    if defects:
+        DefectReport(defects, {"step": "export_mw2"}).write(out)
 
 
 def excluded_reason(name: str, exclude: list[str]) -> str | None:

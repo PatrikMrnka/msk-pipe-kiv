@@ -259,6 +259,12 @@ class MainWindow(QMainWindow):
         self.open_mw2_button.clicked.connect(
             lambda: self._open(self.summary.mw2_dir if self.summary else None)
         )
+        self.qc_button = QPushButton("Geometry check…")
+        self.qc_button.setToolTip(
+            "Bone holes, gaps and unusable muscle meshes found in the run, in a 3D view"
+        )
+        self.qc_button.clicked.connect(self.open_qc)
+        self.qc_dialog: QWidget | None = None
         self.setup_button = QPushButton("Setup…")
         self.setup_button.setToolTip("Licence key, attachment atlas, model weights and GPU support")
         self.setup_button.clicked.connect(lambda: self.open_setup())
@@ -281,10 +287,11 @@ class MainWindow(QMainWindow):
                 self.setup_button,
                 self.open_run_button,
                 self.open_mw2_button,
+                self.qc_button,
                 self.cancel_button,
                 self.run_button,
                 stretch_first=False,
-                stretch_at=3,
+                stretch_at=4,
             )
         )
 
@@ -799,6 +806,37 @@ class MainWindow(QMainWindow):
                 _colored(f"Failed in '{s.failed_step}': ", STATUS_COLORS["failed"]) + error
             )
         self.open_mw2_button.setEnabled(s.mw2_dir is not None)
+        self.qc_button.setEnabled(self._has_defects())
+        if self._has_defects():
+            self.warn_defects()
+
+    # ------------------------------------------------------------------ geometry check
+
+    def _has_defects(self) -> bool:
+        from mskpipe.qc.defects import collect
+
+        run_dir = self.process.run_dir
+        return run_dir is not None and bool(collect(Path(run_dir)).defects)
+
+    def warn_defects(self) -> None:
+        """Message box with the defects of the finished run; 'Show in 3D' opens the view."""
+        from mskpipe.gui.qc_dialog import warn_defects
+
+        dialog = warn_defects(self, Path(self.process.run_dir))
+        if dialog is not None:
+            self.qc_dialog = dialog
+
+    def open_qc(self) -> None:
+        from mskpipe.gui.qc_dialog import DefectDialog
+
+        if self.process.run_dir is None:
+            return
+        try:
+            self.qc_dialog = DefectDialog(Path(self.process.run_dir), self)
+        except ImportError as exc:  # VTK Qt support missing
+            QMessageBox.warning(self, "Geometry check", f"3D view not available: {exc}")
+            return
+        self.qc_dialog.show()
 
     # ------------------------------------------------------------------ steps
 
@@ -893,6 +931,7 @@ class MainWindow(QMainWindow):
         self.open_mw2_button.setEnabled(
             not running and self.summary is not None and self.summary.mw2_dir is not None
         )
+        self.qc_button.setEnabled(not running and self._has_defects())
 
     def _open(self, path: Path | None) -> None:
         if path is not None and Path(path).exists():

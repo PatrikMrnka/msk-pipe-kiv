@@ -135,6 +135,7 @@ mskpipe config init my.yaml                    # commented template
 mskpipe run scan.nii.gz -c my.yaml --set skeleton.side=l --no-cache
 mskpipe batch paper/experiments/e13_timing.yaml # repeated runs, parameter matrices
 mskpipe stats runs -o stats                     # CSV tables: times, RAM, metrics per step
+mskpipe qc runs/<run> --show                    # bone holes / gaps / bad meshes in 3D
 ```
 
 ## Troubleshooting
@@ -145,6 +146,7 @@ mskpipe stats runs -o stats                     # CSV tables: times, RAM, metric
 | No internet during the run | download weights beforehand: `mskpipe setup weights -m ct` |
 | No TotalSegmentator licence key | *Use MuscleMap instead* (`--set segmentation.tibia_fibula=musclemap`) |
 | Path too long | keep the release at a short path such as `C:\msk-pipe-<version>` |
+| Warning "bone defect(s)" after the run | holes in thin bone or a broken fibula (common in MRI) were repaired or could not be: check them with `mskpipe qc <run> --show` (GUI: *Geometry check…*) |
 | What is missing? | `mskpipe setup status` |
 
 ## Licence

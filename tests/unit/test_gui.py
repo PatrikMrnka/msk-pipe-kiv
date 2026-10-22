@@ -343,6 +343,20 @@ def test_window_run_completed(window):
     assert resolved["runtime"]["device"] == "cpu"
 
 
+def test_window_geometry_check(window, monkeypatch):
+    from mskpipe.qc.defects import Defect, DefectReport
+
+    assert window.start_run()
+    wait_until(lambda: not window.process.is_running() and window.summary is not None)
+    assert not window.qc_button.isEnabled()  # no defects
+    warned = []
+    monkeypatch.setattr(window, "warn_defects", lambda: warned.append(True))
+    hole = Defect("pelvis_no_sacrum", "hole", [1, 1, 1], [1.0, 1.0, 1.0], 20.0, False, "too large")
+    DefectReport([hole]).write(window.summary.run_dir / "02_labelmap")
+    window._show_result(0, False)
+    assert warned == [True] and window.qc_button.isEnabled()
+
+
 def test_window_until_and_failure(window, monkeypatch):
     monkeypatch.setenv("FAKE_FAIL", "mesh")
     gui_app._select(window.until_combo, "skeleton")

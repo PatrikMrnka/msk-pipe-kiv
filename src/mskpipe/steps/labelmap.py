@@ -9,6 +9,9 @@ Output (``02_labelmap/``)::
     labelmap.nii.gz     uint8 label map on the input image grid
     labels.json         structure name -> value, kind (mskpipe.io.labels; read by ``mesh``)
     labelmap.json       index: sources, parameters, per-structure status and metrics
+    defects.json        bone holes / gaps / short bones found, repaired or not
+                        (mskpipe.qc.defects; only when there are defects)
+    patches.nii.gz      int16, value i = voxels added to repair defect i
 
 Sources are chosen by ``segmentation.*`` and mapped by label names through
 ``config/unified_labels.yaml``; only the ``skeleton.side`` leg and the pelvis are built.
@@ -26,13 +29,14 @@ from mskpipe.config import PipelineConfig
 from mskpipe.core.step import Step, StepContext, StepError
 
 INDEX_FILE = "labelmap.json"
+DEFECTS_FILE_NAME = "defects.json"
 FORMAT = "mskpipe.labelmap"
 VERSION = 1
 
 
 class LabelmapStep(Step):
     name: ClassVar[str] = "labelmap"
-    version: ClassVar[str] = "1"
+    version: ClassVar[str] = "2"  # 2: bone topology repair (holes, gaps)
     config_sections: ClassVar[tuple[str, ...]] = ("segmentation", "labelmap")
 
     def fingerprint_extra(self, config: PipelineConfig) -> dict[str, Any]:
@@ -105,6 +109,7 @@ class LabelmapStep(Step):
         )
         for name in (LABELMAP_FILE, LABELS_FILE, INDEX_FILE):
             ctx.record.add_output(out / name)
+        report = _defects(ctx, result)
 
         for e in result.structures:
             if e["status"] == "ok":
@@ -137,8 +142,72 @@ class LabelmapStep(Step):
                 "labelmap_time_s": round(elapsed, 3),
                 "clean_time_s": round(float(np.sum([e["time_s"] for e in ok])), 3),
                 "structures": {e["name"]: _summary(e) for e in ok},
+                "defects": report.summary(),
             }
         )
+        unfixed = report.unfixed
+        if unfixed and ctx.config.labelmap.bones.topology.on_unfixed == "fail":
+            raise StepError(
+                f"{len(unfixed)} bone defect(s) not repaired (labelmap.bones.topology.on_unfixed"
+                " = fail): " + "; ".join(d.message() for d in unfixed)
+            )
+
+
+def _defects(ctx: StepContext, result: Any) -> Any:
+    """Length check, then ``defects.json`` + ``patches.nii.gz`` and the log."""
+    import nibabel as nib
+    import numpy as np
+
+    from mskpipe.qc.defects import PATCHES_FILE, DefectReport, length_check
+
+    report = DefectReport(result.defects, meta={"step": "labelmap"})
+    values = {e["name"]: e["value"] for e in result.structures if e["status"] == "ok"}
+    ratio = ctx.config.labelmap.bones.topology.min_length_ratio
+    for side in ("r", "l"):
+        fib, tib = values.get(f"fibula_{side}"), values.get(f"tibia_{side}")
+        if fib is None or tib is None or ratio <= 0:
+            continue
+        lengths = [_axis_length(result.data == v, result.affine) for v in (fib, tib)]
+        d = length_check(f"fibula_{side}", lengths[0], f"tibia_{side}", lengths[1], ratio)
+        if d is not None:
+            report.extend([d])
+    for e in result.structures:
+        if e.get("status") == "ok" and "topology" in e:
+            e["defects"] = sum(d.structure == e["name"] for d in report.defects)
+
+    for name in (DEFECTS_FILE_NAME, PATCHES_FILE):
+        (ctx.out_dir / name).unlink(missing_ok=True)
+    if not report.defects:
+        return report
+    ctx.record.add_output(report.write(ctx.out_dir))
+    if result.patches is not None and result.patches.any():
+        img = nib.Nifti1Image(result.patches.astype(np.int16), result.affine)
+        nib.save(img, ctx.out_dir / PATCHES_FILE)
+        ctx.record.add_output(ctx.out_dir / PATCHES_FILE)
+    for d in report.defects:
+        log = ctx.logger.warning if d.fixed else ctx.logger.error
+        log("[labelmap] %s | %s", d.message(), d.detail)
+    ctx.logger.warning(
+        "[labelmap] %d bone defect(s), %d not repaired; check them in 3D: mskpipe qc %s --show",
+        len(report.defects),
+        len(report.unfixed),
+        ctx.ws.root,
+    )
+    return report
+
+
+def _axis_length(mask: Any, affine: Any) -> float:
+    """Extent (mm) of a mask along its principal axis."""
+    import numpy as np
+
+    ijk = np.argwhere(mask)
+    if len(ijk) < 2:
+        return 0.0
+    pts = ijk[:: max(1, len(ijk) // 50_000)] @ np.asarray(affine)[:3, :3].T
+    centred = pts - pts.mean(axis=0)
+    axis = np.linalg.svd(centred, full_matrices=False)[2][0]
+    proj = (ijk @ np.asarray(affine)[:3, :3].T) @ axis
+    return float(proj.max() - proj.min())
 
 
 def read_labelmap_index(labelmap_dir: Path) -> dict[str, Any]:

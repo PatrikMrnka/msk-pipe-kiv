@@ -226,10 +226,44 @@ class PreprocessParams(StrictModel):
     )
 
 
+class BoneTopologyParams(StrictModel):
+    repair_holes: bool = Field(
+        True,
+        description="Fill through-holes of thin bone (iliac wing) beyond the anatomical ones "
+        "(obturator foramen); off = only report them.",
+    )
+    max_hole_mm: float = Field(
+        40.0,
+        gt=0,
+        le=200,
+        description="Holes wider than this are reported, never filled by interpolation "
+        "(voxels of another segmentation of the same bone fill holes of any size).",
+    )
+    repair_gaps: bool = Field(
+        True,
+        description="Bridge gaps between fragments of a long bone (fibula); off = only report.",
+    )
+    max_gap_mm: float = Field(
+        40.0, gt=0, le=200, description="Longer gaps are reported, never bridged."
+    )
+    min_length_ratio: float = Field(
+        0.85,
+        ge=0,
+        le=1,
+        description="Fibula shorter than this fraction of the tibia is reported as a defect.",
+    )
+    on_unfixed: Literal["warn", "fail"] = Field(
+        "warn",
+        description="Defect that could not be repaired: 'warn' = log and report, 'fail' = the "
+        "labelmap step fails.",
+    )
+
+
 class BonePreprocessParams(PreprocessParams):
     min_voxels: int = Field(
         2000, ge=0, description="Labels with fewer voxels are treated as missing."
     )
+    topology: BoneTopologyParams = Field(default_factory=BoneTopologyParams)
 
 
 class MusclePreprocessParams(PreprocessParams):

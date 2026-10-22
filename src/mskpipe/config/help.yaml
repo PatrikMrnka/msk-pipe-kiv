@@ -175,6 +175,41 @@ labelmap.bones.min_component_fraction: &components
     the largest part, 0 keeps all.
   example: 1 (default) drops a false patch of 'femur' found in the other leg.
 labelmap.muscles.min_component_fraction: *components
+labelmap.bones.topology:
+  help: >-
+    Geometry check of the bones: through-holes in thin bone and gaps in long bones (common in
+    MRI). Every defect is listed in defects.json, shown after the run and in the 3D view
+    (mskpipe qc RUN --show).
+labelmap.bones.topology.repair_holes:
+  help: >-
+    Fill through-holes in thin bone, e.g. in the iliac wing. The hip bone keeps its one
+    anatomical hole (obturator foramen). Holes are filled from the other tool's segmentation
+    of the same bone (MuscleMap hip bone), else by interpolated patches. Off = only report.
+  example: On (default).
+labelmap.bones.topology.max_hole_mm:
+  help: >-
+    Holes wider than this are only reported: an interpolated patch would be a guess. Holes
+    filled from the other segmentation have no size limit (the voxels are measured).
+  example: 40 mm.
+labelmap.bones.topology.repair_gaps:
+  help: >-
+    Join fragments of a long bone split by a missing part of the shaft with an interpolated
+    cylinder. Without it only the largest fragment is kept and the bone is too short.
+    Off = only report.
+  example: On (default); TLEM 2.0 MRI fibula gap of 39 mm.
+labelmap.bones.topology.max_gap_mm:
+  help: Longer gaps are only reported, never bridged.
+  example: 40 mm.
+labelmap.bones.topology.min_length_ratio:
+  help: >-
+    A fibula shorter than this fraction of the tibia is reported (part not segmented or
+    outside the image).
+  example: 0.85 (a fibula is about as long as the tibia).
+labelmap.bones.topology.on_unfixed:
+  help: >-
+    What to do with a defect that could not be repaired: warn = report and continue,
+    fail = stop the run after the label map.
+  example: warn (default); fail for batch runs that must be clean.
 
 # ------------------------------------------------------------------ mesh
 mesh:
