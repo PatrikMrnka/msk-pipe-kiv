@@ -260,3 +260,21 @@ def test_run_modality_auto(fake, image, tmp_path):
     events = [RunEvent.from_line(line) for line in result.stdout.splitlines()]
     notes = [e.message for e in events if e.kind == "log" and "Modality:" in (e.message or "")]
     assert notes and notes[0].startswith("Modality: MRI")  # a zero volume has no air in HU
+
+
+def test_qc_command(tmp_path) -> None:
+    from mskpipe.qc.defects import Defect, DefectReport
+
+    run = tmp_path / "run"
+    (run / "02_labelmap").mkdir(parents=True)
+    result = runner.invoke(app, ["qc", str(run)])
+    assert result.exit_code == 0 and "No geometry defects" in result.output
+    gap = Defect("fibula_r", "gap", [1, 1, 1], [1.0, 2.0, 3.0], 39.3, True, "bridge")
+    DefectReport([gap]).write(run / "02_labelmap")
+    result = runner.invoke(app, ["qc", str(run)])
+    assert result.exit_code == 0 and "fibula_r: gap, 39.3 mm" in result.output
+    hole = Defect("femur_r", "hole", None, None, None, False, "not found")
+    DefectReport([hole]).write(run / "03_mesh")
+    result = runner.invoke(app, ["qc", str(run)])
+    assert result.exit_code == 2 and "ERR" in result.output
+    assert runner.invoke(app, ["qc", str(tmp_path / "missing")]).exit_code == 1

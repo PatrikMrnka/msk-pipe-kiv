@@ -4,6 +4,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 
 ## [Unreleased]
 
+### Added
+- Geometry check of the bones in step `labelmap` (`labelmap.bones.topology`): through-holes in thin bone (genus above the anatomy, e.g. iliac wing holes in MRI; the obturator foramen is kept) are filled from the other tool's segmentation of the same bone (MuscleMap hip bone), else by plate patches; gaps in long bones are bridged before the opening so the component filter keeps the whole bone; fibula shorter than 85 % of the tibia is reported. `02_labelmap/defects.json` + `patches.nii.gz`, per-structure `topology` in `labelmap.json`, `defects` metrics; `on_unfixed: fail` stops the run.
+- Step `mesh` reports bone surfaces whose genus exceeds the anatomy, step `export_mw2` muscles whose mesh Muscle Wrapping cannot use (`defects.json` in each step folder).
+- `mskpipe qc RUN [--show] [--png]`: list of defects (exit code 2 if one is not repaired), interactive VTK view focused on each defect, one image per defect. GUI: warning after the run and *Geometry check…* with the 3D view.
+
+### Changed
+- Steps `labelmap` (v2) and `mesh` (v2) are recomputed once; on LHDL CT the label map is unchanged (0 voxels differ).
+
 ## [0.1.0] - 2026-10-21
 
 ### Added

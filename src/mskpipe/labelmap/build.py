@@ -12,6 +12,12 @@
    structures of the same kind becomes background (e.g. a gap between two muscles or the
    joint space); bones win over muscles.
 4. Structures with fewer than ``min_voxels`` voxels are removed (status ``too_small``).
+
+Bone parts also get their topology checked and repaired (``labelmap.bones.topology``,
+:class:`~mskpipe.labelmap.clean.Topology`): holes are filled from the same bone of the
+other tool (``DONORS``) when that tool's output is loaded. The defects
+(:class:`~mskpipe.qc.defects.Defect`, full-grid voxel and world coordinates) and a label
+image of the added voxels (value = defect index + 1) are returned for the QC report.
 """
 
 from __future__ import annotations
@@ -30,6 +36,7 @@ from mskpipe.io.segmentation import ToolOutput
 from mskpipe.labelmap.clean import (
     Box,
     CleanParams,
+    Topology,
     clean_mask,
     element_radius,
     padded_box,
@@ -61,6 +68,8 @@ class LabelmapResult:
     table: LabelTable
     structures: list[dict[str, Any]]
     info: dict[str, Any] = field(default_factory=dict)
+    defects: list[Any] = field(default_factory=list)  # mskpipe.qc.defects.Defect
+    patches: np.ndarray | None = None  # int16, value = defect index + 1
 
 
 def clean_params(config: LabelmapConfig, kind: str) -> CleanParams:
@@ -124,6 +133,8 @@ def build_labelmap(
     # ---------------------------------------------------------------- clean parts
     stats: dict[str, dict[str, Any]] = {}
     cleaned: list[tuple[_Part, Box, np.ndarray]] = []
+    defects: list[Any] = []
+    patches = np.zeros(shape, dtype=np.int16)
     for part in parts:
         start = time.perf_counter()
         params = clean_params(config, part.kind)
@@ -140,18 +151,41 @@ def build_labelmap(
         own = np.zeros([s.stop - s.start for s in grown], dtype=bool)
         own[local] = part.mask
         blocked = (coverage[grown] - own) > 0
+        origin = np.array([g.start - p[0] for g, p in zip(grown, padding, strict=True)])
+        topo = _topology(part, config, affine, origin, outputs, grown, padding)
         mask, op_stats = clean_mask(
-            np.pad(own, padding), spacing, params, blocked=np.pad(blocked, padding)
-        )
+            np.pad(own, padding), spacing, params, blocked=np.pad(blocked, padding),
+            topology=topo,
+        )  # fmt: skip
         mask = unpad(mask, padding)
         cleaned.append((part, grown, mask))
+        if topo is not None:
+            for defect, patch in zip(topo.defects, topo.patches, strict=True):
+                defect.center_ijk = _shift(defect.center_ijk, origin)
+                if part.source_label != part.structure:
+                    defect.detail = f"{part.source_label}: {defect.detail}"
+                defects.append(defect)
+                if patch is not None:
+                    region = patches[grown]
+                    region[unpad(patch, padding) & (region == 0)] = len(defects)
+            op_stats["topology"] = {
+                "genus_before": topo.genus_before,
+                "genus_after": topo.genus_after,
+                "holes_filled": sum(d.kind == "hole" and d.fixed for d in topo.defects),
+                "gaps_bridged": sum(d.kind == "gap" and d.fixed for d in topo.defects),
+                "unfixed": sum(not d.fixed for d in topo.defects),
+                "added_voxels": sum(d.voxels for d in topo.defects if d.fixed),
+            }
 
         s = stats.setdefault(part.structure, {"parts": [], "raw_voxels": 0, "raw_overlap": 0})
         s["parts"].append(part.source_label)
         s["raw_voxels"] += int(own.sum())
         s["raw_overlap"] += int((own & blocked).sum())
         for key, val in op_stats.items():
-            s[key] = s.get(key, 0) + val
+            if key == "topology":
+                s.setdefault("topology", {})[part.source_label] = val
+            else:
+                s[key] = s.get(key, 0) + val
         s["time_s"] = s.get("time_s", 0.0) + time.perf_counter() - start
 
     # ---------------------------------------------------------------- assemble
@@ -221,6 +255,8 @@ def build_labelmap(
             lost_to_bone=lost_to_bone.get(name, 0),
             time_s=round(s["time_s"], 3),
         )
+        if "topology" in s:
+            entry["topology"] = s["topology"]
         entries.append(entry)
 
     info = {
@@ -228,10 +264,53 @@ def build_labelmap(
         "spacing_mm": [round(float(v), 6) for v in spacing],
         "midline": midline,
     }
-    return LabelmapResult(data, affine, LabelTable(labels=tuple(labels)), entries, info)
+    patches[data == 0] = 0  # voxels lost in the assembly
+    return LabelmapResult(
+        data, affine, LabelTable(labels=tuple(labels)), entries, info, defects,
+        patches if defects else None,
+    )  # fmt: skip
 
 
 # ------------------------------------------------------------------------------ helpers
+
+
+def _topology(part, config, affine, origin, outputs, grown, padding) -> Topology | None:
+    """Topology request of a bone part (None for muscles)."""
+    from mskpipe.labelmap.topology import DONORS, EXPECTED_GENUS, LONG_BONES
+
+    if part.kind != "bone":
+        return None
+    p = config.bones.topology
+    local = np.array(affine, dtype=float)
+    local[:3, 3] = local[:3, :3] @ origin + local[:3, 3]
+    donor, donor_name = None, "donor"
+    donor_label = DONORS.get(part.source_label)
+    if donor_label is not None and p.repair_holes:
+        for out, vol in outputs:
+            if donor_label in out.labels:
+                donor = np.pad(vol.data[grown] == out.labels[donor_label], padding)
+                donor_name = {"musclemap": "MuscleMap", "totalsegmentator": "TotalSegmentator"}.get(
+                    out.tool, out.tool
+                )
+                break
+    return Topology(
+        name=part.structure,
+        affine=local,
+        expected_genus=EXPECTED_GENUS.get(part.source_label),
+        gaps=part.source_label in LONG_BONES or part.structure in LONG_BONES,
+        repair_holes=p.repair_holes,
+        max_hole_mm=p.max_hole_mm,
+        repair_gaps=p.repair_gaps,
+        max_gap_mm=p.max_gap_mm,
+        donor=donor,
+        donor_name=donor_name,
+    )
+
+
+def _shift(ijk: list[float] | None, origin: np.ndarray) -> list[float] | None:
+    if ijk is None:
+        return None
+    return [round(float(v) + float(o), 2) for v, o in zip(ijk, origin, strict=True)]
 
 
 def _warn(log: Any, msg: str, *args: Any) -> None:

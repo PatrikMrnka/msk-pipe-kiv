@@ -24,6 +24,10 @@ RIGHT, LEFT = slice(14, 20), slice(40, 46)
 
 
 def _ts_total() -> tuple[np.ndarray, dict[str, int]]:
+    return _ts_total_base()
+
+
+def _ts_total_base() -> tuple[np.ndarray, dict[str, int]]:
     d = np.zeros(SHAPE, np.uint8)
     d[10:25, 8:22, 28:36] = 78  # hip_right
     d[35:50, 8:22, 28:36] = 77  # hip_left
@@ -211,3 +215,80 @@ def test_no_output_for_sources_fails(tmp_path, spec):
             "segmentation.bones=totalsegmentator",
             "segmentation.muscles=totalsegmentator",
         )
+
+
+# ------------------------------------------------------------------- bone topology
+
+
+def _ts_total_defects() -> tuple[np.ndarray, dict[str, int]]:
+    """hip_right with two tunnels (genus 2, expected 1), femur_right split by a gap."""
+    d, labels = _ts_total_base()
+    d[d == 78] = 0
+    d[4:28, 3:27, 28:36] = 78  # larger hip_right
+    d[9:12, 9:12, 28:36] = 0  # small tunnel (filled)
+    d[18:24, 15:21, 28:36] = 0  # larger tunnel (kept as the 'foramen')
+    d[RIGHT, 12:18, 19:22] = 0  # femur gap of 3 slices = 4.5 mm
+    return d, labels
+
+
+def test_bone_defects_repaired_and_reported(tmp_path, spec, monkeypatch):
+    from mskpipe.labelmap.topology import genus
+    from mskpipe.qc.defects import PATCHES_FILE, collect
+
+    monkeypatch.setattr(f"{__name__}._ts_total", _ts_total_defects)
+    result = _run(tmp_path, spec, steps=[FakeSegment(), LabelmapStep(), MeshStep()])
+    out, data, _, table = _load(result)
+    v = {label.name: label.value for label in table}
+
+    report = collect(result.ws.root)
+    kinds = sorted((d.structure, d.kind, d.fixed) for d in report.defects)
+    assert kinds == [("femur_r", "gap", True), ("pelvis_no_sacrum", "hole", True)]
+    hole = next(d for d in report.defects if d.kind == "hole")
+    assert "hip_right" in hole.detail
+    assert 9 <= hole.center_ijk[0] <= 12 and 9 <= hole.center_ijk[1] <= 12
+    # the femur is whole again, the hip bone keeps one tunnel
+    assert ndimage.label(data == v["femur_r"])[1] == 1
+    right_hip = (data == v["pelvis_no_sacrum"]) & (np.arange(SHAPE[0]) < 30)[:, None, None]
+    assert genus(right_hip) == 1
+    # patches: value = defect index + 1
+    patches = np.asanyarray(nib.load(out / PATCHES_FILE).dataobj)
+    assert set(np.unique(patches)) == {0, 1, 2}
+    entry = next(e for e in read_labelmap_index(out)["structures"] if e["name"] == "femur_r")
+    assert entry["topology"]["femur_right"]["gaps_bridged"] == 1
+    m = result.manifest.steps["labelmap"].metrics["defects"]
+    assert m["n"] == 2 and m["unfixed"] == 0
+    assert result.manifest.steps["mesh"].metrics["genus_defects"] == []
+
+
+def test_bone_defects_report_only(tmp_path, spec, monkeypatch):
+    from mskpipe.qc.defects import collect
+
+    monkeypatch.setattr(f"{__name__}._ts_total", _ts_total_defects)
+    result = _run(
+        tmp_path, spec, "labelmap.bones.topology.repair_holes=false",
+        "labelmap.bones.topology.repair_gaps=false",
+    )  # fmt: skip
+    _, data, _, table = _load(result)
+    v = {label.name: label.value for label in table}
+    assert not any(d.fixed for d in collect(result.ws.root).defects)
+    # without the bridge only the larger femur fragment is kept
+    assert ndimage.label(data == v["femur_r"])[1] == 1
+    assert (data[RIGHT, 12:18, 22:27] == v["femur_r"]).sum() == 0
+
+
+def test_bone_defects_fail(tmp_path, spec, monkeypatch):
+    monkeypatch.setattr(f"{__name__}._ts_total", _ts_total_defects)
+    with pytest.raises(PipelineError, match="not repaired"):
+        _run(
+            tmp_path, spec, "labelmap.bones.topology.repair_gaps=false",
+            "labelmap.bones.topology.on_unfixed=fail",
+        )  # fmt: skip
+
+
+def test_no_defects_no_files(tmp_path, spec):
+    from mskpipe.qc.defects import DEFECTS_FILE, PATCHES_FILE
+
+    result = _run(tmp_path, spec)
+    out = result.ws.step_dir("labelmap")
+    assert not (out / DEFECTS_FILE).exists() and not (out / PATCHES_FILE).exists()
+    assert result.manifest.steps["labelmap"].metrics["defects"] == {"n": 0, "unfixed": 0}

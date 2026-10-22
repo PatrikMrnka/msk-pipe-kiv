@@ -546,6 +546,39 @@ def stats(
         )
 
 
+# ---------------------------------------------------------------------------- qc
+
+
+@app.command()
+def qc(
+    run_dir: Annotated[Path, typer.Argument(help="Run folder.", show_default=False)],
+    show: Annotated[
+        bool, typer.Option("--show", help="Open the 3D view focused on the defects.")
+    ] = False,
+    png: Annotated[
+        bool, typer.Option("--png", help="Save one image per defect into <run>/qc/.")
+    ] = False,
+    defect: Annotated[
+        int | None, typer.Option("--defect", "-n", help="Start the 3D view at defect N.")
+    ] = None,
+) -> None:
+    """List the geometry defects of a run (bone holes, gaps, short bones, surfaces).
+
+    \b
+    Exit code 0 = nothing left to fix, 2 = a defect was not repaired.
+    In the 3D view: mouse = rotate / pan / zoom, n / p = next / previous defect,
+    a = whole model, o = other structures solid / transparent.
+    Example:
+      mskpipe qc runs/20261021-162806_MRI_97094935 --show
+    """
+    from mskpipe.qc.command import qc_command
+
+    if not run_dir.is_dir():
+        typer.echo(f"Error: not a folder: {run_dir}", err=True)
+        raise typer.Exit(1)
+    raise typer.Exit(qc_command(run_dir, show=show, png=png, defect=defect))
+
+
 # ---------------------------------------------------------------------------- gui
 
 

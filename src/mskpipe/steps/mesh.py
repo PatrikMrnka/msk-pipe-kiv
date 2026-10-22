@@ -9,6 +9,7 @@ Output (``03_mesh/``)::
     bones/<name>.stl        pystaple input
     muscles/<name>.obj      Muscle Wrapping 2.x input
     meshes.json             index: file, parameters and metrics of every structure
+    defects.json            bone surfaces whose genus differs from the anatomy (if any)
 
 Coordinates are world coordinates of the input image (NIfTI RAS+, mm).
 """
@@ -33,7 +34,7 @@ COORDINATES = {"space": "world_ras", "units": "mm"}
 
 class MeshStep(Step):
     name: ClassVar[str] = "mesh"
-    version: ClassVar[str] = "1"
+    version: ClassVar[str] = "2"  # 2: genus check of the bone surfaces
     config_sections: ClassVar[tuple[str, ...]] = ("mesh",)
 
     def fingerprint_extra(self, config: PipelineConfig) -> dict[str, Any]:
@@ -67,6 +68,7 @@ class MeshStep(Step):
         data = volume.data
         boxes = ndimage.find_objects(data, max_label=max(label.value for label in table))
         entries: list[dict[str, Any]] = []
+        defects: list[Any] = []
 
         for label in table:
             params = getattr(ctx.config.mesh, KIND_DIRS[label.kind])
@@ -102,6 +104,11 @@ class MeshStep(Step):
                 **stats,
                 volume_ratio=stats["volume"] / result.info["mask_volume"],
             )
+            if label.kind == "bone":
+                entry["genus"], defect = _genus_check(label.name, result.mesh)
+                if defect is not None:
+                    defects.append(defect)
+                    ctx.logger.warning("[mesh] %s | %s", defect.message(), defect.detail)
             entries.append(entry)
             if not stats["closed"]:
                 ctx.logger.warning(
@@ -126,6 +133,11 @@ class MeshStep(Step):
             "params": ctx.config.mesh.model_dump(mode="json"),
             "structures": entries,
         }
+        from mskpipe.qc.defects import DEFECTS_FILE, DefectReport
+
+        (ctx.out_dir / DEFECTS_FILE).unlink(missing_ok=True)
+        if defects:
+            ctx.record.add_output(DefectReport(defects, {"step": "mesh"}).write(ctx.out_dir))
         index_path = ctx.out_dir / MESHES_FILE
         index_path.write_text(
             json.dumps(index, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
@@ -144,8 +156,47 @@ class MeshStep(Step):
                 "total_faces": int(sum(e["n_faces"] for e in ok)),
                 "mesh_time_s": round(float(times.sum()), 3),
                 "structures": {e["name"]: _summary(e) for e in ok},
+                "genus_defects": [d.structure for d in defects],
             }
         )
+
+
+# Anatomical genus of bone surfaces (sum over components); others are not checked (sacrum
+# foramina vary). pelvis_no_sacrum = two hip bones with one obturator foramen each.
+EXPECTED_SURFACE_GENUS = {"pelvis_no_sacrum": 2, "pelvis_with_sacrum": None}
+
+
+def _expected_genus(name: str) -> int | None:
+    if name in EXPECTED_SURFACE_GENUS:
+        return EXPECTED_SURFACE_GENUS[name]
+    return 0 if name.split("_")[0] in ("femur", "tibia", "fibula", "patella") else None
+
+
+def _genus_check(name: str, mesh: Any) -> tuple[list[int | None], Any]:
+    """Genus per component and a ``surface`` defect if the total exceeds the anatomy."""
+
+    from mskpipe.geometry.topology import component_genus
+    from mskpipe.qc.defects import Defect
+
+    genera = component_genus(mesh)
+    expected = _expected_genus(name)
+    known = [g for g in genera if g is not None]
+    if expected is None or not known or sum(known) <= expected:
+        return genera, None
+    centre = mesh.vertices.mean(axis=0)
+    return genera, Defect(
+        structure=name,
+        kind="surface",
+        center_ijk=None,
+        center_mm=None,
+        size_mm=None,
+        fixed=False,
+        method="check only",
+        detail=f"surface genus {sum(known)} > anatomical {expected} (handles or holes left "
+        f"after meshing; components: {genera}); centroid ({centre[0]:.0f}, {centre[1]:.0f}, "
+        f"{centre[2]:.0f}) mm",
+        step="mesh",
+    )
 
 
 def read_mesh_index(mesh_dir: Path) -> dict[str, Any]:

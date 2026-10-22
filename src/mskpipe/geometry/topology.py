@@ -113,6 +113,22 @@ def check_surface(mesh: TriMesh) -> dict[str, Any]:
     return out
 
 
+def component_genus(mesh: TriMesh) -> list[int | None]:
+    """Genus of every component (None if the component is not a closed 2-manifold)."""
+    f = mesh.faces
+    labels = components(mesh)
+    out: list[int | None] = []
+    for c in np.unique(labels):
+        faces = f[labels == c]
+        edges, counts, _ = _edges(faces)
+        if (counts != 2).any():
+            out.append(None)
+            continue
+        euler = len(np.unique(faces)) - len(edges) + len(faces)
+        out.append(int((2 - euler) // 2))
+    return out
+
+
 def _signed_volume(mesh: TriMesh) -> float:
     tri = mesh.vertices[mesh.faces]
     return float(np.einsum("ij,ij->i", tri[:, 0], np.cross(tri[:, 1], tri[:, 2])).sum() / 6.0)
@@ -367,6 +383,7 @@ __all__ = [
     "MaskRepair",
     "check_surface",
     "compact",
+    "component_genus",
     "components",
     "face_areas",
     "mean_edge_length",
