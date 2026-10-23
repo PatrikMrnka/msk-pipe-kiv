@@ -146,6 +146,12 @@ class MainWindow(QMainWindow):
         self.image_edit.editingFinished.connect(self._image_changed)
         browse_image = QPushButton("Browse…")
         browse_image.clicked.connect(self._browse_image)
+        self.view_image_button = QPushButton("View…")
+        self.view_image_button.setToolTip("Show the volume in axial, coronal and sagittal slices")
+        self.view_image_button.setEnabled(False)
+        self.view_image_button.clicked.connect(self.view_image)
+        self.image_edit.textChanged.connect(self._update_view_button)
+        self.slice_viewer = None  # SliceViewer window, created on first use
         self.image_info = QLabel()
         self.image_info.setWordWrap(True)
         self.image_info.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -182,7 +188,10 @@ class MainWindow(QMainWindow):
 
         inputs = QGroupBox("Input")
         grid = QFormLayout(inputs)
-        grid.addRow(self._label("Image", "gui.image"), _row(self.image_edit, browse_image))
+        grid.addRow(
+            self._label("Image", "gui.image"),
+            _row(self.image_edit, browse_image, self.view_image_button),
+        )
         grid.addRow("", self.image_info)
         grid.addRow(
             self._label("Modality", "gui.modality"),
@@ -382,6 +391,28 @@ class MainWindow(QMainWindow):
             if name.lower().endswith(suffix):
                 name = name[: -len(suffix)]
         self.subject_edit.setPlaceholderText(name)
+
+    def _update_view_button(self, text: str) -> None:
+        text = text.strip()
+        self.view_image_button.setEnabled(bool(text) and Path(text).is_file())
+
+    def view_image(self) -> QWidget | None:
+        """Show the input volume in axial, coronal and sagittal slices (own window)."""
+        from mskpipe.gui.slice_viewer import SliceViewer
+
+        text = self.image_edit.text().strip()
+        path = Path(text) if text else None
+        if path is None or not path.is_file():
+            QMessageBox.warning(self, "View image", "Choose an existing input volume first.")
+            return None
+        if self.slice_viewer is None:
+            # the window's thread pool: closing the main window waits for a read in progress
+            self.slice_viewer = SliceViewer(self, pool=self._pool)
+        self.slice_viewer.open(path)
+        self.slice_viewer.show()
+        self.slice_viewer.raise_()
+        self.slice_viewer.activateWindow()
+        return self.slice_viewer
 
     # ------------------------------------------------------------------ modality
 
@@ -966,6 +997,8 @@ class MainWindow(QMainWindow):
                 self.process.wait(5000)
         if self.setup_dialog is not None:
             self.setup_dialog.shutdown()  # a download must not outlive the window
+        if self.slice_viewer is not None:
+            self.slice_viewer.close()  # drops a read in progress and frees the volume
         self._pool.waitForDone(30_000)  # a modality detection still reading the volume
         self._store()
         event.accept()
