@@ -185,3 +185,52 @@ def test_clean_mask_bridge_survives_opening():
     assert ndimage.label(fixed)[1] == 1 and fixed.sum() > 0.95 * m.sum()
     (gap,) = [d for d in topo.defects if d.kind == "gap"]
     assert gap.fixed and len(topo.patches) == len(topo.defects)
+
+
+def test_genus_matches_the_mesh_surface():
+    """The genus the repair works with is the genus of the surface step ``mesh`` builds."""
+    from mskpipe.config import load_config
+    from mskpipe.geometry.surface import mask_to_surface
+    from mskpipe.geometry.topology import component_genus
+
+    params = load_config().mesh.bones.model_copy(
+        update={"smooth_iterations": 0, "target_reduction": 0.0, "min_component_fraction": 0.0}
+    )
+    rng = np.random.default_rng(7)
+    checked = 0
+    for _ in range(60):
+        labels, _ = ndimage.label(rng.random((16, 16, 16)) < 0.5)  # porous blob
+        m = np.pad(labels == np.argmax(np.bincount(labels.ravel())[1:]) + 1, 1)
+        g = genus(m)
+        if g is None:
+            continue
+        mesh = mask_to_surface(m, EYE, params).mesh
+        assert sum(component_genus(mesh)) == g
+        checked += 1
+    assert checked > 10
+
+
+def test_edge_contact_does_not_close_a_tunnel():
+    """A plug touching the ring only along edges leaves the tunnel open on the surface
+    (26-connectivity of the voxels counted it as closed)."""
+    ring = np.zeros((7, 7, 4), bool)
+    ring[1:6, 1:6, 1] = True
+    ring[3, 3, 1] = False
+    plug = ring.copy()
+    plug[3, 3, 2] = True  # above the hole, edge contact with the ring only
+    assert genus(ring) == 1
+    assert genus(plug) is None  # two separate surfaces: nothing was closed
+
+
+def test_donor_part_spanning_wing_hole_and_foramen_is_trimmed():
+    """A donor part that would also close the obturator foramen is cut to the wing hole
+    (before: nothing was filled and nothing reported)."""
+    m = _plate(holes=((35, 30, 7),))
+    assert genus(m) == 2
+    donor = np.zeros_like(m)
+    donor[5:125, 5:95, 3:9] = True  # the same bone, thicker and without holes
+    rep = repair_holes(m, EYE, "hip_left", expected_genus=1, donor=donor, donor_name="MuscleMap")
+    assert rep.genus_after == 1
+    (d,) = rep.defects
+    assert d.fixed and d.method == "MuscleMap"
+    assert rep.mask[35, 30, 5] and not rep.mask[95, 50, 5]  # wing hole closed, foramen open

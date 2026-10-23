@@ -215,7 +215,8 @@ labelmap.bones.topology.on_unfixed:
 mesh:
   help: >-
     Surface meshes from the label map (03_mesh/): bones as .stl for the skeletal model,
-    muscles as .obj for Muscle Wrapping. Marching cubes, smoothing, decimation.
+    muscles as .obj for Muscle Wrapping. Flying Edges isosurface, smoothing, decimation,
+    check and repair.
 mesh.bones:
   help: Mesh settings for bones.
 mesh.muscles:
@@ -242,6 +243,38 @@ mesh.bones.min_component_fraction: &mesh_components
     largest, 0 keeps all.
   example: 0.1 (default) keeps both hip bones in pelvis_no_sacrum.
 mesh.muscles.min_component_fraction: *mesh_components
+mesh.repair:
+  help: >-
+    Every surface is checked as the next steps need it: bones closed and manifold (STAPLE),
+    muscles closed, one part, no handles (Muscle Wrapping). Surfaces that fail are repaired
+    here; the steps after only read the result.
+mesh.repair.enabled:
+  help: >-
+    Repair surfaces that fail the checks: small mesh fixes first, then a new surface from
+    the mask with a decimation that cannot open holes; muscles also with small openings and
+    closings (holes, several parts, handles / genus > 0).
+  example: On (default); the LHDL iliacus (genus 2) and the TLEM 2.0 MRI pelvis become usable.
+mesh.repair.max_opening_mm:
+  help: >-
+    Largest opening tried when a muscle is remeshed (1, 1.5, 2, 3 mm). Cuts thin bridges,
+    e.g. a thin sheet of muscle left between two bones.
+  example: "3"
+mesh.repair.max_closing_mm:
+  help: >-
+    Largest closing tried when a muscle is remeshed (steps of 1.5 mm). Fills tunnels
+    through a muscle.
+  example: "6"
+mesh.repair.max_volume_change:
+  help: >-
+    A repaired surface is accepted only if its volume changes by at most this fraction
+    (protects thin muscles from being eaten by the opening).
+  example: 0.05 = 5 %.
+mesh.on_invalid:
+  help: >-
+    What to do with a bone surface that is still open or non-manifold after the repair:
+    fail = stop the run after the mesh step (the skeletal model would fail anyway), warn =
+    continue. Muscles that cannot be repaired are handled by export.on_invalid.
+  example: fail (default); warn to look at the following steps anyway.
 
 # ------------------------------------------------------------------ skeleton
 skeleton:
@@ -462,24 +495,6 @@ export.fibre_export:
     Muscle Wrapping writes the fibres and muscle meshes of every frame (fibres/ folder;
     large).
   example: On to make figures of the fibres.
-export.repair:
-  help: >-
-    Repair muscle meshes that Muscle Wrapping cannot process (holes, several parts, handles
-    / genus > 0) by remeshing the mask with small openings and closings.
-  example: On (default); the LHDL iliacus (genus 2) becomes usable.
-export.repair_max_opening_mm:
-  help: >-
-    Largest opening tried by the repair (1, 1.5, 2, 3 mm). Cuts thin bridges, e.g. a thin
-    sheet of muscle left between two bones.
-  example: "3"
-export.repair_max_closing_mm:
-  help: Largest closing tried by the repair (steps of 1.5 mm). Fills tunnels through a muscle.
-  example: "6"
-export.repair_max_volume_change:
-  help: >-
-    A repaired muscle is accepted only if its volume changes by at most this fraction
-    (protects thin muscles from being eaten by the opening).
-  example: 0.05 = 5 %.
 export.inflate_radius_mm:
   help: >-
     When an attachment outline shrinks to a point on the muscle (its tendon is not
@@ -488,6 +503,6 @@ export.inflate_radius_mm:
   example: 5 mm (default).
 export.on_invalid:
   help: >-
-    Muscles whose mesh fails the checks and cannot be repaired: exclude from the setup XML,
-    or keep them (Muscle Wrapping may then fail).
+    Muscles whose mesh fails the checks and could not be repaired in the mesh step: exclude
+    from the setup XML, or keep them (Muscle Wrapping may then fail).
   example: exclude (default).

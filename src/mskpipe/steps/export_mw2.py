@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Step ``export_mw2``: input folder for Muscle Wrapping 2.x (``OsimMuscleGeneratorTool``).
 
-Inputs: ``03_mesh/`` (bone and muscle meshes), ``02_labelmap/`` (only to remesh muscles
-that need repair), ``04_skeleton/`` (``.osim``), ``05_attachments/`` (outlines).
+Inputs: ``03_mesh/`` (bone and muscle meshes, checked and repaired there),
+``04_skeleton/`` (``.osim``), ``05_attachments/`` (outlines).
 
 Output (``06_mw2_input/``)::
 
@@ -11,7 +11,7 @@ Output (``06_mw2_input/``)::
     <model_name>.osim                  skeleton model, rest pose = pose of the image
     <coordinate>.mot                   first row = rest pose, then the swept coordinate
     Geometry/<body>.obj                bone geometry per body (mm)
-    muscles/<muscle>/<Stem>.obj        muscle surface (mm), checked / repaired
+    muscles/<muscle>/<Stem>.obj        muscle surface (mm), as checked / repaired by ``mesh``
     muscles/<muscle>/<Stem>_Ori.vtk    origin outline (mm), inflated when degenerate
     muscles/<muscle>/<Stem>_Ins.vtk    insertion outline (mm), inflated when degenerate
     analysis/, fibres/                 output folders of Muscle Wrapping (when enabled)
@@ -31,14 +31,15 @@ in the first motion frame. pystaple bodies use the mesh frame, so the rest pose 
 written as coordinate defaults and as the first row of the motion. Joints that cannot reach
 it (the 1-DOF STAPLE knee) get their child frame rotated (``export.align_child_frames``).
 
-Every muscle mesh is checked as Muscle Wrapping needs it (closed 2-manifold, one
-component, genus 0) and repaired if needed; muscles whose mesh fails are excluded or kept
-(``export.on_invalid``), with the reasons in ``export.json``. The attachment outlines are
-measured after projection onto the muscle (gap = missing tendon, collapse, crossing,
-:mod:`mskpipe.geometry.outline`) and reported as warnings only: they never exclude a muscle.
-An outline whose projection is degenerate (fewer than 3 distinct points or a span below two
-mean edge lengths; Muscle Wrapping would cut an empty patch and crash) is replaced by the
-outline of a small patch of the muscle surface around it
+Every muscle mesh was checked as Muscle Wrapping needs it (closed 2-manifold, one
+component, genus 0) and repaired in step ``mesh`` (``mesh.repair``; the record is copied
+into ``export.json``). This step only verifies it again; muscles whose mesh fails are
+excluded or kept (``export.on_invalid``), with the reasons in ``export.json``. The
+attachment outlines are measured after projection onto the muscle (gap = missing tendon,
+collapse, crossing, :mod:`mskpipe.geometry.outline`) and reported as warnings only: they
+never exclude a muscle. An outline whose projection is degenerate (fewer than 3 distinct
+points or a span below two mean edge lengths; Muscle Wrapping would cut an empty patch and
+crash) is replaced by the outline of a small patch of the muscle surface around it
 (:mod:`mskpipe.geometry.attachment_guard`, ``export.inflate_radius_mm``).
 """
 
@@ -49,7 +50,6 @@ import time
 from pathlib import Path, PureWindowsPath
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from mskpipe.config import PipelineConfig
 from mskpipe.core.step import Step, StepContext, StepError
 
 if TYPE_CHECKING:
@@ -100,16 +100,11 @@ class ExportMw2Step(Step):
     version: ClassVar[str] = "3"  # 3: OpenSim frame (Y up), inflated degenerate outlines
     config_sections: ClassVar[tuple[str, ...]] = ("export",)
 
-    def fingerprint_extra(self, config: PipelineConfig) -> dict[str, Any]:
-        from mskpipe.steps.mesh import _vtk_version
-
-        return {"vtk": _vtk_version()}  # remeshing of muscles
-
     def run(self, ctx: StepContext) -> None:
         from mskpipe.geometry.frames import RAS_TO_OPENSIM, FrameError, rotate_osim_file
         from mskpipe.io.osim import OsimError, read_osim
         from mskpipe.steps.attachments import read_attachments_index
-        from mskpipe.steps.mesh import mesh_paths
+        from mskpipe.steps.mesh import mesh_paths, read_mesh_index
         from mskpipe.steps.skeleton import read_skeleton_index
 
         start = time.perf_counter()
@@ -138,6 +133,7 @@ class ExportMw2Step(Step):
         muscle_meshes = {
             n: p for n, p in mesh_paths(mesh_dir, "muscle").items() if n.endswith(f"_{side}")
         }
+        mesh_records = {s["name"]: s for s in read_mesh_index(mesh_dir)["structures"]}
 
         mark = time.perf_counter()
         geometry, bodies = self._bodies(ctx, model, bones, skel_dir)
@@ -151,13 +147,14 @@ class ExportMw2Step(Step):
         selected = sorted(muscle_meshes) if cfg.muscles == "all" else list(cfg.muscles)
         areas = attachment_areas(attachments, ctx.step_dir("attachments"))
         records, specs = [], []
-        repairer = _Repairer(ctx)
         locators = _BodyLocators(geometry)
         mark = time.perf_counter()
         for name in selected:
             ctx.check_cancel()
             reason = excluded_reason(name, cfg.exclude)
-            rec, spec = self._muscle(ctx, name, muscle_meshes, areas, repairer, locators, reason)
+            rec, spec = self._muscle(
+                ctx, name, muscle_meshes, areas, mesh_records.get(name, {}), locators, reason
+            )
             records.append(rec)
             if spec is not None:
                 specs.append(spec)
@@ -462,13 +459,15 @@ class ExportMw2Step(Step):
         name: str,
         meshes: dict[str, Path],
         areas: dict[str, dict[str, dict[str, Any]]],
-        repairer: _Repairer,
+        meshed: dict[str, Any],
         locators: _BodyLocators,
         excluded: str | None = None,
     ) -> tuple[dict[str, Any], Any]:
-        """Check, repair and write one muscle. ``excluded``: reason from ``export.exclude``
-        (the muscle is still measured for the record, but not exported)."""
+        """Check and write one muscle (``meshed``: its ``meshes.json`` record, with the
+        repair done in step ``mesh``). ``excluded``: reason from ``export.exclude`` (the
+        muscle is still measured for the record, but not exported)."""
         from mskpipe.geometry import attachment_guard as guard
+        from mskpipe.geometry.checked import brief
         from mskpipe.geometry.compare import SurfaceLocator
         from mskpipe.geometry.frames import RAS_TO_OPENSIM, homogeneous, rotate_points
         from mskpipe.geometry.metrics import surface_area
@@ -495,15 +494,15 @@ class ExportMw2Step(Step):
             return rec, None
 
         mesh = read_mesh(meshes[name])
-        check = check_surface(mesh)
-        rec["mesh"] = {"source": meshes[name].name, "check": _brief(check), "repaired": False}
-        if not check["ok"] and cfg.repair:
-            fixed, repair = repairer.repair(name, mesh)
+        check = check_surface(mesh)  # the contract of step mesh, verified
+        rec["mesh"] = {
+            "source": meshes[name].name,
+            "check": brief(check),
+            "repaired": bool(meshed.get("repaired")),
+        }
+        repair = meshed.get("repair")
+        if repair is not None:
             rec["mesh"]["repair"] = repair
-            if fixed is not None:  # accepted repair, or the best failed attempt
-                mesh, check = fixed, check_surface(fixed)
-                rec["mesh"]["repaired"] = repair["ok"]
-                rec["mesh"]["check"] = _brief(check)
             if not repair["ok"]:
                 problems.append(f"mesh repair failed ({repair.get('best_summary', 'no attempt')})")
         problems += [f"mesh {p}" for p in check["problems"]]
@@ -667,143 +666,6 @@ class _BodyLocators:
             if d < best_d:
                 best, best_d = body, d
         return best
-
-
-class _Repairer:
-    """Mesh-level repair, then remeshing of the label map mask (openings, closings,
-    both; :func:`~mskpipe.geometry.topology.repair_mask`)."""
-
-    def __init__(self, ctx: StepContext) -> None:
-        self.ctx = ctx
-        self._volume: Any = None
-        self._table: Any = None
-        self._boxes: Any = None
-
-    def repair(self, name: str, mesh: TriMesh) -> tuple[TriMesh | None, dict[str, Any]]:
-        """Accepted mesh, or the best failed attempt (``info["ok"]`` False), or None."""
-        from mskpipe.geometry.compare import surface_distance
-        from mskpipe.geometry.metrics import signed_volume
-        from mskpipe.geometry.topology import check_surface, repair_mask, repair_surface
-
-        cfg = self.ctx.config.export
-        original = abs(signed_volume(mesh))
-        fixed, fixes = repair_surface(mesh)
-        check = check_surface(fixed)
-        ratio = abs(check["volume"]) / original if original else 1.0
-        volume_ok = abs(1.0 - ratio) <= cfg.repair_max_volume_change
-        attempts: list[dict[str, Any]] = [
-            {
-                "method": "mesh",
-                "fixes": fixes,
-                "genus": check.get("genus"),
-                "components": check.get("components"),
-                "volume_ratio": round(ratio, 4),
-                "problems": check["problems"],
-                "accepted": check["ok"] and volume_ok,
-            }
-        ]
-        result, ok, best = (fixed, True, 0) if attempts[0]["accepted"] else (None, False, None)
-        if not ok:
-            loaded = self._mask(name)
-            if loaded is not None:
-                mask, affine, offset, shape = loaded
-                rep = repair_mask(
-                    mask,
-                    affine,
-                    self.ctx.config.mesh.muscles,
-                    offset=offset,
-                    full_shape=shape,
-                    reference_volume=original,
-                    max_closing_mm=cfg.repair_max_closing_mm,
-                    max_opening_mm=cfg.repair_max_opening_mm,
-                    max_volume_change=cfg.repair_max_volume_change,
-                    check_cancel=self.ctx.check_cancel,
-                )
-                attempts += rep.attempts
-                result, ok = rep.mesh, rep.ok
-                best = None if rep.best is None else rep.best + 1
-        info: dict[str, Any] = {"attempts": attempts, "ok": ok, "best": best}
-        if result is not None and best is not None:
-            used = attempts[best]
-            label = (
-                "mesh"
-                if used["method"] == "mesh"
-                else f"closing {used['closing_mm']} mm, opening {used['opening_mm']} mm"
-            )
-            dist = surface_distance(result, mesh)
-            info["used"] = label
-            info["distance_to_original_mm"] = {
-                "mean": round(dist.mean, 3),
-                "hausdorff": round(dist.hausdorff, 3),
-            }
-            info["volume_ratio"] = used.get("volume_ratio")
-            if ok:
-                self.ctx.logger.info(
-                    "[export_mw2] %s repaired (%s): volume x%.3f, mean change %.2f mm, "
-                    "Hausdorff %.1f mm",
-                    name,
-                    label,
-                    used.get("volume_ratio") or 1.0,
-                    dist.mean,
-                    dist.hausdorff,
-                )
-            else:
-                info["best_summary"] = f"best {label}: " + "; ".join(used["problems"])
-        if not ok:
-            self.ctx.logger.warning(
-                "[export_mw2] %s could not be repaired (%d attempts; %s)",
-                name,
-                len(attempts),
-                info.get("best_summary", "no remesh possible"),
-            )
-        return result, info
-
-    def _mask(self, name: str):
-        """Cropped, zero-padded mask of the label, its affine, offset and full shape."""
-        import numpy as np
-        from scipy import ndimage
-
-        from mskpipe.io.labels import LABELMAP_FILE, LABELS_FILE, LabelTable, LabelTableError
-        from mskpipe.io.nifti import NiftiError, load_labelmap
-        from mskpipe.labelmap.clean import element_radius, padded_box
-
-        cfg = self.ctx.config.export
-        if self._volume is None:
-            src = self.ctx.step_dir("labelmap")
-            try:
-                self._table = LabelTable.load(src / LABELS_FILE)
-                self._volume = load_labelmap(src / LABELMAP_FILE)
-            except (LabelTableError, NiftiError, OSError) as exc:
-                self.ctx.logger.warning("[export_mw2] cannot remesh: %s", exc)
-                return None
-            self._boxes = ndimage.find_objects(self._volume.data)
-        label = next((lab for lab in self._table if lab.name == name), None)
-        if label is None or label.value > len(self._boxes) or self._boxes[label.value - 1] is None:
-            return None
-        data, affine = self._volume.data, self._volume.affine
-        spacing = np.linalg.norm(affine[:3, :3], axis=0)
-        radius = max(cfg.repair_max_closing_mm, cfg.repair_max_opening_mm)
-        pad = element_radius(radius, spacing) + 2
-        grown, padding = padded_box(data.shape, self._boxes[label.value - 1], pad)
-        mask = np.pad(data[grown] == label.value, padding)
-        offset = [g.start - p[0] for g, p in zip(grown, padding, strict=True)]
-        return mask, affine, offset, data.shape
-
-
-def _brief(check: dict[str, Any]) -> dict[str, Any]:
-    keys = (
-        "ok",
-        "n_vertices",
-        "n_faces",
-        "components",
-        "genus",
-        "boundary_edges",
-        "non_manifold_edges",
-        "misoriented_edges",
-        "degenerate_faces",
-        "problems",
-    )
-    return {k: check.get(k) for k in keys}
 
 
 def _round(errors: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:

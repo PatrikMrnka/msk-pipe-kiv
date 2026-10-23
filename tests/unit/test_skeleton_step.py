@@ -21,6 +21,7 @@ class FakeMesh(Step):
 
     name = "mesh"
     bones: tuple[str, ...] = ("pelvis_no_sacrum", "femur_r", "tibia_r")
+    open_bones: tuple[str, ...] = ()
 
     def run(self, ctx: StepContext) -> None:
         structures = []
@@ -28,7 +29,10 @@ class FakeMesh(Step):
             rel = f"bones/{name}.stl"
             (ctx.out_dir / "bones").mkdir(exist_ok=True)
             (ctx.out_dir / rel).write_bytes(b"solid x\nendsolid x\n")
-            structures.append({"name": name, "kind": "bone", "status": "ok", "file": rel})
+            entry = {"name": name, "kind": "bone", "status": "ok", "file": rel}
+            if name in FakeMesh.open_bones:
+                entry.update(closed=False, boundary_edges=2, non_manifold_edges=2)
+            structures.append(entry)
         structures.append({"name": "iliacus_r", "kind": "muscle", "status": "ok", "file": "m"})
         index = {"format": "mskpipe.meshes", "version": 1, "structures": structures}
         (ctx.out_dir / "meshes.json").write_text(json.dumps(index), encoding="utf-8")
@@ -58,6 +62,7 @@ class FakeStaple(SkeletonPlugin):
 @pytest.fixture(autouse=True)
 def _reset():
     FakeMesh.bones = ("pelvis_no_sacrum", "femur_r", "tibia_r")
+    FakeMesh.open_bones = ()
     FakeStaple.mode, FakeStaple.received = "ok", None
 
 
@@ -123,6 +128,15 @@ def test_backend_error_becomes_step_error(tmp_path, spec, registry):
     with pytest.raises(PipelineError) as info:
         run_pipeline([FakeMesh(), SkeletonStep(registry)], spec, config(tmp_path))
     assert "pystaple: femur head not found" in str(info.value.__cause__)
+
+
+def test_open_bone_fails_before_backend(tmp_path, spec, registry):
+    FakeMesh.open_bones = ("pelvis_no_sacrum",)
+    with pytest.raises(PipelineError) as info:
+        run_pipeline([FakeMesh(), SkeletonStep(registry)], spec, config(tmp_path))
+    msg = str(info.value.__cause__)
+    assert "not closed: pelvis_no_sacrum (2 open, 2 non-manifold edges)" in msg
+    assert FakeStaple.received is None
 
 
 def test_no_bone_meshes(tmp_path, spec, registry):

@@ -312,9 +312,46 @@ class BoneMeshParams(MeshParams):
     )
 
 
+class MeshRepairConfig(StrictModel):
+    enabled: bool = Field(
+        True,
+        description="Repair surfaces that fail the checks: mesh-level fixes, then remeshing "
+        "of the mask with topology-preserving decimation (muscles also with openings and "
+        "closings).",
+    )
+    max_opening_mm: float = Field(
+        3.0,
+        ge=0,
+        le=10,
+        description="Largest morphological opening tried when remeshing a muscle mask (1, 1.5, "
+        "2, 3 mm); cuts thin bridges, e.g. a sheet of muscle left next to a bone (genus > 0).",
+    )
+    max_closing_mm: float = Field(
+        6.0,
+        ge=0,
+        le=20,
+        description="Largest morphological closing tried when remeshing a muscle mask (steps "
+        "1.5 mm); fills tunnels.",
+    )
+    max_volume_change: float = Field(
+        0.05,
+        gt=0,
+        le=0.5,
+        description="A repaired surface is accepted only if its volume changes by at most this "
+        "fraction (an opening can erase thin muscles or cut off their ends).",
+    )
+
+
 class MeshConfig(StrictModel):
     bones: BoneMeshParams = Field(default_factory=BoneMeshParams)
     muscles: MeshParams = Field(default_factory=MeshParams)
+    repair: MeshRepairConfig = Field(default_factory=MeshRepairConfig)
+    on_invalid: Literal["fail", "warn"] = Field(
+        "fail",
+        description="A bone surface that is still open, non-manifold or inconsistently "
+        "oriented after the repair: 'fail' stops the run after the mesh step, 'warn' "
+        "continues (pystaple then fails). Invalid muscles: see export.on_invalid.",
+    )
 
 
 # --------------------------------------------------------------------------- skeleton
@@ -452,32 +489,6 @@ class ExportConfig(StrictModel):
     fibre_export: bool = Field(
         False, description="Let Muscle Wrapping write fibres and muscle meshes per frame (fibres/)."
     )
-    repair: bool = Field(
-        True,
-        description="Repair muscle meshes Muscle Wrapping cannot use (extra components, "
-        "orientation; holes, non-manifold edges and genus > 0 by remeshing the mask).",
-    )
-    repair_max_opening_mm: float = Field(
-        3.0,
-        ge=0,
-        le=10,
-        description="Largest morphological opening tried when remeshing a mask (1, 1.5, 2, "
-        "3 mm); cuts thin bridges, e.g. a sheet of muscle left next to a bone (genus > 0).",
-    )
-    repair_max_closing_mm: float = Field(
-        6.0,
-        ge=0,
-        le=20,
-        description="Largest morphological closing tried when remeshing a mask (steps 1.5 mm); "
-        "fills tunnels.",
-    )
-    repair_max_volume_change: float = Field(
-        0.05,
-        gt=0,
-        le=0.5,
-        description="A repaired muscle is accepted only if its volume changes by at most this "
-        "fraction (an opening can erase thin muscles or cut off their ends).",
-    )
     inflate_radius_mm: float = Field(
         5.0,
         gt=0,
@@ -488,13 +499,23 @@ class ExportConfig(StrictModel):
     )
     on_invalid: Literal["exclude", "keep"] = Field(
         "exclude",
-        description="Muscles whose mesh fails the checks (and cannot be repaired): 'exclude' "
+        description="Muscles whose mesh fails the checks (and could not be repaired in step "
+        "mesh): 'exclude' "
         "from the setup XML or 'keep' (written with a warning). Attachment outline checks "
         "are reported only and never exclude a muscle.",
     )
 
 
 # --------------------------------------------------------------------------- root
+
+
+# export.<old> -> mesh.repair.<new> (moved after 0.1.0)
+MOVED_EXPORT_KEYS = {
+    "repair": "enabled",
+    "repair_max_opening_mm": "max_opening_mm",
+    "repair_max_closing_mm": "max_closing_mm",
+    "repair_max_volume_change": "max_volume_change",
+}
 
 
 class PipelineConfig(StrictModel):
@@ -506,6 +527,24 @@ class PipelineConfig(StrictModel):
     skeleton: SkeletonConfig = Field(default_factory=SkeletonConfig)
     attachments: AttachmentsConfig = Field(default_factory=AttachmentsConfig)
     export: ExportConfig = Field(default_factory=ExportConfig)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _moved_keys(cls, data: Any) -> Any:
+        """Repair settings moved from ``export`` to ``mesh.repair`` (configs of 0.1.0 runs
+        stay valid, e.g. for ``--resume``)."""
+        if not isinstance(data, dict) or not isinstance(data.get("export"), dict):
+            return data
+        export = dict(data["export"])
+        moved = {new: export.pop(old) for old, new in MOVED_EXPORT_KEYS.items() if old in export}
+        if not moved:
+            return data
+        mesh = dict(data.get("mesh") or {})
+        repair = dict(mesh.get("repair") or {})
+        for key, value in moved.items():
+            repair.setdefault(key, value)
+        mesh["repair"] = repair
+        return {**data, "export": export, "mesh": mesh}
 
     @model_validator(mode="after")
     def _export_side_matches_skeleton(self) -> PipelineConfig:

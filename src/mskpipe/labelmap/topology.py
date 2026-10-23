@@ -9,14 +9,20 @@ Thin bone (iliac wing, fibular shaft) is often segmented with defects, above all
 * **gap** - a long bone split into fragments (part of the shaft missing). Keeping only the
   largest component then silently shortens the bone.
 
-Holes are found and filled on the voxel mask with the Euler characteristic of the voxel
-set (26-connected foreground, closed unit cubes; ``chi = components - tunnels +
-cavities``). Candidate fillers are (1) voxels removed by the opening of the cleaning,
-(2) voxels added by closings of growing radius. A candidate is accepted only if it removes
-a tunnel (``chi`` rises; computed locally, chi is additive), smallest first, until the
-expected genus is reached. Concavities filled by the closing do not change ``chi`` and are
-never added, so notches and the acetabulum keep their shape; the obturator foramen is
-protected because filling stops at the expected genus and smaller holes come first.
+Holes are found and filled on the voxel mask, but counted on its surface: the Euler
+characteristic and genus come from the Flying Edges isosurface at 0.5 (the surface step
+``mesh`` builds), so a hole counts as closed only if the mesh will be closed there. A
+voxel connectivity does not give this: Flying Edges resolves voxels touching only along
+an edge or a corner by its case table (26-connectivity counted such contacts as closed
+and left iliac-wing tunnels in the TLEM 2.0 MRI pelvis; 6-connectivity matches in about
+70 % of random masks). ``chi`` of the solid is half the surface's, ``V - F/2`` for the
+closed Flying Edges surface (``E = 3F/2``). Candidate fillers are (1) voxels removed by
+the opening of the cleaning, (2) voxels added by closings of growing radius. A candidate
+is accepted only if it removes a tunnel (``chi`` rises; computed locally, chi is
+additive over the cells of the surface), smallest first, until the expected genus is
+reached. Concavities filled by the closing do not change ``chi`` and are never added, so
+notches and the acetabulum keep their shape; the obturator foramen is protected because
+filling stops at the expected genus and smaller holes come first.
 
 Gaps are bridged by a tapered cylinder between the facing ends of consecutive fragments
 along the principal axis of the bone (``max_gap_mm``). The bridge is interpolated, not
@@ -79,43 +85,85 @@ LOCATE_ONLY_MM: tuple[float, ...] = (16.0, 20.0, 25.0, 30.0)  # holes too wide t
 # --------------------------------------------------------------------------- Euler number
 
 
-def euler_number(mask: np.ndarray) -> int:
-    """Euler characteristic of the union of closed voxel cubes (26-connected foreground).
+def _isosurface(mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Points (index units) and triangles of the Flying Edges surface of ``mask``.
 
-    ``V - E + F - C`` of the cubical complex; a solid ball gives 1, a solid ring 0.
+    Same filter and iso value as :func:`mskpipe.geometry.surface.mask_to_surface`; the
+    mask is zero-padded, so the surface is closed and every edge has two triangles.
     """
-    p = np.pad(np.asarray(mask, dtype=bool), 1)
-    a, b = slice(None, -1), slice(1, None)
-    full = slice(None)
-    verts = np.zeros(tuple(n - 1 for n in p.shape), dtype=bool)
-    for i in (a, b):
-        for j in (a, b):
-            for k in (a, b):
-                verts |= p[i, j, k]
-    edges = 0
-    faces = 0
-    for axis in range(3):
-        e = None
-        f = None
-        for s1 in (a, b):
-            for s2 in (a, b):
-                idx = [s1, s2]
-                idx.insert(axis, full)
-                e = p[tuple(idx)] if e is None else e | p[tuple(idx)]
-        for s in (a, b):
-            idx = [full, full]
-            idx.insert(axis, s)
-            f = p[tuple(idx)] if f is None else f | p[tuple(idx)]
-        edges += int(e.sum())
-        faces += int(f.sum())
-    return int(verts.sum()) - edges + faces - int(p.sum())
+    import vtk
+    from vtk.util.numpy_support import numpy_to_vtk, vtk_to_numpy
+
+    p = np.pad(np.asarray(mask, dtype=np.uint8), 1)
+    image = vtk.vtkImageData()
+    image.SetDimensions(*p.shape)
+    image.GetPointData().SetScalars(
+        numpy_to_vtk(p.ravel(order="F"), deep=True, array_type=vtk.VTK_UNSIGNED_CHAR)
+    )
+    fe = vtk.vtkFlyingEdges3D()
+    fe.SetInputData(image)
+    fe.SetValue(0, 0.5)
+    fe.ComputeNormalsOff()
+    fe.ComputeGradientsOff()
+    fe.ComputeScalarsOff()
+    fe.Update()
+    poly = fe.GetOutput()
+    if poly.GetNumberOfPolys() == 0:
+        return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)
+    points = vtk_to_numpy(poly.GetPoints().GetData()).astype(np.float64)
+    faces = vtk_to_numpy(poly.GetPolys().GetConnectivityArray()).astype(np.int64)
+    return points, faces.reshape(-1, 3)
+
+
+def _crop(mask: np.ndarray) -> np.ndarray:
+    mask = np.asarray(mask, dtype=bool)
+    box = ndimage.find_objects(mask.astype(np.int8))
+    return mask[box[0]] if box and box[0] is not None else mask[:0, :0, :0]
+
+
+def euler_number(mask: np.ndarray) -> int:
+    """Euler characteristic of the solid bounded by the Flying Edges surface of ``mask``.
+
+    ``chi(solid) = chi(surface) / 2 = (V - F/2) / 2``; a solid ball gives 1, a ring 0.
+    """
+    points, faces = _isosurface(mask)
+    return (2 * len(points) - len(faces)) // 4
+
+
+def surface_topology(mask: np.ndarray) -> tuple[int, int, int]:
+    """(outer surfaces, cavity surfaces, total genus) of the Flying Edges surface.
+
+    Outer surfaces enclose a part of the solid, cavity surfaces a void inside it (sign of
+    the enclosed volume); the genus is summed over all surface components.
+    """
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    points, faces = _isosurface(_crop(mask))
+    if len(faces) == 0:
+        return 0, 0, 0
+    n = len(points)
+    rows = faces.ravel()
+    cols = np.roll(faces, 1, axis=1).ravel()
+    graph = coo_matrix((np.ones(len(rows), dtype=np.int8), (rows, cols)), shape=(n, n))
+    n_comp, vertex_label = connected_components(graph, directed=False)
+    face_label = vertex_label[faces[:, 0]]
+    v_count = np.bincount(vertex_label, minlength=n_comp)
+    f_count = np.bincount(face_label, minlength=n_comp)
+    tri = points[faces]
+    signed = np.einsum("ij,ij->i", tri[:, 0], np.cross(tri[:, 1], tri[:, 2]))
+    volume = np.bincount(face_label, weights=signed, minlength=n_comp)
+    chi = 2 * v_count - f_count  # 2 x (V - F/2) per component
+    handles = int(((4 - chi) // 4).sum())  # chi_i = 2 - 2 g_i
+    outer = int((volume > 0).sum())
+    return outer, n_comp - outer, handles
 
 
 def _local_delta(mask: np.ndarray, add: np.ndarray, box: tuple[slice, ...]) -> int:
     """Change of the Euler number when ``add`` (inside ``box``) joins ``mask``.
 
-    Exact: the Euler number counts local cells, and cells outside ``box`` grown by one voxel
-    do not touch the added voxels.
+    Exact: the surface is built cell by cell, and cells outside ``box`` grown by one voxel
+    do not touch the added voxels (the crop border is the same before and after).
     """
     grown = tuple(
         slice(max(s.start - 1, 0), min(s.stop + 1, n)) for s, n in zip(box, mask.shape, strict=True)
@@ -126,13 +174,12 @@ def _local_delta(mask: np.ndarray, add: np.ndarray, box: tuple[slice, ...]) -> i
 
 
 def genus(mask: np.ndarray) -> int | None:
-    """Number of tunnels of a mask with one 26-connected component and no cavities."""
-    _, n = ndimage.label(mask, structure=STRUCT26)
-    if n != 1:
+    """Number of tunnels (surface genus) of a mask whose surface encloses one solid part
+    (``None`` otherwise). Cavities do not count; handles of a cavity surface do."""
+    outer, _cavities, handles = surface_topology(mask)
+    if outer != 1:
         return None
-    filled = ndimage.binary_fill_holes(mask)
-    cavities = ndimage.label(filled & ~mask, structure=STRUCT26)[1]
-    return 1 + cavities - euler_number(mask)
+    return handles
 
 
 # --------------------------------------------------------------------------- helpers
@@ -352,13 +399,25 @@ def _donor_holes(work, current, donor, spacing, blocked, holes, name, max_tunnel
     sizes = np.bincount(labels.ravel())[1:]
     trims: dict[float, np.ndarray] = {}
     for idx in np.argsort(sizes, kind="stable"):
-        if current == 0 or (max_tunnels is not None and sum(h.delta for h in holes) >= max_tunnels):
+        closed = sum(h.delta for h in holes)
+        if current == 0 or (max_tunnels is not None and closed >= max_tunnels):
             break
         comp = labels == idx + 1
         if _local_delta(work, comp, _bbox(comp)) == 0:
             continue
         g = genus(work | comp)
         if g is None or g >= current:
+            continue
+        floor = 0 if max_tunnels is None else current - (max_tunnels - closed)
+        if g < floor:
+            # The part would also close an anatomical tunnel (e.g. a wing hole together
+            # with the obturator foramen): keep only the piece that closes the allowed ones.
+            patch = _donor_trim(work, comp, floor, spacing, trims)
+            if genus(work | patch) != floor:
+                continue
+            holes.append(_Hole(patch, current - floor, _diameter(patch, spacing), name))
+            work |= patch
+            current = floor
             continue
         patch = _donor_trim(work, comp, g, spacing, trims)
         holes.append(_Hole(patch, current - g, _diameter(patch, spacing), name))
@@ -519,6 +578,23 @@ def repair_holes(
         result.patches.append(None)
     result.mask = work
     result.genus_after = genus(work)
+    reported = sum(1 for d in result.defects if not d.fixed)
+    if result.genus_after is not None and result.genus_after > expected_genus and not reported:
+        ijk, xyz = _center(mask, affine)
+        result.defects.append(
+            Defect(
+                structure=structure,
+                kind="hole",
+                center_ijk=ijk,
+                center_mm=xyz,
+                size_mm=None,
+                fixed=False,
+                method="not found",
+                detail=f"genus {result.genus_after} > expected {expected_genus} after the "
+                "repair; tunnel(s) not located",
+            )
+        )
+        result.patches.append(None)
     return result
 
 
@@ -677,4 +753,5 @@ __all__ = [
     "prune_patches",
     "repair_gaps",
     "repair_holes",
+    "surface_topology",
 ]

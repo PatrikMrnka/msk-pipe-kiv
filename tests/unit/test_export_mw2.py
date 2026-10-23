@@ -16,6 +16,7 @@ from osim_models import (
     staple_model_text,
     write_staple_model,
 )
+from scipy import ndimage
 from vtk.util.numpy_support import vtk_to_numpy
 
 from mskpipe.config import InputSpec, load_config
@@ -23,8 +24,8 @@ from mskpipe.config.schema import MeshParams
 from mskpipe.core.runner import PipelineError, run_pipeline
 from mskpipe.core.step import Step, StepContext
 from mskpipe.geometry.attachment_guard import is_degenerate, mean_edge_length, outline_stats
+from mskpipe.geometry.checked import build_surface
 from mskpipe.geometry.frames import RAS_TO_OPENSIM, rotate_points
-from mskpipe.geometry.surface import mask_to_surface
 from mskpipe.geometry.topology import check_surface
 from mskpipe.io.attachment_vtk import read_points, write_points
 from mskpipe.io.mesh_io import TriMesh, read_mesh, write_mesh
@@ -137,10 +138,23 @@ class FakeMesh(Step):
         values = {n: v[0] for n, v in MUSCLES.items()} | {TORUS[0]: TORUS[1]}
         for name, value in values.items():
             params = MeshParams(min_component_fraction=0.0)  # keep gracilis' 2nd part
-            mesh = mask_to_surface(data == value, affine, params).mesh
+            box = ndimage.find_objects((data == value).astype(np.uint8))[0]
+            build = build_surface(  # what step mesh does: check, repair
+                data[box] == value,
+                affine,
+                "muscle",
+                params,
+                ctx.config.mesh.repair,
+                offset=[sl.start for sl in box],
+                full_shape=data.shape,
+            )
             rel = f"muscles/{name}.obj"
-            write_mesh(ctx.out_dir / rel, mesh)
-            structures.append({"name": name, "kind": "muscle", "status": "ok", "file": rel})
+            write_mesh(ctx.out_dir / rel, build.mesh)
+            entry = {"name": name, "kind": "muscle", "status": "ok", "file": rel}
+            entry.update(valid=build.valid, problems=build.problems)
+            if build.repair is not None:
+                entry.update(repaired=build.repaired, repair=build.repair)
+            structures.append(entry)
         index = {"format": "mskpipe.meshes", "version": 1, "structures": structures}
         (ctx.out_dir / "meshes.json").write_text(json.dumps(index), encoding="utf-8")
 

@@ -78,6 +78,7 @@ class SkeletonStep(Step):
         meshes = mesh_paths(ctx.step_dir("mesh"), "bone")
         if not meshes:
             raise StepError("No bone meshes from step 'mesh'")
+        _require_closed(ctx.step_dir("mesh"), meshes)
         bones, sources = body_meshes(meshes, cfg.side, cfg.include_fibula, ctx.out_dir / BODIES_DIR)
         for body, parts in sources.items():
             if len(parts) > 1:
@@ -236,3 +237,26 @@ def skeleton_qc(model: OsimModel, side: str) -> dict[str, Any]:
         problems.append(f"femur length {qc['femur_length_mm']:.0f} mm outside {lo:.0f}-{hi:.0f} mm")
     qc["problems"] = problems
     return qc
+
+
+def _require_closed(mesh_dir: Path, meshes: dict[str, Path]) -> None:
+    """Fail with a clear message if step ``mesh`` marked a bone surface as unusable
+    (``valid``; STAPLE needs closed bones). Only a check: the repair belongs to ``mesh``."""
+    from mskpipe.steps.mesh import read_mesh_index
+
+    bad = []
+    for s in read_mesh_index(mesh_dir)["structures"]:
+        if s["name"] not in meshes or (
+            s.get("valid") is not False and s.get("closed") is not False
+        ):
+            continue
+        detail = ", ".join(s.get("problems") or []) or (
+            f"{s.get('boundary_edges', '?')} open, {s.get('non_manifold_edges', '?')} "
+            "non-manifold edges"
+        )
+        bad.append(f"{s['name']} ({detail})")
+    if bad:
+        raise StepError(
+            "bone surface not closed: " + ", ".join(bad) + "; STAPLE needs closed bone "
+            "meshes. Inspect with `mskpipe qc <run> --show`."
+        )

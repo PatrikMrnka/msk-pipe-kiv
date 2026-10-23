@@ -36,7 +36,7 @@ VERSION = 1
 
 class LabelmapStep(Step):
     name: ClassVar[str] = "labelmap"
-    version: ClassVar[str] = "2"  # 2: bone topology repair (holes, gaps)
+    version: ClassVar[str] = "3"  # 2: bone topology repair; 3: genus of the mesh surface
     config_sections: ClassVar[tuple[str, ...]] = ("segmentation", "labelmap")
 
     def fingerprint_extra(self, config: PipelineConfig) -> dict[str, Any]:

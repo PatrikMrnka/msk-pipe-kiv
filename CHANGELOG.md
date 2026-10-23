@@ -11,6 +11,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 
 ### Changed
 - Steps `labelmap` (v2) and `mesh` (v2) are recomputed once; on LHDL CT the label map is unchanged (0 voxels differ).
+- Step `labelmap` (v3): the genus of a bone is counted on its Flying Edges surface (the surface step `mesh` builds), not on the 26-connected voxels. Voxels touching only along an edge or a corner no longer count as closing a hole, so a hole reported as fixed is closed in the mesh too (TLEM 2.0 MRI: pelvis surface genus 1 + 1 instead of 4 + 2). `mskpipe.labelmap.topology.surface_topology`.
+- Step `mesh` (v3) is where surfaces are guaranteed: every structure is checked as the next steps need it (bones closed, manifold, outward for pystaple; muscles in addition one part with genus 0 for Muscle Wrapping) and repaired there (mesh-level fixes, then remeshing with topology-preserving decimation, muscles also with openings and closings; `mskpipe.geometry.checked`). `meshes.json` per structure: `valid`, `problems`, `check`, `repair`, `decimation`; metrics `repaired`, `invalid`; `defects.json` lists repaired and invalid bones, located at their open edges. Surfaces that pass are the BP meshes, unchanged.
+- The muscle repair moved from step `export_mw2` to step `mesh`: `export.repair`, `export.repair_max_opening_mm`, `export.repair_max_closing_mm`, `export.repair_max_volume_change` are now `mesh.repair.enabled`, `.max_opening_mm`, `.max_closing_mm`, `.max_volume_change` (old keys are still read, e.g. by `--resume` of 0.1.0 runs). `export_mw2` only verifies the mesh and copies the repair record into `export.json`; it no longer reads the label map.
+- New `mesh.on_invalid` (`fail` default, `warn`): a bone that is still invalid after the repair stops the run after step `mesh` instead of failing later in pystaple.
+
+### Fixed
+- Step `skeleton` failed in pystaple ("inertia properties are for hole-free triangulations") on the TLEM 2.0 MRI pelvis: quadric decimation left it open. Step `mesh` repairs such a bone, and `skeleton` stops with the bone name and its problems if it gets an invalid one.
+- Step `labelmap`: a donor part (MuscleMap) that would close a wing hole together with the obturator foramen was dropped, leaving the hole unfilled and unreported (TLEM 2.0 MRI left hip); it is now cut to the wing hole. A bone whose genus stays above the anatomy always gets an unfixed defect.
+- The genus check of step `mesh` skipped bones with an open component; open components are now a `surface` defect too, centred on the affected part for `mskpipe qc --show`.
+- `orient` made a mesh of several parts outward as a whole; every part is now oriented outward on its own.
 
 ## [0.1.0] - 2026-10-21
 

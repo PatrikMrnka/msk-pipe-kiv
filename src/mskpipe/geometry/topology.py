@@ -142,11 +142,12 @@ def compact(vertices: np.ndarray, faces: np.ndarray) -> TriMesh:
     return TriMesh(vertices[used], remap[faces])
 
 
-def repair_surface(mesh: TriMesh) -> tuple[TriMesh, list[str]]:
+def repair_surface(mesh: TriMesh, keep_components: bool = False) -> tuple[TriMesh, list[str]]:
     """Mesh-level repairs; returns the mesh and the list of applied fixes.
 
     Coincident vertices are merged, degenerate and duplicate triangles removed, only the
-    largest component kept and the orientation made consistent and outward.
+    largest component kept (all with ``keep_components``, e.g. both hip bones) and the
+    orientation made consistent and outward.
     """
     fixes: list[str] = []
     v, f = mesh.vertices, mesh.faces
@@ -168,7 +169,7 @@ def repair_surface(mesh: TriMesh) -> tuple[TriMesh, list[str]]:
     out = compact(v, f)
     labels = components(out)
     sizes = np.bincount(labels)
-    if len(np.flatnonzero(sizes)) > 1:
+    if len(np.flatnonzero(sizes)) > 1 and not keep_components:
         keep = labels == np.argmax(sizes)
         fixes.append(f"removed {int(len(np.flatnonzero(sizes)) - 1)} small components")
         out = compact(out.vertices, out.faces[keep])
@@ -217,11 +218,15 @@ def orient(mesh: TriMesh) -> tuple[TriMesh, int]:
                     stack.append(j)
     f[flip == 1] = f[flip == 1][:, ::-1]
     out = TriMesh(mesh.vertices, f)
-    flipped = int((flip == 1).sum())
-    if _signed_volume(out) < 0:
-        out = TriMesh(mesh.vertices, f[:, ::-1])
-        flipped = n - flipped
-    return out, flipped
+    # outward per component (a mesh may hold several closed parts, e.g. both hip bones)
+    labels = components(out)
+    tri = out.vertices[f]
+    signed = np.einsum("ij,ij->i", tri[:, 0], np.cross(tri[:, 1], tri[:, 2]))
+    inward = np.bincount(labels, weights=signed) < 0
+    turn = inward[labels]
+    f[turn] = f[turn][:, ::-1]
+    flipped = int(((flip == 1) ^ turn).sum())
+    return TriMesh(mesh.vertices, f), flipped
 
 
 def remesh_mask(
