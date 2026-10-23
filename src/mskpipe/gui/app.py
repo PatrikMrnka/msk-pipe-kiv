@@ -274,6 +274,11 @@ class MainWindow(QMainWindow):
         )
         self.qc_button.clicked.connect(self.open_qc)
         self.qc_dialog: QWidget | None = None
+        self.seg_button = QPushButton("Segmentation…")
+        self.seg_button.setToolTip(
+            "Input image with the label maps of the run in axial, coronal and sagittal slices"
+        )
+        self.seg_button.clicked.connect(self.view_segmentation)
         self.setup_button = QPushButton("Setup…")
         self.setup_button.setToolTip("Licence key, attachment atlas, model weights and GPU support")
         self.setup_button.clicked.connect(lambda: self.open_setup())
@@ -297,10 +302,11 @@ class MainWindow(QMainWindow):
                 self.open_run_button,
                 self.open_mw2_button,
                 self.qc_button,
+                self.seg_button,
                 self.cancel_button,
                 self.run_button,
                 stretch_first=False,
-                stretch_at=4,
+                stretch_at=5,
             )
         )
 
@@ -398,21 +404,43 @@ class MainWindow(QMainWindow):
 
     def view_image(self) -> QWidget | None:
         """Show the input volume in axial, coronal and sagittal slices (own window)."""
-        from mskpipe.gui.slice_viewer import SliceViewer
-
         text = self.image_edit.text().strip()
         path = Path(text) if text else None
         if path is None or not path.is_file():
             QMessageBox.warning(self, "View image", "Choose an existing input volume first.")
             return None
+        viewer = self._viewer()
+        viewer.open(path)
+        return viewer
+
+    def view_segmentation(self) -> QWidget | None:
+        """Input image of the last run with its label maps (unified label map shown)."""
+        run_dir = self.process.run_dir
+        if run_dir is None or not self._has_segmentation():
+            return None
+        viewer = self._viewer()
+        return viewer if viewer.open_run(run_dir) else None
+
+    def _viewer(self):
+        """The slice viewer window, created on first use and brought to the front."""
+        from mskpipe.gui.slice_viewer import SliceViewer
+
         if self.slice_viewer is None:
             # the window's thread pool: closing the main window waits for a read in progress
             self.slice_viewer = SliceViewer(self, pool=self._pool)
-        self.slice_viewer.open(path)
         self.slice_viewer.show()
         self.slice_viewer.raise_()
         self.slice_viewer.activateWindow()
         return self.slice_viewer
+
+    def _has_segmentation(self) -> bool:
+        from mskpipe.gui.slice_labels import run_sources
+
+        run_dir = self.process.run_dir
+        if run_dir is None or not Path(run_dir).is_dir():
+            return False
+        image, sources = run_sources(run_dir)
+        return image is not None and bool(sources)
 
     # ------------------------------------------------------------------ modality
 
@@ -838,6 +866,7 @@ class MainWindow(QMainWindow):
             )
         self.open_mw2_button.setEnabled(s.mw2_dir is not None)
         self.qc_button.setEnabled(self._has_defects())
+        self.seg_button.setEnabled(self._has_segmentation())
         if self._has_defects():
             self.warn_defects()
 
@@ -963,6 +992,7 @@ class MainWindow(QMainWindow):
             not running and self.summary is not None and self.summary.mw2_dir is not None
         )
         self.qc_button.setEnabled(not running and self._has_defects())
+        self.seg_button.setEnabled(not running and self._has_segmentation())
 
     def _open(self, path: Path | None) -> None:
         if path is not None and Path(path).exists():

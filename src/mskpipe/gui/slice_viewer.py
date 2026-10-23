@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Axial, coronal and sagittal slices of the input volume (GUI, read only).
+"""Axial, coronal and sagittal slices of the input volume with label maps (GUI, read only).
 
 The volume is put into the closest canonical RAS+ voxel order by flips and axis swaps only
 (numpy views, no resampling and no copy of the data), so every view shows exact voxel
@@ -8,28 +8,58 @@ radiological convention: patient right on the left of the screen, anterior on th
 of the sagittal view. Plane colours as in 3D Slicer: axial red, coronal green, sagittal
 yellow; each crosshair line has the colour of the plane it marks.
 
+A label map of the run (unified map, raw tool outputs, defect repairs; see
+:mod:`mskpipe.gui.slice_labels`) or any integer NIfTI can be laid over the slices, filled
+or as outlines, with every structure shown or hidden on its own.
+
 Mouse: left button = move the crosshair, wheel = next/previous slice, right drag =
-window (horizontal) and level (vertical), double click = this view alone / all views.
+window (horizontal) and level (vertical), double click = this view alone / all views,
+double click on a structure = crosshair on it. L = labels on/off.
 """
 
 from __future__ import annotations
 
 import math
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from PySide6.QtCore import QObject, QPointF, QRectF, QRunnable, Qt, QThreadPool, Signal
-from PySide6.QtGui import QColor, QFont, QImage, QMouseEvent, QPainter, QPen, QWheelEvent
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QIcon,
+    QImage,
+    QKeySequence,
+    QMouseEvent,
+    QPainter,
+    QPen,
+    QPixmap,
+    QShortcut,
+    QWheelEvent,
+)
 from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
+    QFileDialog,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
+    QMessageBox,
+    QPushButton,
     QSlider,
+    QSplitter,
+    QTreeWidget,
+    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
+
+from mskpipe.gui import slice_labels as sl
 
 __all__ = [
     "VIEWS",
@@ -37,6 +67,7 @@ __all__ = [
     "SliceViewer",
     "Volume",
     "load_volume",
+    "main",
     "plane",
     "to_gray",
 ]
@@ -190,9 +221,12 @@ def to_gray(values: np.ndarray, low: float, high: float) -> np.ndarray:
     return np.ascontiguousarray(np.clip(out, 0, 255).astype(np.uint8))
 
 
-def _qimage(gray: np.ndarray) -> QImage:
-    h, w = gray.shape
-    return QImage(gray.tobytes(), w, h, w, QImage.Format.Format_Grayscale8).copy()
+def _qimage(pixels: np.ndarray) -> QImage:
+    """Grey (h, w) or RGB (h, w, 3) uint8 slice as a QImage (own copy of the data)."""
+    h, w = pixels.shape[:2]
+    if pixels.ndim == 3:
+        return QImage(pixels.tobytes(), w, h, 3 * w, QImage.Format.Format_RGB888).copy()
+    return QImage(pixels.tobytes(), w, h, w, QImage.Format.Format_Grayscale8).copy()
 
 
 # --------------------------------------------------------------------------- one view
@@ -222,9 +256,9 @@ class SlicePane(QWidget):
     # ------------------------------------------------------------------ content
 
     def set_slice(
-        self, gray: np.ndarray, pixel: tuple[float, float], cross: tuple[int, int], caption: str
+        self, pixels: np.ndarray, pixel: tuple[float, float], cross: tuple[int, int], caption: str
     ) -> None:
-        self._image, self._pixel = _qimage(gray), pixel
+        self._image, self._pixel = _qimage(pixels), pixel
         self._cross, self._caption, self._message = cross, caption, ""
         self.update()
 
@@ -336,37 +370,43 @@ class SlicePane(QWidget):
 
 
 class _LoadSignals(QObject):
-    done = Signal(int, object)  # (request number, Volume | error message)
+    done = Signal(int, object)  # (request number, result | error message)
 
 
 class _LoadTask(QRunnable):
-    def __init__(self, number: int, path: Path, signals: _LoadSignals) -> None:
+    """Runs ``fn(arg)`` in the pool; the result (or the error text) goes to ``signals``."""
+
+    def __init__(self, number: int, fn: Callable[[Any], Any], arg: Any, signals: _LoadSignals):
         super().__init__()
-        self.number, self.path, self.signals = number, path, signals
+        self.number, self.fn, self.arg, self.signals = number, fn, arg, signals
 
     def run(self) -> None:
         try:
-            result: object = load_volume(self.path)
+            result: object = self.fn(self.arg)
         except MemoryError:
-            result = "not enough memory to load the volume"
+            result = "not enough memory to load the file"
         except Exception as exc:  # any unreadable file
             result = str(exc) or type(exc).__name__
         self.signals.done.emit(self.number, result)
 
 
-class SliceViewer(QWidget):
-    """Separate window with the three views of one volume.
+VALUE_ROLE = Qt.ItemDataRole.UserRole
 
-    ``pool``: thread pool for reading the volume; the main window passes its own, so it
-    waits for a read in progress when it closes.
+
+class SliceViewer(QWidget):
+    """Separate window with the three views of one volume and an optional label map.
+
+    ``pool``: thread pool for reading files; the main window passes its own, so it waits
+    for a read in progress when it closes.
     """
 
     loaded = Signal()  # a volume (or an error) is shown
+    layer_loaded = Signal()  # a label map (or an error) is shown
 
     def __init__(self, parent: QWidget | None = None, *, pool: QThreadPool | None = None):
         super().__init__(parent, Qt.WindowType.Window)
         self.setWindowTitle("Image viewer")
-        self.resize(1280, 560)
+        self.resize(1500, 640)
         self.volume: Volume | None = None
         self.error: str | None = None
         self.cursor = [0, 0, 0]  # canonical voxel index
@@ -377,7 +417,20 @@ class SliceViewer(QWidget):
         self._request = 0
         self._source: tuple[Path, tuple[int, int]] | None = None
         self._loading = False
+        # label maps
+        self.sources: list[sl.LayerSource] = []
+        self.layer: sl.LabelLayer | None = None
+        self.layer_error: str | None = None
+        self._layer_signals = _LoadSignals(self)
+        self._layer_signals.done.connect(self._layer_done)
+        self._layer_request = 0
+        self._layer_loading = False
+        self._hidden: dict[str, set[int]] = {}  # label file -> hidden values
+        self._lut = np.zeros((1, 3), np.uint8)
+        self._alpha = np.zeros(1, np.float32)
+        self._plane_cache: dict[str, tuple[int, np.ndarray]] = {}
 
+        # image row ----------------------------------------------------------
         self.file_label = QLabel()
         self.file_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.preset_combo = QComboBox()
@@ -388,14 +441,6 @@ class SliceViewer(QWidget):
         self.width_spin = _spin("Window width")
         self.level_spin.valueChanged.connect(lambda _=None: self._window_edited())
         self.width_spin.valueChanged.connect(lambda _=None: self._window_edited())
-        self.status_label = QLabel()
-        self.status_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        hint = QLabel(
-            "Left button: crosshair · wheel: slice · right drag: window/level · "
-            "double click: one view / all"
-        )
-        hint.setStyleSheet("color: #7f8c8d")
-
         top = QHBoxLayout()
         top.addWidget(self.file_label, 1)
         top.addWidget(QLabel("Window"))
@@ -405,10 +450,48 @@ class SliceViewer(QWidget):
         top.addWidget(QLabel("W"))
         top.addWidget(self.width_spin)
 
+        # label row ----------------------------------------------------------
+        self.layer_combo = QComboBox()
+        self.layer_combo.setMinimumWidth(260)
+        self.layer_combo.addItem("None", None)
+        self.layer_combo.currentIndexChanged.connect(self._layer_chosen)
+        self.open_run_button = QPushButton("Open run…")
+        self.open_run_button.setToolTip("Input image and label maps of a run folder")
+        self.open_run_button.clicked.connect(self._browse_run)
+        self.add_labels_button = QPushButton("Add label map…")
+        self.add_labels_button.setToolTip("Any integer NIfTI over the image (nearest voxel)")
+        self.add_labels_button.clicked.connect(self._browse_labels)
+        self.show_check = QCheckBox("Show (L)")
+        self.show_check.setChecked(True)
+        self.show_check.toggled.connect(lambda _=None: self.refresh())
+        self.opacity_slider = QSlider(Qt.Orientation.Horizontal)
+        self.opacity_slider.setRange(0, 100)
+        self.opacity_slider.setValue(50)
+        self.opacity_slider.setFixedWidth(120)
+        self.opacity_slider.setToolTip("Opacity of the labels")
+        self.opacity_slider.valueChanged.connect(lambda _=None: self.refresh())
+        self.outline_check = QCheckBox("Outline")
+        self.outline_check.setToolTip("Only the borders of the structures")
+        self.outline_check.toggled.connect(lambda _=None: self.refresh())
+        labels_row = QHBoxLayout()
+        labels_row.addWidget(QLabel("Labels"))
+        labels_row.addWidget(self.layer_combo, 1)
+        labels_row.addWidget(self.open_run_button)
+        labels_row.addWidget(self.add_labels_button)
+        labels_row.addSpacing(12)
+        labels_row.addWidget(self.show_check)
+        labels_row.addWidget(QLabel("Opacity"))
+        labels_row.addWidget(self.opacity_slider)
+        labels_row.addWidget(self.outline_check)
+        QShortcut(QKeySequence("L"), self, activated=self.show_check.toggle)
+
+        # views --------------------------------------------------------------
         self.panes: dict[str, SlicePane] = {}
         self.sliders: dict[str, QSlider] = {}
         self._columns: dict[str, QWidget] = {}
-        views = QHBoxLayout()
+        views_box = QWidget()
+        views = QHBoxLayout(views_box)
+        views.setContentsMargins(0, 0, 0, 0)
         views.setSpacing(4)
         for view in VIEWS:
             pane = SlicePane(view)
@@ -426,36 +509,112 @@ class SliceViewer(QWidget):
             views.addWidget(column, 1)
             self.panes[view], self.sliders[view], self._columns[view] = pane, slider, column
 
+        # structures ---------------------------------------------------------
+        self.tree = QTreeWidget()
+        self.tree.setHeaderLabels(["Structure", "ml"])
+        self.tree.setRootIsDecorated(False)
+        self.tree.setUniformRowHeights(True)
+        self.tree.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        header = self.tree.header()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.tree.itemChanged.connect(self._item_changed)
+        self.tree.itemDoubleClicked.connect(
+            lambda item, _col=0: self.jump_to(int(item.data(0, VALUE_ROLE)))
+        )
+        self.layer_info = QLabel()
+        self.layer_info.setWordWrap(True)
+        self.layer_info.setStyleSheet("color: #7f8c8d")
+        buttons = QHBoxLayout()
+        for text, kind in (
+            ("All", "all"),
+            ("None", "none"),
+            ("Bones", "bone"),
+            ("Muscles", "muscle"),
+        ):
+            button = QPushButton(text)
+            button.clicked.connect(lambda _=False, k=kind: self.show_only(k))
+            buttons.addWidget(button)
+        panel = QWidget()
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.setContentsMargins(0, 0, 0, 0)
+        panel_layout.addWidget(self.tree, 1)
+        panel_layout.addLayout(buttons)
+        panel_layout.addWidget(self.layer_info)
+        self.panel = panel
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.addWidget(views_box)
+        splitter.addWidget(panel)
+        splitter.setStretchFactor(0, 5)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([1220, 280])
+
+        self.status_label = QLabel()
+        self.status_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        hint = QLabel(
+            "Left button: crosshair · wheel: slice · right drag: window/level · "
+            "double click: one view / all · double click a structure: go to it · L: labels"
+        )
+        hint.setStyleSheet("color: #7f8c8d")
+
         layout = QVBoxLayout(self)
         layout.addLayout(top)
-        layout.addLayout(views, 1)
+        layout.addLayout(labels_row)
+        layout.addWidget(splitter, 1)
         layout.addWidget(self.status_label)
         layout.addWidget(hint)
         self._enable(False)
+        self._show_layer_info()
 
     # ------------------------------------------------------------------ loading
 
-    def open(self, path: str | Path) -> None:
-        """Show ``path``; reads it in the background unless it is already shown."""
+    def open(
+        self,
+        path: str | Path,
+        layers: Sequence[sl.LayerSource] | None = None,
+        select: int | None = None,
+    ) -> None:
+        """Show ``path`` (read in the background unless it is already shown).
+
+        ``layers``: label maps offered for this image (``None`` keeps the current ones for
+        the same image and clears them for another); ``select``: index of the one to show.
+        """
         path = Path(path).resolve()
         stat = path.stat()
         source = (path, (stat.st_mtime_ns, stat.st_size))
-        if source == self._source and (self._loading or self.volume is not None):
+        same = source == self._source and (self._loading or self.volume is not None)
+        if layers is not None or not same:
+            self.set_sources(layers or [], select)
+        elif select is not None:
+            self.layer_combo.setCurrentIndex(select + 1)
+        if same:
             return
         self._source = source
         self._request += 1
         self._loading = True
         self.volume, self.error = None, None
+        self._plane_cache.clear()
         self.setWindowTitle(f"{path.name} - image viewer")
         self.file_label.setText(path.name)
         self.status_label.setText("")
         for pane in self.panes.values():
             pane.set_message("Loading…")
         self._enable(False)
-        self._pool.start(_LoadTask(self._request, path, self._signals))
+        self._pool.start(_LoadTask(self._request, load_volume, path, self._signals))
+
+    def open_run(self, run_dir: str | Path) -> bool:
+        """Input image of a run folder with its label maps (unified label map shown)."""
+        image, sources = sl.run_sources(run_dir)
+        if image is None:
+            QMessageBox.warning(self, "Open run", f"No input image in {run_dir}.")
+            return False
+        self.open(image, layers=sources, select=0 if sources else None)
+        return True
 
     def is_loading(self) -> bool:
-        return self._loading
+        """The volume or a label map is being read."""
+        return self._loading or self._layer_loading
 
     def _loaded(self, request: int, result: object) -> None:
         if request != self._request:  # another file was opened meanwhile, or closed
@@ -490,12 +649,216 @@ class SliceViewer(QWidget):
         self.preset_combo.blockSignals(True)
         self.preset_combo.setCurrentIndex(0)
         self.preset_combo.blockSignals(False)
+        self._show_layer_info()
         self.apply_preset()
         self.loaded.emit()
 
     def _enable(self, on: bool) -> None:
         for w in (self.preset_combo, self.level_spin, self.width_spin, *self.sliders.values()):
             w.setEnabled(on)
+
+    # ------------------------------------------------------------------ label maps
+
+    def set_sources(self, sources: Sequence[sl.LayerSource], select: int | None = None) -> None:
+        """Label maps offered in the combo box; ``select`` = index of the one to show."""
+        self.sources = list(sources)
+        self.layer_combo.blockSignals(True)
+        self.layer_combo.clear()
+        self.layer_combo.addItem("None", None)
+        for i, src in enumerate(self.sources):
+            self.layer_combo.addItem(src.title, i)
+            self.layer_combo.setItemData(i + 1, str(src.path), Qt.ItemDataRole.ToolTipRole)
+        self.layer_combo.setCurrentIndex(0)
+        self.layer_combo.blockSignals(False)
+        self._set_layer(None)
+        if select is not None and 0 <= select < len(self.sources):
+            self.layer_combo.setCurrentIndex(select + 1)
+
+    def add_labels(self, path: str | Path) -> None:
+        """Offer a label file (named from the run files next to it) and show it."""
+        path = Path(path).resolve()
+        for i, src in enumerate(self.sources):
+            if src.path.resolve() == path:
+                self.layer_combo.setCurrentIndex(i + 1)
+                return
+        source = sl.source_for_file(path)
+        self.sources.append(source)
+        self.layer_combo.addItem(source.title, len(self.sources) - 1)
+        self.layer_combo.setItemData(len(self.sources), str(path), Qt.ItemDataRole.ToolTipRole)
+        self.layer_combo.setCurrentIndex(len(self.sources))
+
+    def _browse_run(self) -> None:
+        start = str(self._source[0].parent) if self._source else str(Path.cwd())
+        folder = QFileDialog.getExistingDirectory(self, "Run folder", start)
+        if folder:
+            self.open_run(folder)
+
+    def _browse_labels(self) -> None:
+        start = str(self._source[0].parent) if self._source else str(Path.cwd())
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Label map", start, "NIfTI (*.nii *.nii.gz);;All files (*)"
+        )
+        if path:
+            self.add_labels(path)
+
+    def _layer_chosen(self, _index: int = 0) -> None:
+        i = self.layer_combo.currentData()
+        self._set_layer(None)
+        if i is None:
+            return
+        source = self.sources[i]
+        self._layer_request += 1
+        self._layer_loading = True
+        self.layer_info.setText("Loading the label map…")
+        self._pool.start(_LoadTask(self._layer_request, sl.load_layer, source, self._layer_signals))
+
+    def _layer_done(self, request: int, result: object) -> None:
+        if request != self._layer_request:
+            return
+        self._layer_loading = False
+        if isinstance(result, sl.LabelLayer):
+            self._set_layer(result)
+        else:
+            self._set_layer(None)
+            self.layer_error = str(result)
+            self._show_layer_info()
+        self.layer_loaded.emit()
+
+    def _set_layer(self, layer: sl.LabelLayer | None) -> None:
+        if layer is None:  # also drops a read in progress
+            self._layer_request += 1
+            self._layer_loading = False
+        self.layer, self.layer_error = layer, None
+        self._plane_cache.clear()
+        self._fill_tree()
+        self._update_lut()
+        self._show_layer_info()
+        self.refresh()
+
+    def _hidden_values(self) -> set[int]:
+        if self.layer is None:
+            return set()
+        return self._hidden.setdefault(str(self.layer.source.path), set())
+
+    def _fill_tree(self) -> None:
+        self.tree.blockSignals(True)
+        self.tree.clear()
+        layer = self.layer
+        if layer is not None:
+            hidden = self._hidden_values()
+            for info in layer.labels.values():
+                item = QTreeWidgetItem([info.name, f"{info.volume_ml:.1f}"])
+                item.setData(0, VALUE_ROLE, info.value)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(
+                    0, Qt.CheckState.Unchecked if info.value in hidden else Qt.CheckState.Checked
+                )
+                pixmap = QPixmap(12, 12)
+                pixmap.fill(QColor(*info.color))
+                item.setIcon(0, QIcon(pixmap))
+                item.setTextAlignment(
+                    1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+                )
+                item.setToolTip(
+                    0,
+                    f"{info.name}: value {info.value}, {info.kind}, {info.voxels} voxels, "
+                    f"{info.volume_ml:.1f} ml",
+                )
+                self.tree.addTopLevelItem(item)
+        self.tree.blockSignals(False)
+
+    def _item(self, value: int) -> QTreeWidgetItem | None:
+        for i in range(self.tree.topLevelItemCount()):
+            item = self.tree.topLevelItem(i)
+            if item.data(0, VALUE_ROLE) == value:
+                return item
+        return None
+
+    def _item_changed(self, item: QTreeWidgetItem, column: int) -> None:
+        if column != 0 or self.layer is None:
+            return
+        value = int(item.data(0, VALUE_ROLE))
+        hidden = self._hidden_values()
+        if item.checkState(0) == Qt.CheckState.Checked:
+            hidden.discard(value)
+        else:
+            hidden.add(value)
+        self._update_lut()
+        self.refresh()
+
+    def show_only(self, which: str) -> None:
+        """``all``, ``none`` or a kind (``bone``, ``muscle``): structures to show."""
+        if self.layer is None:
+            return
+        hidden = self._hidden_values()
+        hidden.clear()
+        for info in self.layer.labels.values():
+            shown = which == "all" or info.kind == which
+            if not shown:
+                hidden.add(info.value)
+        self._fill_tree()
+        self._update_lut()
+        self.refresh()
+
+    def visible_values(self) -> list[int]:
+        if self.layer is None:
+            return []
+        hidden = self._hidden_values()
+        return [v for v in self.layer.labels if v not in hidden]
+
+    def _update_lut(self) -> None:
+        layer = self.layer
+        n = (layer.max_value if layer else 0) + 1
+        self._lut = np.zeros((n, 3), np.uint8)
+        self._alpha = np.zeros(n, np.float32)
+        if layer is None:
+            return
+        hidden = self._hidden_values()
+        for value, info in layer.labels.items():
+            self._lut[value] = info.color
+            self._alpha[value] = 0.0 if value in hidden else 1.0
+
+    def jump_to(self, value: int) -> None:
+        """Crosshair on a voxel of structure ``value`` (shown if it was hidden)."""
+        layer, vol = self.layer, self.volume
+        if layer is None or vol is None or value not in layer.labels:
+            return
+        item = self._item(value)
+        if item is not None and item.checkState(0) != Qt.CheckState.Checked:
+            item.setCheckState(0, Qt.CheckState.Checked)  # -> _item_changed
+        self.cursor = sl.to_canonical(layer, vol.affine, vol.shape, layer.locate(value))
+        self.refresh()
+
+    def _show_layer_info(self) -> None:
+        layer = self.layer
+        if self.layer_error:
+            text = f"Cannot read the label map: {self.layer_error}"
+        elif self._layer_loading:
+            text = "Loading the label map…"
+        elif layer is None:
+            text = (
+                "No label map shown. 'Open run…' shows the label maps of a run, "
+                "'Add label map…' any integer NIfTI."
+            )
+        else:
+            notes = list(layer.notes)
+            vol = self.volume
+            if vol is not None and not layer.same_grid(vol.file_shape, vol.file_affine):
+                notes.append("grid differs from the image: nearest label voxel shown")
+            text = f"{len(layer.labels)} structures · {layer.source.path.name}"
+            if notes:
+                text += " · " + " · ".join(notes)
+        self.layer_info.setText(text)
+
+    def _label_plane(self, view: str, index: int) -> np.ndarray:
+        cached = self._plane_cache.get(view)
+        if cached is not None and cached[0] == index:
+            return cached[1]
+        vol, layer = self.volume, self.layer
+        assert vol is not None and layer is not None
+        labels = sl.label_plane(layer, vol.affine, vol.shape, AXES[view], index)
+        self._plane_cache[view] = (index, labels)
+        return labels
 
     # ------------------------------------------------------------------ window / level
 
@@ -557,6 +920,12 @@ class SliceViewer(QWidget):
         self.cursor[h_axis] = _clamp(shape[h_axis] - 1 - math.floor(col), shape[h_axis])
         self.cursor[v_axis] = _clamp(shape[v_axis] - 1 - math.floor(row), shape[v_axis])
         self.refresh()
+        value = self.label_under_cursor()
+        item = self._item(value) if value else None
+        if item is not None:
+            self.tree.setCurrentItem(item)
+        else:
+            self.tree.clearSelection()
 
     def scroll(self, view: str, steps: int) -> None:
         axis = AXES[view][0]
@@ -575,21 +944,34 @@ class SliceViewer(QWidget):
         for name, column in self._columns.items():
             column.setVisible(self.maximized in (None, name))
 
+    def label_under_cursor(self) -> int:
+        if self.layer is None or self.volume is None:
+            return 0
+        return sl.label_at(self.layer, self.volume.affine, self.cursor)
+
     def refresh(self) -> None:
         vol = self.volume
         if vol is None:
             return
         low, high = self.window()
+        overlay = self.layer is not None and self.show_check.isChecked()
+        opacity = self.opacity_slider.value() / 100.0
         for view in VIEWS:
             s_axis, h_axis, v_axis = AXES[view]
             index = self.cursor[s_axis]
             values = plane(vol.data, view, index).astype(np.float32) * vol.slope + vol.inter
+            image = to_gray(values, low, high)
+            if overlay:
+                labels = self._label_plane(view, index)
+                image = sl.compose(
+                    image, labels, self._lut, self._alpha, opacity, self.outline_check.isChecked()
+                )
             cross = (
                 vol.shape[h_axis] - 1 - self.cursor[h_axis],
                 vol.shape[v_axis] - 1 - self.cursor[v_axis],
             )
             self.panes[view].set_slice(
-                to_gray(values, low, high),
+                image,
                 (vol.spacing[h_axis], vol.spacing[v_axis]),
                 cross,
                 f"{index + 1} / {vol.shape[s_axis]}",
@@ -604,16 +986,20 @@ class SliceViewer(QWidget):
             f"Voxel [{i}, {j}, {k}]",
             f"RAS {x:.1f}, {y:.1f}, {z:.1f} mm",
             f"value {vol.value(self.cursor):.6g}",
-            *vol.notes,
         ]
-        self.status_label.setText("  ·  ".join(parts))
+        if self.layer is not None:
+            value = self.label_under_cursor()
+            info = self.layer.labels.get(value)
+            parts.append(f"label {info.name} ({value})" if info else "no label")
+        self.status_label.setText("  ·  ".join([*parts, *vol.notes]))
 
     # ------------------------------------------------------------------ closing
 
     def closeEvent(self, event) -> None:
-        self._request += 1  # a read still in progress is dropped
+        self._request += 1  # reads still in progress are dropped
         self._loading = False
         self.volume, self._source = None, None  # a CT can take gigabytes
+        self._set_layer(None)
         for pane in self.panes.values():
             pane.set_message("")
         super().closeEvent(event)
@@ -638,3 +1024,21 @@ def _spin(tooltip: str) -> QDoubleSpinBox:
 
 def _clamp(index: int, n: int) -> int:
     return max(0, min(int(index), n - 1))
+
+
+def main(target: Path | None = None, labels: Sequence[Path] = ()) -> int:
+    """Standalone viewer (``mskpipe view``): a volume or a run folder, label maps."""
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    viewer = SliceViewer()
+    viewer.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+    if target is not None and Path(target).is_dir():
+        viewer.open_run(target)
+        for path in labels:
+            viewer.add_labels(path)
+    elif target is not None:
+        sources = [sl.source_for_file(p) for p in labels]
+        viewer.open(target, layers=sources, select=0 if sources else None)
+    viewer.show()
+    return app.exec()

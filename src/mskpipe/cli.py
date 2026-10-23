@@ -579,6 +579,42 @@ def qc(
     raise typer.Exit(qc_command(run_dir, show=show, png=png, defect=defect))
 
 
+# ---------------------------------------------------------------------------- view
+
+
+@app.command()
+def view(
+    target: Annotated[
+        Path | None,
+        typer.Argument(help="Volume (.nii/.nii.gz) or run folder.", show_default=False),
+    ] = None,
+    labels: Annotated[
+        list[Path] | None,
+        typer.Option("--labels", "-l", help="Label map over the image (repeatable)."),
+    ] = None,
+) -> None:
+    """Show a volume in axial, coronal and sagittal slices, with label maps.
+
+    \b
+    A run folder opens its input image with the unified label map; the raw segmentations
+    and the defect repairs can be chosen in the window. Label maps need not share the
+    image grid (nearest voxel). Double click a structure to go to it, L = labels on/off.
+    Examples:
+      mskpipe view runs/20261021-162806_MRI_97094935
+      mskpipe view CT.nii.gz -l runs/<run>/02_labelmap/labelmap.nii.gz
+    """
+    for path in [target, *(labels or [])]:
+        if path is not None and not path.exists():
+            typer.echo(f"Error: not found: {path}", err=True)
+            raise typer.Exit(1)
+    try:
+        from mskpipe.gui.slice_viewer import main as view_main
+    except ImportError as exc:
+        typer.echo(f"Error: the viewer needs PySide6 ({exc}).", err=True)
+        raise typer.Exit(1) from None
+    raise typer.Exit(view_main(target, labels or []))
+
+
 # ---------------------------------------------------------------------------- gui
 
 
