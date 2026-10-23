@@ -92,7 +92,6 @@ def config(tmp_path: Path, *overrides: str):
     return load_config(
         overrides=[
             f"runtime.runs_dir={(tmp_path / 'runs').as_posix()}",
-            "segmentation.tibia_fibula=ts_appendicular",
             "labelmap.bones.min_voxels=100",
             "labelmap.muscles.min_voxels=100",
             *overrides,
@@ -178,8 +177,8 @@ def test_left_side(tmp_path, spec):
 
 
 def test_image_centre_midline_without_pelvis(tmp_path, spec):
-    FakeSegment.outputs = ("ts_appendicular",)
-    result = _run(tmp_path, spec, "segmentation.bones=musclemap", "segmentation.muscles=musclemap")
+    FakeSegment.outputs = ("ts_appendicular",)  # no TotalSegmentator total -> no pelvis
+    result = _run(tmp_path, spec)
     _, data, _, table = _load(result)
     index = read_labelmap_index(result.ws.step_dir("labelmap"))
     assert index["midline"] == {"x_mm": 29.5, "from": "image_centre"}

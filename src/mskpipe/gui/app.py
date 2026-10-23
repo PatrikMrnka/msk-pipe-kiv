@@ -548,7 +548,7 @@ class MainWindow(QMainWindow):
                 parent=self,
             )
             dialog.use_musclemap.connect(
-                lambda: self.apply_setting(("segmentation", "tibia_fibula"), "musclemap")
+                lambda: self.apply_setting(("segmentation", "bones"), "musclemap")
             )
             dialog.gpu_changed.connect(self.detect_device)
             dialog.task_changed.connect(self._setup_task_changed)

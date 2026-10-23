@@ -68,11 +68,15 @@ def _mm_volume() -> tuple[np.ndarray, dict[str, int]]:
         value = 7000 + i
         labels[name] = value
         side = name[-1]
-        if name.startswith(("tibia", "fibula")):
+        if name == "sacrum":  # no side: midline, as in TotalSegmentator
+            data[18:22, 10:16, 50:60] = value
+        elif name.startswith(("tibia", "fibula")):
             y = slice(6, 10) if name.startswith("tibia") else slice(12, 15)
             data[_x(side, 4), y, 4:20] = value
-        elif name.startswith(("ilium", "femur")):
-            continue  # bones come from TotalSegmentator in the default config
+        elif name.startswith("ilium"):
+            data[_x(side, 8), 4:16, 48:58] = value
+        elif name.startswith("femur"):
+            data[_x(side), 6:14, 26:44] = value
         else:
             k = slot[side]
             slot[side] += 1
@@ -131,11 +135,12 @@ def test_sanity_ok(run: Path) -> None:
     assert "Sanity checks: OK" in format_report(report)
 
 
-def test_sanity_tibia_from_musclemap(run: Path) -> None:
-    config = load_config(overrides=["segmentation.tibia_fibula=musclemap"])
+def test_sanity_bones_from_musclemap(run: Path) -> None:
+    config = load_config(overrides=["segmentation.bones=musclemap"])
     report = sanity_check(RunSegmentation(run), config, load_scheme())
     assert report["problems"] == []
-    assert report["structures"]["tibia_r"]["tool"] == "musclemap"
+    for name in ("pelvis_no_sacrum", "sacrum", "femur_r", "tibia_r", "fibula_l"):
+        assert report["structures"][name]["tool"] == "musclemap"
     assert report["side_dx_mm"]["tibia"] > 0
 
 

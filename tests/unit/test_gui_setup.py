@@ -81,7 +81,7 @@ def test_weights_args():
 def test_needs_attention():
     status = status_fn()()
     assert sd.needs_attention(status) == ["TotalSegmentator licence key", "attachment atlas"]
-    status = status_fn(**{"segmentation.tibia_fibula": "musclemap"})()
+    status = status_fn(**{"segmentation.bones": "musclemap"})()
     assert sd.needs_attention(status) == ["attachment atlas"]
 
 
@@ -211,7 +211,7 @@ def test_window_opens_setup_at_start(window, tmp_path):
 
 def test_window_nothing_missing(window, tmp_path):
     atlas.install_atlas(str(make_atlas(tmp_path / "a")), print)
-    window.apply_setting(("segmentation", "tibia_fibula"), "musclemap")
+    window.apply_setting(("segmentation", "bones"), "musclemap")
     assert window.check_setup() is None
 
 
@@ -219,8 +219,8 @@ def test_use_musclemap_changes_form(window):
     dlg = window.open_setup()
     assert dlg.musclemap_button.isEnabled()
     dlg.musclemap_button.click()
-    assert window.form.values()["segmentation"]["tibia_fibula"] == "musclemap"
-    assert "segmentation.tibia_fibula=musclemap" in window.form.overrides()
+    assert window.form.values()["segmentation"]["bones"] == "musclemap"
+    assert "segmentation.bones=musclemap" in window.form.overrides()
     assert "not needed" in dlg.licence_label.text()
     assert not dlg.musclemap_button.isEnabled()
     dlg.accept()
@@ -345,7 +345,7 @@ def test_needs_attention_fast_rnrr(monkeypatch):
     monkeypatch.setenv("PATH", "")
     status = status_fn(
         **{
-            "segmentation.tibia_fibula": "musclemap",
+            "segmentation.bones": "musclemap",
             "attachments.params.nonrigid": "fast_rnrr",
         }
     )()

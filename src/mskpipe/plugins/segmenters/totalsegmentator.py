@@ -35,8 +35,8 @@ LICENCE_HINT = (
     "TotalSegmentator task '{task}' needs a licence key (free for non-commercial use: "
     f"{LICENCE_URL}). Set it once in the GUI (Setup…) or with `mskpipe setup licence <key>`, "
     "or take "
-    "tibia/fibula from MuscleMap: "
-    "--set segmentation.tibia_fibula=musclemap."
+    "all bones from MuscleMap: "
+    "--set segmentation.bones=musclemap."
 )
 
 

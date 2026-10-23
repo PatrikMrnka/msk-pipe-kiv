@@ -144,19 +144,23 @@ def test_segment_writes_index_and_metrics(tmp_path, spec, registry):
     assert {"hip_left", "femur_left", "femur_right"} <= FakeTS.requests[0].labels
 
 
-@pytest.mark.parametrize("tibia_fibula", ["ts_appendicular", "musclemap"])
-def test_segment_then_labelmap(tmp_path, spec, registry, tibia_fibula):
+@pytest.mark.parametrize("bones", ["totalsegmentator", "musclemap"])
+def test_segment_then_labelmap(tmp_path, spec, registry, bones):
     cfg = config(
         tmp_path,
         "labelmap.bones.min_voxels=1",
         "labelmap.muscles.min_voxels=1",
-        f"segmentation.tibia_fibula={tibia_fibula}",
+        f"segmentation.bones={bones}",
     )
     result = run_pipeline([SegmentStep(registry), LabelmapStep()], spec, cfg)
     assert result.manifest.steps["labelmap"].status == "completed"
-    struct = result.manifest.steps["labelmap"].metrics["structures"]
-    assert {"pelvis_no_sacrum", "femur_r", "tibia_r", "biceps_femoris_r"} <= set(struct)
-    assert "tibia_r" not in result.manifest.steps["labelmap"].metrics["missing"]
+    metrics = result.manifest.steps["labelmap"].metrics
+    assert {"tibia_r", "biceps_femoris_r"} <= set(metrics["structures"])
+    assert "tibia_r" not in metrics["missing"]
+    if bones == "totalsegmentator":
+        assert {"pelvis_no_sacrum", "femur_r"} <= set(metrics["structures"])
+    else:  # the fake MuscleMap segments only tibia_r of the bones
+        assert {"pelvis_no_sacrum", "femur_r"} <= set(metrics["missing"])
 
 
 def test_missing_label_is_a_warning(tmp_path, spec, registry):

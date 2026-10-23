@@ -5,8 +5,8 @@
 #   02_labelmap/labelmap.nii.gz. Downstream steps look structures up by name
 #   (02_labelmap/labels.json); the values only keep label maps comparable across runs.
 #   group selects the config switch choosing the source:
-#     bones -> segmentation.bones, tibia_fibula -> segmentation.tibia_fibula,
-#     muscles -> segmentation.muscles.
+#     bones and tibia_fibula -> segmentation.bones (tibia_fibula: totalsegmentator ->
+#     ts_appendicular, musclemap -> musclemap), muscles -> segmentation.muscles.
 #
 # sources: label names of each segmentation source (as written by the segmenter plugin
 #   into 01_segment/segmentation.json), per unified structure. A structure listing several
@@ -102,11 +102,13 @@ sources:
   # MuscleMap (mm_segment, whole-body model 1.4): names normalised by the musclemap plugin
   # (<anatomy>_<l|r> from the model's label JSON). biceps_femoris = long head only, as in BP
   # (MuscleMap also segments the short head: biceps_femoris_short_head_l|r).
+  # sacrum = MuscleMap label without side (6160 in model 1.4).
   musclemap:
     tool: musclemap
     tasks: []
     labels:
       pelvis_no_sacrum: [ilium_l, ilium_r]
+      sacrum: [sacrum]
       femur_r: [femur_r]
       femur_l: [femur_l]
       tibia_r: [tibia_r]

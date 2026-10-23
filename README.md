@@ -53,7 +53,7 @@ No Python, MATLAB or OpenSim needed.
 3. Double-click **`msk-pipe.cmd`**. The first start unpacks the environment (1–3 min).
    SmartScreen: *More info → Run anyway*.
 4. The **Setup…** window opens on the first start:
-   - TotalSegmentator licence key (free for non-commercial use, for tibia/fibula) —
+   - TotalSegmentator licence key (free for non-commercial use, for its bones) —
      or *Use MuscleMap instead*;
    - *GPU support* (optional, NVIDIA driver ≥ 570, ~3.5 GB).
 5. Choose the volume, *Run*. Results: `Documents\msk-pipe\runs\<run>\06_mw2_input`.
@@ -86,7 +86,7 @@ Muscle Wrapping is not part of the pipeline.
 pixi run -e cpu gui                                  # GUI (CPU)
 pixi run -e gpu gui                                  # GUI (CUDA 12.8)
 pixi run -e cpu mskpipe run scan.nii.gz -m ct -d auto
-pixi run -e cpu mskpipe setup licence <key>          # or --set segmentation.tibia_fibula=musclemap
+pixi run -e cpu mskpipe setup licence <key>          # or --set segmentation.bones=musclemap
 ```
 
 ### bb) Everything from source, verified
@@ -144,7 +144,7 @@ mskpipe qc runs/<run> --show                    # bone holes / gaps / bad meshes
 |---|---|
 | `WinError 1455` / paging file too small | let Windows manage the page file, or `--set segmentation.totalsegmentator.nr_thr_saving=1` |
 | No internet during the run | download weights beforehand: `mskpipe setup weights -m ct` |
-| No TotalSegmentator licence key | *Use MuscleMap instead* (`--set segmentation.tibia_fibula=musclemap`) |
+| No TotalSegmentator licence key | *Use MuscleMap instead* (`--set segmentation.bones=musclemap`): all bones from MuscleMap |
 | Path too long | keep the release at a short path such as `C:\msk-pipe-<version>` |
 | Warning "bone defect(s)" after the run | holes in thin bone or a broken fibula (common in MRI) were repaired or could not be: check them with `mskpipe qc <run> --show` (GUI: *Geometry check…*) |
 | What is missing? | `mskpipe setup status` |

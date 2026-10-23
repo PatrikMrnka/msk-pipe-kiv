@@ -272,7 +272,7 @@ def test_totalsegmentator_licence(tmp_path, monkeypatch):
     assert "Invalid" in TotalSegmentator.preflight(config, "ct")[0]
     (tmp_path / "config.json").write_text(json.dumps({"license_number": "a" * 18}), "utf-8")
     assert TotalSegmentator.preflight(config, "ct") == []
-    no_key = load_config(overrides=["segmentation.tibia_fibula=musclemap"])
+    no_key = load_config(overrides=["segmentation.bones=musclemap"])
     monkeypatch.setenv("TOTALSEG_HOME_DIR", str(tmp_path / "empty"))
     assert TotalSegmentator.preflight(no_key, "ct") == []
 

@@ -76,14 +76,11 @@ segmentation:
     01_segment/.
 segmentation.bones:
   help: >-
-    Tool segmenting the pelvis, femur and sacrum. TotalSegmentator is trained on many CT and
-    MRI scans and gives smooth bone masks; MuscleMap segments bones only as a by-product.
-  example: musclemap, to compare its bones with TotalSegmentator.
-segmentation.tibia_fibula:
-  help: >-
-    Source of tibia and fibula. ts_appendicular = TotalSegmentator appendicular_bones (as in
-    the BP thesis), which needs a free academic licence key; musclemap needs no key.
-  example: musclemap when no TotalSegmentator licence key is set.
+    Tool segmenting all bones: pelvis, sacrum, femur, tibia and fibula. TotalSegmentator is
+    trained on many CT and MRI scans and gives smooth bone masks; its tibia and fibula come
+    from the appendicular_bones task (as in the BP thesis), which needs a free academic
+    licence key. MuscleMap segments bones only as a by-product but needs no key.
+  example: musclemap when no TotalSegmentator licence key is set, or to compare the bones.
 segmentation.muscles:
   help: >-
     Tool segmenting the muscles. MuscleMap provides all thigh and hip muscles;

@@ -165,7 +165,7 @@ def test_scheme_names_match_musclemap_1_4():
         "biceps_femoris_short_head", "adductor_magnus", "adductor_longus", "adductor_brevis",
         "tibia", "fibula",
     }  # fmt: skip
-    names = {f"{b}_{s}" for b in v14 for s in "lr"}
+    names = {f"{b}_{s}" for b in v14 for s in "lr"} | {"sacrum"}  # sacrum: no side (6160)
     used = {n for labels in load_scheme().sources["musclemap"].labels.values() for n in labels}
     assert used <= names, sorted(used - names)
 
@@ -269,17 +269,18 @@ def test_requests_default_config():
     assert not {"femur_r", "tibia_r", "fibula_r"} & mm_labels  # bones from TotalSegmentator
 
 
-def test_requests_tibia_from_musclemap():
-    cfg = load_config(overrides=["segmentation.tibia_fibula=musclemap"])
+def test_requests_all_bones_from_musclemap():
+    cfg = load_config(overrides=["segmentation.bones=musclemap"])
     req = load_scheme().requests(cfg, "ct")
-    assert len(req["totalsegmentator"].jobs) == 1
-    assert {"tibia_l", "tibia_r", "fibula_r", "fibula_l"} <= req["musclemap"].labels
+    assert set(req) == {"musclemap"}  # TotalSegmentator is not run
+    bones = {"ilium_l", "ilium_r", "sacrum", "femur_r", "tibia_r", "fibula_r", "fibula_l"}
+    assert bones <= req["musclemap"].labels
 
 
 def test_requests_appendicular_and_ts_muscles():
     cfg = load_config(
         overrides=[
-            "segmentation.tibia_fibula=ts_appendicular",
+            "segmentation.bones=totalsegmentator",
             "segmentation.muscles=totalsegmentator",
         ]
     )

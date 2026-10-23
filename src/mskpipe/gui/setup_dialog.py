@@ -166,8 +166,7 @@ class SetupDialog(QDialog):
         self.key_button.clicked.connect(self.save_licence)
         self.musclemap_button = QPushButton("Use MuscleMap instead")
         self.musclemap_button.setToolTip(
-            "Take tibia and fibula from MuscleMap (no key needed): "
-            "segmentation.tibia_fibula = musclemap"
+            "Take all bones from MuscleMap (no key needed): segmentation.bones = musclemap"
         )
         self.musclemap_button.clicked.connect(self._use_musclemap)
         get_key = QLabel(

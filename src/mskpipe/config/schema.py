@@ -58,6 +58,13 @@ class Segmenter(StrEnum):
     MUSCLEMAP = "musclemap"
 
 
+# Label-scheme source of tibia and fibula for each segmentation.bones (unified_labels.yaml)
+TIBIA_FIBULA_SOURCE: dict[str, str] = {
+    "totalsegmentator": "ts_appendicular",
+    "musclemap": "musclemap",
+}
+
+
 # --------------------------------------------------------------------------- input
 
 
@@ -177,12 +184,10 @@ class MuscleMapConfig(StrictModel):
 
 class SegmentationConfig(StrictModel):
     bones: Segmenter = Field(
-        Segmenter.TOTALSEGMENTATOR, description="Source of pelvis and femur masks."
-    )
-    tibia_fibula: Literal["musclemap", "ts_appendicular"] = Field(
-        "ts_appendicular",
-        description="Tibia/fibula source: 'ts_appendicular' = TotalSegmentator "
-        "appendicular_bones (as BP; needs a free academic licence key), 'musclemap' = no key.",
+        Segmenter.TOTALSEGMENTATOR,
+        description="Source of all bones (pelvis, sacrum, femur, tibia, fibula): "
+        "'totalsegmentator' (tibia/fibula from its appendicular_bones task, as BP; needs a "
+        "free academic licence key) or 'musclemap' (no key).",
     )
     muscles: Segmenter = Field(
         Segmenter.MUSCLEMAP,
@@ -190,6 +195,25 @@ class SegmentationConfig(StrictModel):
     )
     totalsegmentator: TotalSegmentatorConfig = Field(default_factory=TotalSegmentatorConfig)
     musclemap: MuscleMapConfig = Field(default_factory=MuscleMapConfig)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _removed_tibia_fibula(cls, data: Any) -> Any:
+        """``tibia_fibula`` (0.1.0) was removed: all bones come from ``bones``. A value that
+        agrees with ``bones`` is dropped (configs of 0.1.0 runs stay valid), a mixed one is an
+        error."""
+        if not isinstance(data, dict) or "tibia_fibula" not in data:
+            return data
+        data = dict(data)
+        old = data.pop("tibia_fibula")
+        bones = str(data.get("bones", Segmenter.TOTALSEGMENTATOR))
+        if old not in (None, "auto", TIBIA_FIBULA_SOURCE.get(bones)):
+            raise ValueError(
+                f"tibia_fibula={old!r} was removed: tibia and fibula come from the same tool as "
+                f"the other bones (segmentation.bones, now {bones!r}); for bones without a "
+                "TotalSegmentator licence key use segmentation.bones=musclemap"
+            )
+        return data
 
 
 # --------------------------------------------------------------------------- labelmap

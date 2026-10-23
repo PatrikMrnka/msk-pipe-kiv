@@ -18,6 +18,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from mskpipe.config import PipelineConfig
+from mskpipe.config.schema import TIBIA_FIBULA_SOURCE
 from mskpipe.plugins.base import SegmentationRequest, TaskRequest
 
 SCHEME_FILE = "unified_labels.yaml"
@@ -94,7 +95,7 @@ class Scheme(_Model):
         seg = config.segmentation
         chosen: dict[Group, str] = {
             "bones": str(seg.bones),
-            "tibia_fibula": str(seg.tibia_fibula),
+            "tibia_fibula": TIBIA_FIBULA_SOURCE[str(seg.bones)],
             "muscles": str(seg.muscles),
         }
         for group, source in chosen.items():

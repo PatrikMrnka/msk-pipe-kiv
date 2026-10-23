@@ -184,8 +184,8 @@ def _make_ts_weights(root: Path, task: str) -> None:
 def test_required_ts_tasks():
     tasks = weights.required_ts_tasks(_config(), ["ct", "mri"])
     assert set(tasks) == {"total", "appendicular_bones", "total_mr", "appendicular_bones_mr"}
-    no_key = _config(**{"segmentation.tibia_fibula": "musclemap"})
-    assert weights.required_ts_tasks(no_key, ["ct"]) == ["total"]
+    no_key = _config(**{"segmentation.bones": "musclemap"})
+    assert weights.required_ts_tasks(no_key, ["ct"]) == []  # all from MuscleMap
 
 
 def test_ts_status(fake_ts):
@@ -422,7 +422,7 @@ def test_status_collect(tmp_path, monkeypatch, fake_ts, fake_mm):
     atlas.install_atlas(str(_atlas(tmp_path / "src")), print)
     status = collect(_config(), ["ct"])
     assert status.ready and status.atlas.source == "home"
-    no_key = collect(_config(**{"segmentation.tibia_fibula": "musclemap"}), ["ct"])
+    no_key = collect(_config(**{"segmentation.bones": "musclemap"}), ["ct"])
     assert not no_key.licence.needed
 
 
@@ -451,7 +451,7 @@ def test_cli_setup_weights(fake_ts, fake_mm, monkeypatch):
     assert "needs the licence key" in result.output
     assert weights.ts_status("total").status == "ok"
     assert weights.mm_status("1.4").status == "ok"
-    args = ["setup", "weights", "-m", "ct", "--set", "segmentation.tibia_fibula=musclemap"]
+    args = ["setup", "weights", "-m", "ct", "--set", "segmentation.bones=musclemap"]
     assert runner.invoke(app, args).exit_code == 0
 
 

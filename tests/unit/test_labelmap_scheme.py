@@ -22,8 +22,10 @@ def test_default_plan_ts_bones_and_tibia_musclemap_muscles():
     assert plan["sacrum"] == ("totalsegmentator", ("sacrum", "vertebrae_S1"))
     assert len(plan) == 26  # skeleton.side (r) leg + pelvis + sacrum
     assert not any(name.endswith("_l") for name in plan)
-    no_key = load_scheme().plan(load_config(overrides=["segmentation.tibia_fibula=musclemap"]))
+    no_key = load_scheme().plan(load_config(overrides=["segmentation.bones=musclemap"]))
     assert no_key["tibia_r"] == ("musclemap", ("tibia_r",))
+    assert no_key["sacrum"] == ("musclemap", ("sacrum",))
+    assert {source for source, _ in no_key.values()} == {"musclemap"}
 
 
 def test_plan_side():
@@ -38,13 +40,13 @@ def test_plan_follows_segmentation_config():
     config = load_config(
         overrides=[
             "segmentation.bones=musclemap",
-            "segmentation.tibia_fibula=ts_appendicular",
             "segmentation.muscles=totalsegmentator",
         ]
     )
     plan = load_scheme().plan(config, sides=("r", "l"))
     assert plan["pelvis_no_sacrum"] == ("musclemap", ("ilium_l", "ilium_r"))
-    assert plan["tibia_r"] == plan["tibia_l"] == ("ts_appendicular", ("tibia",))
+    assert plan["tibia_r"] == ("musclemap", ("tibia_r",))
+    assert plan["fibula_l"] == ("musclemap", ("fibula_l",))
     muscles = {n for n in plan if load_scheme().structures[n].kind == "muscle"}
     assert muscles == {f"gluteus_{m}_{s}" for m in ("maximus", "medius", "minimus") for s in "rl"}
 

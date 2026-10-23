@@ -136,3 +136,20 @@ def test_old_attachment_method_name_still_loads(tmp_path):
     assert load_config(None, ["attachments.method=bone_registration"]).attachments.method == (
         "atlas_registration"
     )
+
+
+def test_bones_choose_all_bones_and_old_tibia_fibula_key():
+    assert "tibia_fibula" not in load_config().model_dump()["segmentation"]
+    # 0.1.0 configs: a value agreeing with segmentation.bones is ignored
+    for old in (
+        ["segmentation.tibia_fibula=ts_appendicular"],
+        ["segmentation.bones=musclemap", "segmentation.tibia_fibula=musclemap"],
+    ):
+        load_config(overrides=old)
+    # mixed sources are no longer possible
+    for mixed in (
+        ["segmentation.tibia_fibula=musclemap"],
+        ["segmentation.bones=musclemap", "segmentation.tibia_fibula=ts_appendicular"],
+    ):
+        with pytest.raises(ConfigError, match=r"segmentation\.bones=musclemap"):
+            load_config(overrides=mixed)

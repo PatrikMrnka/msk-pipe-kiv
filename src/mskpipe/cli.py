@@ -741,7 +741,7 @@ def setup_weights(
     \b
     Examples:
       mskpipe setup weights
-      mskpipe setup weights -m ct --set segmentation.tibia_fibula=musclemap
+      mskpipe setup weights -m ct --set segmentation.bones=musclemap
     """
     resolved = _setup_config(config, overrides)
     with _setup_locked("downloading model weights"):
@@ -795,7 +795,7 @@ def setup_licence(
 ) -> None:
     """Store the TotalSegmentator licence key (free for non-commercial use).
 
-    Needed for tibia/fibula from TotalSegmentator (segmentation.tibia_fibula=ts_appendicular).
+    Needed for bones from TotalSegmentator (segmentation.bones=totalsegmentator, default).
     """
     from mskpipe.resources.licence import LICENCE_URL, LicenceError, set_licence
 

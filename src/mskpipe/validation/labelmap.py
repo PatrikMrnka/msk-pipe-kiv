@@ -91,7 +91,7 @@ def compare_with_bp(raw_dir: Path, cleaned_dir: Path) -> dict[str, Any]:
         out = ToolOutput(tool=tool, task=task, file=f"{tool}_{task}.nii.gz", labels=labels)
         outputs.append((out, Volume(data, affine)))
 
-    config = load_config(overrides=["segmentation.tibia_fibula=ts_appendicular"])
+    config = load_config(overrides=["segmentation.bones=totalsegmentator"])
     plan = scheme.plan(config, sides=("r", "l"))  # BP masks cover both legs
     provided = {label for out, _ in outputs for label in out.labels}
     plan = {n: p for n, p in plan.items() if all(label in provided for label in p[1])}
