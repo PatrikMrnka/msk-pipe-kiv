@@ -1,0 +1,32 @@
+# Attachment check (a), paper_results E19: the RIGHT LHDL atlas mirrored to the left
+# (tools/attachment_checks.py mirror-atlas) registered onto the left LHDL leg, compared with
+# the left dissection. Same matrix as the left LHDL runs of E18 (e18_gt.yaml), which used
+# the left atlas -> paired per area by `attachment_checks.py pair`.
+# Segmentation, label map, meshes and skeleton come from the cache (only the atlas changes).
+#
+# Run from the repository root:
+#   pixi run -e dev-cpu python tools/attachment_checks.py mirror-atlas
+#   pixi run -e gpu mskpipe batch paper/experiments/e19_mirror.yaml --dry-run
+#   pixi run -e gpu mskpipe batch paper/experiments/e19_mirror.yaml
+version: 1
+experiment: E19
+defaults:
+  device: gpu
+  set:
+    - attachments.params.atlas_dir=data/reference-GT/lhdl_atlas_mirror
+    - skeleton.side=l
+jobs:
+  - name: lhdl_ct_mirror
+    image: ../../data/reference-GT/lhdl_msf/volumes/Cadaver1_LowerLimbsCT.nii.gz
+    modality: ct
+    subject: LHDL_CT_MIRROR
+    matrix:
+      segmentation.bones: [totalsegmentator, musclemap]
+      attachments.params.nonrigid: [coherent_icp, cpd, fast_rnrr, none]
+  - name: lhdl_mri_mirror
+    image: ../../data/reference-GT/lhdl_msf/volumes/Cadaver1_WholeBodyMRI.nii.gz
+    modality: mri
+    subject: LHDL_MRI_MIRROR
+    matrix:
+      segmentation.bones: [totalsegmentator, musclemap]
+      attachments.params.nonrigid: [coherent_icp, cpd, fast_rnrr, none]
