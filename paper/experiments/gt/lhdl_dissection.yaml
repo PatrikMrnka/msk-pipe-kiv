@@ -1,0 +1,51 @@
+# Second muscle reference of LHDL: muscle surfaces digitised during dissection
+# (MuscleDataCollection, Surf_*). Coarse (~100 vertices) and open (no Dice), but independent
+# of the MRI; biceps femoris = long head only (M108). Use the difference to lhdl.yaml as
+# inter-reference variability. No obturators; gluteus minimus left only.
+#
+#   pixi run -e dev-cpu python tools/gt_compare.py --gt paper/experiments/gt/lhdl_dissection.yaml --check
+dataset: LHDL_DISSECTION
+root: ../../../data/reference-GT/lhdl_msf/surfaces
+frame: ras
+subjects: ["LHDL*"]
+sample_points: 20000
+voxel_mm: 0.75
+
+structures:
+  gluteus_maximus_r: {kind: muscle, files: [Surf_R_M081_Glut_Max.obj]}
+  gluteus_maximus_l: {kind: muscle, files: [Surf_L_M081_Glut_Max.obj]}
+  gluteus_medius_r: {kind: muscle, files: [Surf_R_M082_Glut_Med.obj]}
+  gluteus_medius_l: {kind: muscle, files: [Surf_L_M082_Glut_Med.obj]}
+  gluteus_minimus_l: {kind: muscle, files: [Surf_L_M083_Glut_Min.obj]}
+  piriformis_r: {kind: muscle, files: [Surf_R_M084_Pyriform.obj]}
+  piriformis_l: {kind: muscle, files: [Surf_L_M084_Pyriform.obj]}
+  iliacus_r: {kind: muscle, files: [Surf_R_M091_Iliacus.obj]}
+  iliacus_l: {kind: muscle, files: [Surf_L_M091_Iliacus.obj]}
+  rectus_femoris_r: {kind: muscle, files: [Surf_R_M094_Rect_Fem*.obj]}
+  rectus_femoris_l: {kind: muscle, files: [Surf_L_M094_Rect_Fem*.obj]}
+  vastus_lateralis_r: {kind: muscle, files: [Surf_R_M095_Vast_Lat.obj]}
+  vastus_lateralis_l: {kind: muscle, files: [Surf_L_M095_Vast_Lat.obj]}
+  vastus_medialis_r: {kind: muscle, files: [Surf_R_M096_Vast_Med.obj]}
+  vastus_medialis_l: {kind: muscle, files: [Surf_L_M096_Vast_Med.obj]}
+  vastus_intermedius_r: {kind: muscle, files: [Surf_R_M097_Vast_Interm.obj]}
+  vastus_intermedius_l: {kind: muscle, files: [Surf_L_M097_Vast_Interm.obj]}
+  sartorius_r: {kind: muscle, files: [Surf_R_M098_Sartorius.obj]}
+  sartorius_l: {kind: muscle, files: [Surf_L_M098_Sartorius.obj]}
+  tensor_fasciae_latae_r: {kind: muscle, files: [Surf_R_M099_Tens_fasc_lat.obj]}
+  tensor_fasciae_latae_l: {kind: muscle, files: [Surf_L_M099_Tens_fasc_lat.obj]}
+  adductor_magnus_r: {kind: muscle, files: [Surf_R_M100_Adduct_magn.obj]}
+  adductor_magnus_l: {kind: muscle, files: [Surf_L_M100_Adduct_magn.obj]}
+  adductor_longus_r: {kind: muscle, files: [Surf_R_M101_Adduct_Lng.obj]}
+  adductor_longus_l: {kind: muscle, files: [Surf_L_M101_Adduct_Lng.obj]}
+  adductor_brevis_r: {kind: muscle, files: [Surf_R_M102_Adduct_Brev.obj]}
+  adductor_brevis_l: {kind: muscle, files: [Surf_L_M102_Adduct_Brev.obj]}
+  gracilis_r: {kind: muscle, files: [Surf_R_M103_Gracilis.obj]}
+  gracilis_l: {kind: muscle, files: [Surf_L_M103_Gracilis.obj]}
+  pectineus_r: {kind: muscle, files: [Surf_R_M104_Pectin.obj]}
+  pectineus_l: {kind: muscle, files: [Surf_L_M104_Pectin.obj]}
+  semimembranosus_r: {kind: muscle, files: [Surf_R_M105_Semimembr.obj]}
+  semimembranosus_l: {kind: muscle, files: [Surf_L_M105_Semimembr.obj]}
+  semitendinosus_r: {kind: muscle, files: [Surf_R_M106_Semi_Tend.obj]}
+  semitendinosus_l: {kind: muscle, files: [Surf_L_M106_Semi_Tend.obj]}
+  biceps_femoris_r: {kind: muscle, files: [Surf_R_M108_Bic_Fem_Lng.obj]}
+  biceps_femoris_l: {kind: muscle, files: [Surf_L_M108_Bic_Fem_Lng.obj]}

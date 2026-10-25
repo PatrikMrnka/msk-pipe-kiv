@@ -1,0 +1,32 @@
+# Ground truth of TLEM 2.0 (CT) for tools/gt_compare.py (paper_results E18).
+# Converted by data/reference-TLEM20/tlem_to_mskpipe.py into data/reference-TLEM20/mskpipe/ct/
+# (RAS world frame of ct.nii.gz, mm - no transform needed).
+# CT 512x512x2634, 0.977x0.977x0.4 mm. Bones segmented from the CT.
+# No muscle GT in the CT frame (TLEM muscles exist only in the MRI frame; the legs
+# are in a different position in the two scans).
+# Attachments: right side only; outlines DERIVED from the fibre end points of the TLEM model
+# (convex hull + 4 mm), not drawn areas -> report mainly centroid_dist_mm.
+# Data are not in the repository (TLEMsafe Research License Agreement, non-commercial).
+#
+#   pixi run -e dev-cpu python tools/gt_compare.py --gt paper/experiments/gt/tlem2_ct.yaml --check `
+#     --image data/reference-TLEM20/mskpipe/ct/ct.nii.gz
+dataset: TLEM2_CT
+root: ../../../data/reference-TLEM20/mskpipe/ct
+frame: ras
+subjects: ["TLEM2_CT*"]
+sample_points: 30000
+voxel_mm: 0.75
+
+structures:
+  pelvis_no_sacrum: {kind: bone, files: [bones/pelvis_no_sacrum.obj]}
+  sacrum: {kind: bone, files: [bones/sacrum.obj]}
+  femur_r: {kind: bone, files: [bones/femur_r.obj]}
+  tibia_r: {kind: bone, files: [bones/tibia_r.obj]}
+  fibula_r: {kind: bone, files: [bones/fibula_r.obj]}
+  femur_l: {kind: bone, files: [bones/femur_l.obj]}
+  tibia_l: {kind: bone, files: [bones/tibia_l.obj]}
+  fibula_l: {kind: bone, files: [bones/fibula_l.obj]}
+
+attachments_glob:
+  Ori: muscles/{muscle}/*_Ori.vtk
+  Ins: muscles/{muscle}/*_Ins.vtk

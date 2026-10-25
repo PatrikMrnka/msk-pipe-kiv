@@ -1,0 +1,73 @@
+# Ground truth of TLEM 2.0 (MRI) for tools/gt_compare.py (paper_results E18).
+# Converted by data/reference-TLEM20/tlem_to_mskpipe.py into data/reference-TLEM20/mskpipe/mri/
+# (RAS world frame of mri.nii.gz, mm - no transform needed).
+# MRI T1 TSE 369x369x350, 1.041x1.041x3 mm (origin fixed by the converter).
+# Bones and muscles (both sides) segmented from this MRI by the TLEM authors.
+# Attachments: right side only; outlines DERIVED from the fibre end points of the TLEM model
+# (convex hull + 4 mm), not drawn areas -> report mainly centroid_dist_mm.
+# Data are not in the repository (TLEMsafe Research License Agreement, non-commercial).
+#
+#   pixi run -e dev-cpu python tools/gt_compare.py --gt paper/experiments/gt/tlem2_mri.yaml --check `
+#     --image data/reference-TLEM20/mskpipe/mri/mri.nii.gz
+dataset: TLEM2_MRI
+root: ../../../data/reference-TLEM20/mskpipe/mri
+frame: ras
+subjects: ["TLEM2_MRI*"]
+sample_points: 30000
+voxel_mm: 0.75
+
+structures:
+  pelvis_no_sacrum: {kind: bone, files: [bones/pelvis_no_sacrum.obj]}
+  sacrum: {kind: bone, files: [bones/sacrum.obj]}
+  femur_r: {kind: bone, files: [bones/femur_r.obj]}
+  tibia_r: {kind: bone, files: [bones/tibia_r.obj]}
+  fibula_r: {kind: bone, files: [bones/fibula_r.obj]}
+  femur_l: {kind: bone, files: [bones/femur_l.obj]}
+  tibia_l: {kind: bone, files: [bones/tibia_l.obj]}
+  fibula_l: {kind: bone, files: [bones/fibula_l.obj]}
+  adductor_brevis_r: {kind: muscle, files: [muscles/adductor_brevis_r/*.obj]}
+  adductor_brevis_l: {kind: muscle, files: [muscles/adductor_brevis_l/*.obj]}
+  adductor_longus_r: {kind: muscle, files: [muscles/adductor_longus_r/*.obj]}
+  adductor_longus_l: {kind: muscle, files: [muscles/adductor_longus_l/*.obj]}
+  adductor_magnus_r: {kind: muscle, files: [muscles/adductor_magnus_r/*.obj]}
+  adductor_magnus_l: {kind: muscle, files: [muscles/adductor_magnus_l/*.obj]}
+  biceps_femoris_r: {kind: muscle, files: [muscles/biceps_femoris_r/*.obj], note: "TLEM biceps_femoris_caput_longum (long head) = pipeline"}
+  biceps_femoris_l: {kind: muscle, files: [muscles/biceps_femoris_l/*.obj], note: "TLEM biceps_femoris_caput_longum (long head) = pipeline"}
+  gluteus_maximus_r: {kind: muscle, files: [muscles/gluteus_maximus_r/*.obj]}
+  gluteus_maximus_l: {kind: muscle, files: [muscles/gluteus_maximus_l/*.obj]}
+  gluteus_medius_r: {kind: muscle, files: [muscles/gluteus_medius_r/*.obj]}
+  gluteus_medius_l: {kind: muscle, files: [muscles/gluteus_medius_l/*.obj]}
+  gluteus_minimus_r: {kind: muscle, files: [muscles/gluteus_minimus_r/*.obj]}
+  gluteus_minimus_l: {kind: muscle, files: [muscles/gluteus_minimus_l/*.obj]}
+  gracilis_r: {kind: muscle, files: [muscles/gracilis_r/*.obj]}
+  gracilis_l: {kind: muscle, files: [muscles/gracilis_l/*.obj]}
+  iliacus_r: {kind: muscle, files: [muscles/iliacus_r/*.obj]}
+  iliacus_l: {kind: muscle, files: [muscles/iliacus_l/*.obj]}
+  obturator_externus_r: {kind: muscle, files: [muscles/obturator_externus_r/*.obj]}
+  obturator_externus_l: {kind: muscle, files: [muscles/obturator_externus_l/*.obj]}
+  obturator_internus_r: {kind: muscle, files: [muscles/obturator_internus_r/*.obj]}
+  obturator_internus_l: {kind: muscle, files: [muscles/obturator_internus_l/*.obj]}
+  pectineus_r: {kind: muscle, files: [muscles/pectineus_r/*.obj]}
+  pectineus_l: {kind: muscle, files: [muscles/pectineus_l/*.obj]}
+  piriformis_r: {kind: muscle, files: [muscles/piriformis_r/*.obj]}
+  piriformis_l: {kind: muscle, files: [muscles/piriformis_l/*.obj]}
+  rectus_femoris_r: {kind: muscle, files: [muscles/rectus_femoris_r/*.obj]}
+  rectus_femoris_l: {kind: muscle, files: [muscles/rectus_femoris_l/*.obj]}
+  sartorius_r: {kind: muscle, files: [muscles/sartorius_r/*.obj]}
+  sartorius_l: {kind: muscle, files: [muscles/sartorius_l/*.obj]}
+  semimembranosus_r: {kind: muscle, files: [muscles/semimembranosus_r/*.obj]}
+  semimembranosus_l: {kind: muscle, files: [muscles/semimembranosus_l/*.obj]}
+  semitendinosus_r: {kind: muscle, files: [muscles/semitendinosus_r/*.obj]}
+  semitendinosus_l: {kind: muscle, files: [muscles/semitendinosus_l/*.obj]}
+  tensor_fasciae_latae_r: {kind: muscle, files: [muscles/tensor_fasciae_latae_r/*.obj]}
+  tensor_fasciae_latae_l: {kind: muscle, files: [muscles/tensor_fasciae_latae_l/*.obj]}
+  vastus_intermedius_r: {kind: muscle, files: [muscles/vastus_intermedius_r/*.obj]}
+  vastus_intermedius_l: {kind: muscle, files: [muscles/vastus_intermedius_l/*.obj]}
+  vastus_lateralis_r: {kind: muscle, files: [muscles/vastus_lateralis_r/*.obj]}
+  vastus_lateralis_l: {kind: muscle, files: [muscles/vastus_lateralis_l/*.obj]}
+  vastus_medialis_r: {kind: muscle, files: [muscles/vastus_medialis_r/*.obj]}
+  vastus_medialis_l: {kind: muscle, files: [muscles/vastus_medialis_l/*.obj]}
+
+attachments_glob:
+  Ori: muscles/{muscle}/*_Ori.vtk
+  Ins: muscles/{muscle}/*_Ins.vtk

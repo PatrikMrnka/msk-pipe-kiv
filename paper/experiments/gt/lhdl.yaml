@@ -1,0 +1,81 @@
+# Ground truth of LHDL Cadaver#1 for tools/gt_compare.py (paper_results E18).
+# Exported from the MAF scene with msf_extract.py --frame ras (RAS+ world frame of the CT
+# and of the MRI exported from the same scene = frame of the pipeline meshes).
+# Bones: segmented from the CT. Muscles: HiRes surfaces segmented from the MRI, registered
+# to the CT (0.88 mm). Attachments: dissection (= the attachment atlas, same donor).
+# File names checked against data/reference-GT/lhdl_msf/surfaces on 23. 10. 2026.
+# Missing GT: adductor_brevis_l (no M102 on the left in the scene).
+# Data are not in the repository (LHDL licence CC BY-NC-SA 2.0 BE).
+#
+#   pixi run -e dev-cpu python tools/gt_compare.py --gt paper/experiments/gt/lhdl.yaml --check `
+#     --image data/reference-GT/lhdl_msf/volumes/Cadaver1_LowerLimbsCT.nii.gz
+dataset: LHDL
+root: ../../../data/reference-GT        # relative to this file
+frame: ras
+subjects: ["LHDL*"]
+sample_points: 30000
+voxel_mm: 0.75
+
+structures:
+  # ------------------------------------------------------------------ bones (CT)
+  pelvis_no_sacrum: {kind: bone, files: [lhdl_msf/surfaces/S032_L_B000_CTA_Iliac.obj, lhdl_msf/surfaces/S032_R_B000_CTA_Iliac.obj]}
+  sacrum: {kind: bone, files: [lhdl_msf/surfaces/S032_C_B000_CTA_Sacrum.obj]}
+  femur_r: {kind: bone, files: [lhdl_msf/surfaces/S032_R_B000_CTA_Femur.obj]}
+  tibia_r: {kind: bone, files: [lhdl_msf/surfaces/S032_R_B000_CTA_Tibia.obj]}
+  fibula_r: {kind: bone, files: [lhdl_msf/surfaces/S032_R_B000_CTA_Fibula.obj]}
+  femur_l: {kind: bone, files: [lhdl_msf/surfaces/S032_L_B000_CTA_Femur.obj]}
+  tibia_l: {kind: bone, files: [lhdl_msf/surfaces/S032_L_B000_CTA_Tibia.obj]}
+  fibula_l: {kind: bone, files: [lhdl_msf/surfaces/S032_L_B000_CTA_Fibula.obj]}
+  # --------------------------------------------------------- muscles (MRI, HiRes)
+  gluteus_maximus_r: {kind: muscle, files: [lhdl_msf/surfaces/S032_R_M081_Gluteus-maximus-smooth.obj]}
+  gluteus_maximus_l: {kind: muscle, files: [lhdl_msf/surfaces/S032_L_M081_Gluteus-maximus-smooth.obj]}
+  gluteus_medius_r: {kind: muscle, files: [lhdl_msf/surfaces/S032_R_M082_Gluteus_Medius-smooth.obj]}
+  gluteus_medius_l: {kind: muscle, files: [lhdl_msf/surfaces/S032_L_M082_Gluteus_Medius-smooth.obj]}
+  gluteus_minimus_r: {kind: muscle, files: [lhdl_msf/surfaces/S032_R_M083_Gluteus_minimus-smooth.obj]}
+  gluteus_minimus_l: {kind: muscle, files: [lhdl_msf/surfaces/S032_L_M083_Gluteus_Minimus-smooth.obj]}
+  piriformis_r: {kind: muscle, files: [lhdl_msf/surfaces/S032_R_M084_Piriformis_smooth.obj]}
+  piriformis_l: {kind: muscle, files: [lhdl_msf/surfaces/S032_L_M084_Left-Piriformis-smooth.obj]}
+  obturator_externus_r: {kind: muscle, files: [lhdl_msf/surfaces/S032_R_M087_Obturator_Externus-smooth.obj]}
+  obturator_externus_l: {kind: muscle, files: [lhdl_msf/surfaces/S032_L_M087_Obturator_Externus-smooth.obj]}
+  obturator_internus_r: {kind: muscle, files: [lhdl_msf/surfaces/S032_R_M088_Obturator_Internus-smooth.obj]}
+  obturator_internus_l: {kind: muscle, files: [lhdl_msf/surfaces/S032_L_M088_Obturator_Internus-smooth.obj]}
+  iliacus_r: {kind: muscle, files: [lhdl_msf/surfaces/S032_R_M091_Iliacus-smooth.obj]}
+  iliacus_l: {kind: muscle, files: [lhdl_msf/surfaces/S032_L_M091_Iliacus-smooth.obj]}
+  rectus_femoris_r: {kind: muscle, files: [lhdl_msf/surfaces/S032_R_M094_Rectus_Femoris.obj],
+                    note: "R GT file is not smoothed (no -smooth variant in the scene)"}
+  rectus_femoris_l: {kind: muscle, files: [lhdl_msf/surfaces/S032_L_M094_Rectus_Femoris-smooth.obj]}
+  vastus_lateralis_r: {kind: muscle, files: [lhdl_msf/surfaces/S032_R_M095_Vastus_Lateralis-smooth.obj]}
+  vastus_lateralis_l: {kind: muscle, files: [lhdl_msf/surfaces/S032_L_M095_Vastus_Lateralis-smooth.obj]}
+  vastus_medialis_r: {kind: muscle, files: [lhdl_msf/surfaces/S032_R_M096_Vastus_Medialis-smooth.obj]}
+  vastus_medialis_l: {kind: muscle, files: [lhdl_msf/surfaces/S032_L_M096_Vastus_Medialis-smooth.obj]}
+  vastus_intermedius_r: {kind: muscle, files: [lhdl_msf/surfaces/S032_R_M097_Vastus-Intermedius-smooth.obj]}
+  vastus_intermedius_l: {kind: muscle, files: [lhdl_msf/surfaces/S032_L_M097_Vastus-Intermedius-smooth.obj]}
+  sartorius_r: {kind: muscle, files: [lhdl_msf/surfaces/S032_R_M098_Sartorius-smooth.obj]}
+  sartorius_l: {kind: muscle, files: [lhdl_msf/surfaces/S032_L_M098_Sartorius-smooth.obj]}
+  tensor_fasciae_latae_r: {kind: muscle, files: [lhdl_msf/surfaces/S032_R_M099_Tensor-fascia-latae-labels_smooth.obj]}
+  tensor_fasciae_latae_l: {kind: muscle, files: [lhdl_msf/surfaces/S032_L_M099_Tensor-fascia-latae-smooth.obj]}
+  adductor_magnus_r: {kind: muscle, files: [lhdl_msf/surfaces/S032_R_M100_Adductor_Magnus-smooth.obj]}
+  adductor_magnus_l: {kind: muscle, files: [lhdl_msf/surfaces/S032_L_M100_Adductor_Magnus-smooth.obj]}
+  adductor_longus_r: {kind: muscle, files: [lhdl_msf/surfaces/S032_R_M101_Adductor_Longus-smooth.obj]}
+  adductor_longus_l: {kind: muscle, files: [lhdl_msf/surfaces/S032_L_M101_Adductor_Longus-smooth.obj]}
+  adductor_brevis_r: {kind: muscle, files: [lhdl_msf/surfaces/S032_R_M102-Adductor_Brevis-smooth.obj]}
+  gracilis_r: {kind: muscle, files: [lhdl_msf/surfaces/S032_R_M103_Gracilis_smooth.obj]}
+  gracilis_l: {kind: muscle, files: [lhdl_msf/surfaces/S032_L_M103_Gracilis_smooth.obj]}
+  pectineus_r: {kind: muscle, files: [lhdl_msf/surfaces/S032_R_M104_Pectineus-smooth.obj]}
+  pectineus_l: {kind: muscle, files: [lhdl_msf/surfaces/S032_L_M104_Pectineus-smooth.obj]}
+  semimembranosus_r: {kind: muscle, files: [lhdl_msf/surfaces/S032_R_M105_Membranosus-smooth.obj]}
+  semimembranosus_l: {kind: muscle, files: [lhdl_msf/surfaces/S032_L_M105_Semi-membranosus-smooth_N.obj],
+                     note: "S032_L_M105_..._N used; S032_L_M109_Semi-membranosus is a duplicate (M109 = tibialis anterior)"}
+  semitendinosus_r: {kind: muscle, files: [lhdl_msf/surfaces/S032_R_M106_Tendinosus-smooth.obj]}
+  semitendinosus_l: {kind: muscle, files: [lhdl_msf/surfaces/S032_L_M106_Tendinosus_smooth.obj]}
+  biceps_femoris_r: {kind: muscle, files: [lhdl_msf/surfaces/S032_R_M107_108_Biceps_cruralis-smooth.obj],
+                    note: "GT = both heads, pipeline = long head (volume and gt2p not comparable)"}
+  biceps_femoris_l: {kind: muscle, files: [lhdl_msf/surfaces/S032_L_M107_108_Biceps_crural-smooth.obj],
+                    note: "GT = both heads, pipeline = long head (volume and gt2p not comparable)"}
+
+# Attachment outlines of the LHDL atlas (dissection). On LHDL they measure the
+# registration/projection error only (atlas = same donor). Not in the atlas: obturators
+# left, vastus intermedius.
+attachments_glob:
+  Ori: lhdl_atlas/muscles/{muscle}/*_Ori.vtk
+  Ins: lhdl_atlas/muscles/{muscle}/*_Ins.vtk

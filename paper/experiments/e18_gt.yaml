@@ -1,0 +1,58 @@
+# Pipeline vs ground truth on LHDL and TLEM 2.0, CT and MRI (paper_results E18).
+# One run per image x bone source x side x non-rigid attachment method. segmentation.bones
+# chooses all bones: totalsegmentator (tibia/fibula from appendicular_bones, licence key) or
+# musclemap (incl. sacrum). Segmentation is reused from the cache; no timings (see E13).
+# Data are not in the repository: paths point to the local data/ folder.
+#
+# Run from the repository root (atlas_dir is relative to the working dir, images to this file):
+#   pixi run -e gpu mskpipe batch paper/experiments/E18_gt.yaml --dry-run
+#   pixi run -e gpu mskpipe batch paper/experiments/E18_gt.yaml
+# Fast-RNRR: built locally; $env:MSKPIPE_FAST_RNRR or attachments.params.fast_rnrr_exe.
+# Comparison with GT (one GT map per dataset/modality; runs are matched by subject):
+#   tools/gt_compare.py --gt paper/experiments/gt/lhdl.yaml runs
+#   tools/gt_compare.py --gt paper/experiments/gt/lhdl_dissection.yaml runs
+#   tools/gt_compare.py --gt paper/experiments/gt/tlem2_ct.yaml runs
+#   tools/gt_compare.py --gt paper/experiments/gt/tlem2_mri.yaml runs
+#
+# Roles: LHDL = development set (defaults are chosen on it; the attachment atlas is LHDL,
+# so LHDL attachment numbers are the registration error only). TLEM 2.0 = independent test
+# set (other donor; right leg modelled, nothing tuned on it).
+version: 1
+experiment: E18
+defaults:
+  device: gpu
+  set:
+    - attachments.params.atlas_dir=data/reference-GT/lhdl_atlas
+jobs:
+  - name: lhdl_ct
+    image: ../../data/reference-GT/lhdl_msf/volumes/Cadaver1_LowerLimbsCT.nii.gz
+    modality: ct
+    subject: LHDL_CT
+    matrix:
+      segmentation.bones: [totalsegmentator, musclemap]
+      skeleton.side: [r, l]
+      attachments.params.nonrigid: [coherent_icp, cpd, fast_rnrr, none]
+  - name: lhdl_mri
+    image: ../../data/reference-GT/lhdl_msf/volumes/Cadaver1_WholeBodyMRI.nii.gz
+    modality: mri
+    subject: LHDL_MRI
+    matrix:
+      segmentation.bones: [totalsegmentator, musclemap]
+      skeleton.side: [r, l]
+      attachments.params.nonrigid: [coherent_icp, cpd, fast_rnrr, none]
+  - name: tlem2_ct
+    image: ../../data/reference-TLEM20/mskpipe/ct/ct.nii.gz
+    modality: ct
+    subject: TLEM2_CT
+    set: [skeleton.side=r]
+    matrix:
+      segmentation.bones: [totalsegmentator, musclemap]
+      attachments.params.nonrigid: [coherent_icp, cpd, fast_rnrr, none]
+  - name: tlem2_mri
+    image: ../../data/reference-TLEM20/mskpipe/mri/mri.nii.gz
+    modality: mri
+    subject: TLEM2_MRI
+    set: [skeleton.side=r]
+    matrix:
+      segmentation.bones: [totalsegmentator, musclemap]
+      attachments.params.nonrigid: [coherent_icp, cpd, fast_rnrr, none]
