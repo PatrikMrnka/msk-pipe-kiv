@@ -245,10 +245,24 @@ def to_vtk(m: Mesh):
     return pd
 
 
+def sequential_vtk() -> None:
+    """Run VTK's SMP loops on one thread.
+
+    ``vtkImplicitPolyDataDistance`` is not thread-safe, but ``FunctionValue`` on an array
+    runs through vtkSMPTools: with the STDThread backend (default of the Windows wheels) it
+    crashes the process without a message or returns wrong distances.
+    """
+    import vtk
+
+    if vtk.vtkSMPTools.GetBackend() != "Sequential":
+        vtk.vtkSMPTools.SetBackend("Sequential")
+
+
 def distance_to_surface(points: np.ndarray, m: Mesh) -> np.ndarray:
     import vtk
     from vtk.util import numpy_support as ns
 
+    sequential_vtk()
     impl = vtk.vtkImplicitPolyDataDistance()
     impl.SetInput(to_vtk(m))
     out = vtk.vtkDoubleArray()
@@ -669,6 +683,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--check", action="store_true", help="only list what the GT map resolves to")
     ap.add_argument("--image", type=Path, help="with --check: is the GT inside this volume?")
     args = ap.parse_args(argv)
+    sequential_vtk()
 
     gt = GtMap.load(args.gt)
     if args.check:
