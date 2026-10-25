@@ -34,12 +34,16 @@ Usage::
 A RUN can also be a folder with several runs (e.g. ``runs``); runs are found one level
 down. ``--stage mw2`` compares the repaired muscle meshes of ``06_mw2_input`` instead of
 ``03_mesh`` (rotated back from the OpenSim frame to RAS).
+
+The outputs are rewritten after every run, so an interrupted comparison keeps the runs
+already done; ``--resume`` continues from them (same ``--out``, ``--stage`` and ``--seed``).
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import faulthandler
 import fnmatch
 import json
 import math
@@ -259,15 +263,25 @@ def sequential_vtk() -> None:
 
 
 def distance_to_surface(points: np.ndarray, m: Mesh) -> np.ndarray:
+    """Unsigned distance of every point to the closest point of the triangle mesh ``m``.
+
+    ``vtkStaticCellLocator.FindClosestPoint`` (as in ``mskpipe.geometry.compare``), not
+    ``vtkImplicitPolyDataDistance``: the implicit function crashed the process without a
+    message on the LHDL GT (open and non-manifold meshes) on Windows, even on one thread.
+    """
     import vtk
-    from vtk.util import numpy_support as ns
 
     sequential_vtk()
-    impl = vtk.vtkImplicitPolyDataDistance()
-    impl.SetInput(to_vtk(m))
-    out = vtk.vtkDoubleArray()
-    impl.FunctionValue(ns.numpy_to_vtk(np.ascontiguousarray(points), deep=1), out)
-    return np.abs(ns.vtk_to_numpy(out))
+    locator = vtk.vtkStaticCellLocator()
+    locator.SetDataSet(to_vtk(m))
+    locator.BuildLocator()
+    closest = [0.0, 0.0, 0.0]
+    cell_id, sub_id, dist2 = vtk.reference(0), vtk.reference(0), vtk.reference(0.0)
+    out = np.empty(len(points))
+    for i, p in enumerate(np.asarray(points, dtype=np.float64)):
+        locator.FindClosestPoint(p, closest, cell_id, sub_id, dist2)
+        out[i] = dist2.get()
+    return np.sqrt(out)
 
 
 VOXEL_VOLUME_TOL = 0.03
@@ -682,7 +696,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--check", action="store_true", help="only list what the GT map resolves to")
     ap.add_argument("--image", type=Path, help="with --check: is the GT inside this volume?")
+    ap.add_argument(
+        "--resume", action="store_true", help="skip runs already in the JSON report in --out"
+    )
     args = ap.parse_args(argv)
+    faulthandler.enable()  # a native crash prints a traceback instead of ending silently
     sequential_vtk()
 
     gt = GtMap.load(args.gt)
@@ -698,38 +716,64 @@ def main(argv: list[str] | None = None) -> int:
     if not runs:
         log(f"no run matches subjects {gt.subjects} of {args.gt}")
         return 2
-    rows, area_rows = [], []
+    args.out.mkdir(parents=True, exist_ok=True)
+    tag = f"{gt.dataset}_{args.stage}"
+    report = args.out / f"gt_compare_{tag}.json"
+    rows: list[dict] = []
+    area_rows: list[dict] = []
+    done: list[str] = []
+    if args.resume and report.is_file():
+        old = json.loads(report.read_text(encoding="utf-8"))
+        if old.get("stage") == args.stage and old.get("seed") == args.seed:
+            done = [str(r) for r in old.get("runs", [])]
+            rows, area_rows = list(old.get("structures", [])), list(old.get("attachments", []))
+            log(f"resume: {len(done)} runs already compared in {report}")
+        else:
+            log(f"resume: {report} has another stage or seed, starting again")
+    done_names = {Path(r).name for r in done}
     for run in runs:
+        if run.name in done_names:
+            continue
         log(f"{run.name}")
         r, a = compare_run(run, gt, args.stage, args.seed)
         rows += r
         area_rows += a
-    args.out.mkdir(parents=True, exist_ok=True)
-    tag = f"{gt.dataset}_{args.stage}"
-    write_csv(args.out / f"structures_{tag}.csv", rows)
-    write_csv(args.out / f"attachments_{tag}.csv", area_rows)
-    write_csv(args.out / f"summary_{tag}.csv", summarize(rows, area_rows))
-    (args.out / f"gt_compare_{tag}.json").write_text(
-        json.dumps(
-            {
-                "gt_map": str(args.gt),
-                "dataset": gt.dataset,
-                "stage": args.stage,
-                "seed": args.seed,
-                "runs": [str(r) for r in runs],
-                "structures": rows,
-                "attachments": area_rows,
-            },
-            indent=1,
-            default=float,
-        ),
-        encoding="utf-8",
-    )
+        done.append(str(run))
+        write_outputs(args.out, tag, gt, args.stage, args.seed, done, rows, area_rows)
+    write_outputs(args.out, tag, gt, args.stage, args.seed, done, rows, area_rows)
     log(
-        f"{len(runs)} runs, {len(rows)} structure rows, {len(area_rows)} attachment rows "
+        f"{len(done)} runs, {len(rows)} structure rows, {len(area_rows)} attachment rows "
         f"-> {args.out}"
     )
     return 0
+
+
+def write_outputs(
+    out: Path,
+    tag: str,
+    gt: GtMap,
+    stage: str,
+    seed: int,
+    runs: list[str],
+    rows: list[dict],
+    area_rows: list[dict],
+) -> None:
+    """Write CSVs and the JSON report of the runs compared so far."""
+    write_csv(out / f"structures_{tag}.csv", rows)
+    write_csv(out / f"attachments_{tag}.csv", area_rows)
+    write_csv(out / f"summary_{tag}.csv", summarize(rows, area_rows))
+    report = {
+        "gt_map": str(gt.path),
+        "dataset": gt.dataset,
+        "stage": stage,
+        "seed": seed,
+        "runs": runs,
+        "structures": rows,
+        "attachments": area_rows,
+    }
+    tmp = out / f"gt_compare_{tag}.json.tmp"
+    tmp.write_text(json.dumps(report, indent=1, default=float), encoding="utf-8")
+    tmp.replace(out / f"gt_compare_{tag}.json")
 
 
 if __name__ == "__main__":
