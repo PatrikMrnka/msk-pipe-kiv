@@ -10,9 +10,10 @@ the ``Params`` schema of the selected attachment plugin.
 The form is the source of truth for a run: :meth:`ConfigForm.overrides` returns the
 values that differ from the defaults as ``key.path=value`` strings for ``mskpipe run``.
 
-Validation marks fields: red = invalid value (schema error), amber = valid but outside the
-recommended range or a setting that is probably not meant (:mod:`mskpipe.config.sanity`);
-the tooltip of every numeric field names its recommended range.
+Below every field a grey line shows its default, the values the schema accepts and the
+recommended range (``recommended`` in the schema). Validation marks fields: red = invalid
+value (schema error), amber = valid but outside the recommended range or a setting that is
+probably not meant (:mod:`mskpipe.config.sanity`).
 """
 
 from __future__ import annotations
@@ -69,6 +70,8 @@ _UNITS = {"mm": "mm", "s": "s", "deg": "°"}
 _INT_MIN, _INT_MAX = -(2**31) + 1, 2**31 - 1  # QSpinBox is 32-bit
 ERROR_STYLE = "border: 1px solid #c0392b;"
 WARNING_STYLE = "border: 1px solid #d68910; background-color: rgba(241, 196, 15, 0.18);"
+HINT_STYLE = "color: #7f8c8d; font-size: 11px;"
+HINT_WARNING_STYLE = "color: #ca6f1e; font-size: 11px;"
 _ERROR_LINE = re.compile(r"^\s+(\S+): (.+)$")
 
 
@@ -202,6 +205,7 @@ class Field:
         self.connect = connect
         self.editor = editor or widget  # widget to mark/focus
         self.label: QLabel | None = None
+        self.hint: QLabel | None = None  # default, allowed and recommended values
 
 
 def _bool_field(path: Path_, node: dict[str, Any]) -> Field:
@@ -437,12 +441,39 @@ class ConfigForm(QWidget):
             field.editor.setToolTip(tip)
             self._tips[child_path] = tip
             field.label = label
+            self._add_hint(field, child, resolved, kind)
             field.connect(lambda p=child_path: self._on_change(p))
             self._fields[child_path] = field
             form.addRow(label_with_badge(label, self._badge(child_path)), field.widget)
             self._rows[child_path] = form
             for key, shown_for in (child.get("show_if") or {}).items():
                 self._show_if[child_path] = ((*path, key), list(shown_for))
+
+    def _add_hint(
+        self, field: Field, node: Mapping[str, Any], resolved: Mapping[str, Any], kind: str
+    ) -> None:
+        """Grey line under the field: default, allowed values, recommended range."""
+        if field.path == EXCLUDE_PATH:  # the check-box list explains itself
+            return
+        default = node.get("default", flatten(self._defaults).get(field.path, _MISSING))
+        text = field_hint(node, resolved, kind, default)
+        if not text:
+            return
+        hint = QLabel(text)
+        hint.setStyleSheet(HINT_STYLE)
+        hint.setWordWrap(True)
+        box = QWidget()
+        column = QVBoxLayout(box)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(1)
+        column.addWidget(field.widget)
+        column.addWidget(hint)
+        field.widget, field.hint = box, hint
+
+    def hint_text(self, *path: str) -> str:
+        """The grey line under a field ('' if there is none)."""
+        hint = self._fields[tuple(path)].hint
+        return hint.text() if hint is not None else ""
 
     def _make_field(self, path: Path_, kind: str, node: dict[str, Any], nullable: bool) -> Field:
         if path == EXCLUDE_PATH:
@@ -669,6 +700,8 @@ class ConfigForm(QWidget):
         for path, field in self._fields.items():
             field.editor.setStyleSheet("")
             field.editor.setToolTip(self._tips.get(path, ""))
+            if field.hint is not None:
+                field.hint.setStyleSheet(HINT_STYLE)
         self.warnings = []
         self.warning_label.hide()
         try:
@@ -699,6 +732,8 @@ class ConfigForm(QWidget):
         for path, messages in notes.items():
             field = self._fields[path]
             field.editor.setStyleSheet(WARNING_STYLE)
+            if field.hint is not None:
+                field.hint.setStyleSheet(HINT_WARNING_STYLE)
             tip = self._tips.get(path, "")
             if tip and not tip.lstrip().startswith("<"):  # plain text -> rich text
                 tip = html.escape(tip).replace("\n", "<br>")
@@ -763,6 +798,73 @@ class ConfigForm(QWidget):
             font = QFont(field.label.font())
             font.setBold(path not in ref or field.get() != ref[path])
             field.label.setFont(font)
+
+
+_MISSING = object()
+
+
+def _number(value: Any) -> str:
+    if isinstance(value, int) and not isinstance(value, bool):
+        return f"{value:,}".replace(",", " ") if abs(value) >= 10000 else str(value)
+    return f"{value:g}"
+
+
+def _value_text(value: Any, empty: str = "") -> str:
+    if value is None:
+        return f"empty = {empty}" if empty else "empty"
+    if isinstance(value, bool):
+        return "on" if value else "off"
+    if isinstance(value, int | float):
+        return _number(value)
+    if isinstance(value, list):
+        return ", ".join(str(v) for v in value) if value else "none"
+    return str(value)
+
+
+def _range_text(node: Mapping[str, Any]) -> str:
+    """Allowed numbers of a schema node: '0 to 500', '> 0 and < 2', '≥ 1'."""
+    low = (
+        ("≥", node["minimum"])
+        if "minimum" in node
+        else (">", node["exclusiveMinimum"])
+        if "exclusiveMinimum" in node
+        else None
+    )
+    high = (
+        ("≤", node["maximum"])
+        if "maximum" in node
+        else ("<", node["exclusiveMaximum"])
+        if "exclusiveMaximum" in node
+        else None
+    )
+    if low and high and low[0] == "≥" and high[0] == "≤":
+        return f"{_number(low[1])} to {_number(high[1])}"
+    return " and ".join(f"{op} {_number(v)}" for op, v in (b for b in (low, high) if b))
+
+
+def field_hint(
+    node: Mapping[str, Any], resolved: Mapping[str, Any], kind: str, default: Any = _MISSING
+) -> str:
+    """'Default 40 · allowed 0 to 500 · recommended 10 to 100' for a schema property
+    (``node``: the property as in the schema, ``resolved``: its type without null)."""
+    parts = []
+    if default is not _MISSING and kind != "group":
+        parts.append(f"Default {_value_text(default, str(node.get('empty', '')))}")
+    allowed = node.get("allowed") or (_range_text(resolved) if kind in ("int", "float") else "")
+    if allowed:
+        parts.append(f"allowed {allowed}")
+    rec = node.get("recommended")
+    if node.get("recommended_text"):
+        parts.append(f"recommended {node['recommended_text']}")
+    elif rec:
+        low, high = rec
+        if low is None:
+            parts.append(f"recommended ≤ {_number(high)}")
+        elif high is None:
+            parts.append(f"recommended ≥ {_number(low)}")
+        else:
+            parts.append(f"recommended {_number(low)} to {_number(high)}")
+    return " · ".join(parts)
 
 
 def _recommended_tip(node: Mapping[str, Any], *, rich: bool) -> str:

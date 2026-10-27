@@ -33,7 +33,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel
 
-from mskpipe.config.schema import PipelineConfig, Segmenter
+from mskpipe.config.schema import ANATOMICAL_RANGES_DEG, PipelineConfig, Segmenter
 
 if TYPE_CHECKING:
     from mskpipe.core.registry import Registry
@@ -58,15 +58,6 @@ WORKER_MEMORY = 2 * GIB  # one TotalSegmentator saving worker (loads PyTorch)
 MAX_FRAMES = 1000  # Muscle Wrapping time grows with the frames of the motion
 IN_PLANE_MM = (0.3, 2.0)
 MAX_SLICE_MM = 3.0
-
-# Anatomical range of the swept coordinates [deg], OpenSim sign conventions (knee flexion
-# negative); key = coordinate name without the side suffix
-ANATOMICAL_RANGES_DEG: dict[str, tuple[float, float]] = {
-    "hip_flexion": (-30.0, 120.0),
-    "hip_adduction": (-50.0, 30.0),
-    "hip_rotation": (-45.0, 45.0),
-    "knee_angle": (-120.0, 10.0),
-}
 
 
 @dataclass(frozen=True)
@@ -96,7 +87,7 @@ class Recommended:
     def text(self) -> str:
         lo = "-inf" if self.low is None else f"{self.low:g}"
         hi = "inf" if self.high is None else f"{self.high:g}"
-        return f"{lo} - {hi}"
+        return f"{lo} to {hi}"
 
 
 # ---------------------------------------------------------------------------- ranges
@@ -315,7 +306,7 @@ def _motion(config: PipelineConfig) -> list[Issue]:
                 "warning",
                 "export",
                 f"export.motion.end_deg = {motion.end_deg:g} is outside the anatomical range "
-                f"of {coordinate} ({limits[0]:g} - {limits[1]:g} deg)",
+                f"of {coordinate} ({limits[0]:g} to {limits[1]:g} deg)",
                 "export.motion.end_deg",
             )
         )
@@ -439,7 +430,7 @@ def check_input(
                 "warning",
                 "input",
                 f"in-plane spacing {in_plane[0]:.3g} x {in_plane[1]:.3g} mm is outside "
-                f"{lo:g} - {hi:g} mm (segmentation models are trained on such images)",
+                f"{lo:g} to {hi:g} mm (segmentation models are trained on such images)",
             )
         )
     if slice_mm > MAX_SLICE_MM:

@@ -138,7 +138,7 @@ def _render(model: BaseModel, level: int, out: list[str]) -> None:
         extra = field.json_schema_extra
         if isinstance(extra, dict) and "recommended" in extra:
             low, high = extra["recommended"]  # type: ignore[misc]
-            doc = f"{doc} Recommended: {_bound(low, '-inf')} - {_bound(high, 'inf')}.".strip()
+            doc = f"{doc} Recommended: {_bound(low, '-inf')} to {_bound(high, 'inf')}.".strip()
         if doc:
             out.append(f"{pad}# {doc}")
         if isinstance(child, BaseModel):

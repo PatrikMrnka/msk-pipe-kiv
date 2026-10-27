@@ -180,7 +180,7 @@ def test_removed_atlas_name_still_loads(tmp_path):
 
 def test_template_names_recommended_ranges():
     text = render_template()
-    assert "Recommended: 50 - 95." in text  # musclemap.overlap
+    assert "Recommended: 50 to 95." in text  # musclemap.overlap
 
 
 # ---------------------------------------------------------------------------- warnings

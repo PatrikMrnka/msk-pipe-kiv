@@ -62,6 +62,7 @@ class AtlasRegistrationParams(PluginParams):
         None,
         description=f"Atlas folder (atlas.json, bones/, muscles/); default ${ATLAS_ENV}, "
         "else the atlas installed by `mskpipe setup atlas`.",
+        json_schema_extra={"empty": "the bundled or installed atlas"},
     )
     n_points: int = Field(
         3000,
@@ -110,6 +111,7 @@ class AtlasRegistrationParams(PluginParams):
         json_schema_extra={
             **_ONLY_COHERENT_ICP_CPD,
             **recommended(500, 3000, "coarse field below 500 points, slow above 3000"),
+            "allowed": "100 to 5000, at most N points",
         },
     )
     coherent_beta_mm: float = Field(
@@ -188,7 +190,11 @@ class AtlasRegistrationParams(PluginParams):
         gt=0.0,
         le=100.0,
         description="cpd: initial GMM width [mm]; None = standard CPD start (all pairs).",
-        json_schema_extra={**_ONLY_CPD, **recommended(1, 20, "E07: 5 mm")},
+        json_schema_extra={
+            **_ONLY_CPD,
+            **recommended(1, 20, "E07: 5 mm"),
+            "empty": "standard CPD start",
+        },
     )
     fast_rnrr_exe: str | None = Field(
         None,
@@ -196,7 +202,7 @@ class AtlasRegistrationParams(PluginParams):
             "fast_rnrr: executable (not distributed); default $MSKPIPE_FAST_RNRR, the build "
             "of 'mskpipe setup fast-rnrr' or PATH."
         ),
-        json_schema_extra=_ONLY_FAST_RNRR,
+        json_schema_extra={**_ONLY_FAST_RNRR, "empty": "the local build or PATH"},
     )
     fast_rnrr_max_faces: int = Field(
         20000,

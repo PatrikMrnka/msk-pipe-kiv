@@ -18,7 +18,7 @@ pytest.importorskip("PySide6.QtWidgets")
 import yaml
 from fake_pipeline import write_nifti
 from PySide6.QtCore import QEventLoop, QSettings
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QDoubleSpinBox, QMessageBox, QSpinBox
 
 from mskpipe import api
 from mskpipe.config import load_config
@@ -151,6 +151,34 @@ def test_form_marks_values_outside_recommended_range(qapp):
     passband.set(0.01)
     trim.set(0.9)
     assert form.validate() is None and form.warnings == [] and passband.editor.styleSheet() == ""
+
+
+def test_form_shows_default_allowed_and_recommended_values(qapp):
+    form = ConfigForm()
+    assert form.hint_text("mesh", "bones", "smooth_iterations") == (
+        "Default 40 · allowed 0 to 500 · recommended 10 to 100"
+    )
+    assert form.hint_text("mesh", "muscles", "passband").startswith(
+        "Default 0.01 · allowed > 0 and < 2"
+    )
+    assert form.hint_text("runtime", "threads") == "Default empty = all cores · allowed 1 to 1024"
+    assert "allowed 1 to 16 or auto" in form.hint_text(
+        "segmentation", "totalsegmentator", "nr_thr_saving"
+    )
+    assert form.hint_text("segmentation", "totalsegmentator", "fast") == "Default off"
+    assert "knee angle -120 to 10" in form.hint_text("export", "motion", "end_deg")
+    # plugin parameters: from the selected plugin's schema
+    assert form.hint_text("attachments", "params", "trim") == (
+        "Default 0.9 · allowed > 0.5 and ≤ 1 · recommended 0.8 to 1"
+    )
+    assert "at most N points" in form.hint_text("attachments", "params", "nonrigid_points")
+    # every number in the form says what it accepts
+    numbers = [f for f in form._fields.values() if isinstance(f.editor, QSpinBox | QDoubleSpinBox)]
+    assert numbers and all("allowed" in (f.hint.text() if f.hint else "") for f in numbers)
+    # the hint turns amber with the field
+    form.field("mesh", "muscles", "passband").set(0.8)
+    form.validate()
+    assert "ca6f1e" in form._fields[("mesh", "muscles", "passband")].hint.styleSheet()
 
 
 class _OtherParams(PluginParams):

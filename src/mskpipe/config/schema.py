@@ -49,6 +49,16 @@ WINDOWS_RESERVED = frozenset(
 )
 
 
+# Anatomical range of the swept coordinates [deg], OpenSim sign conventions (knee flexion
+# negative); key = coordinate name without the side suffix (warnings: mskpipe.config.sanity)
+ANATOMICAL_RANGES_DEG: dict[str, tuple[float, float]] = {
+    "hip_flexion": (-30.0, 120.0),
+    "hip_adduction": (-50.0, 30.0),
+    "hip_rotation": (-45.0, 45.0),
+    "knee_angle": (-120.0, 10.0),
+}
+
+
 def recommended(low: float | None, high: float | None, why: str = "") -> dict[str, Any]:
     """``json_schema_extra`` of a numeric field: values outside ``[low, high]`` are valid
     but reported as warnings (``None`` = no bound on that side). ``why`` is shown with
@@ -192,6 +202,7 @@ class RuntimeConfig(StrictModel):
         ge=1,
         le=1024,
         description="Max CPU threads; null = all cores (more than the cores = warning).",
+        json_schema_extra={"empty": "all cores"},
     )
     seed: int = Field(0, ge=0, le=SEED_MAX, description="Random seed for stochastic steps.")
     runs_dir: Path = Field(Path("runs"), description="Directory in which run folders are created.")
@@ -249,7 +260,10 @@ class TotalSegmentatorConfig(StrictModel):
         "auto",
         description="Worker processes exporting the segmentation (--nr_thr_saving); each loads "
         "PyTorch. 'auto' = from RAM + page file (1-6), fewer on small machines.",
-        json_schema_extra=recommended(1, 6, "each worker loads PyTorch (1-2 GB of memory)"),
+        json_schema_extra={
+            "allowed": "1 to 16 or auto",
+            **recommended(1, 6, "each worker loads PyTorch (1-2 GB of memory)"),
+        },
     )
     extra_args: list[str] = Field(
         default_factory=list,
@@ -274,6 +288,7 @@ class MuscleMapConfig(StrictModel):
         None,
         pattern=r"^\d+(\.\d+)*$",
         description="Whole-body model version (e.g. '1.4'); null = version pinned by msk-pipe.",
+        json_schema_extra={"empty": "the version pinned by msk-pipe"},
     )
     overlap: float = Field(
         90.0,
@@ -289,6 +304,7 @@ class MuscleMapConfig(StrictModel):
         "auto",
         description="Axial slices per inference chunk, or 'auto' (from free CPU/GPU memory); "
         "MuscleMap segments 2D slices, any positive value works (memory vs speed).",
+        json_schema_extra={"allowed": "1 or more, or auto"},
     )
     extra_args: list[str] = Field(
         default_factory=list,
@@ -688,6 +704,7 @@ class MotionConfig(StrictModel):
         pattern=_IDENT,
         description="Coordinate swept by the motion and driving the muscle paths; "
         "null = hip_flexion_<side>.",
+        json_schema_extra={"empty": "hip_flexion_<side>"},
     )
     end_deg: float = Field(
         90.0,
@@ -695,6 +712,12 @@ class MotionConfig(StrictModel):
         le=180,
         description="Last value of the swept coordinate [deg] (the anatomical range of the "
         "coordinate is checked before the run, the range in the model by step export_mw2).",
+        json_schema_extra={
+            "recommended_text": ", ".join(
+                f"{name.replace('_', ' ')} {lo:g} to {hi:g}"
+                for name, (lo, hi) in ANATOMICAL_RANGES_DEG.items()
+            )
+        },
     )
     step_deg: float = Field(
         2.0,
