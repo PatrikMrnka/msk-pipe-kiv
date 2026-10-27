@@ -15,7 +15,8 @@ point-to-point, then point-to-plane), then one non-rigid stage (``nonrigid``):
 
 * ``coherent_icp`` - non-rigid ICP with a Gaussian motion-coherence field, hard
   point-to-plane correspondences (default; :func:`~mskpipe.geometry.register.fit_coherent_icp`),
-* ``cpd`` - Coherent Point Drift (Myronenko & Song 2010), soft GMM correspondences,
+* ``cpd`` - Coherent Point Drift (Myronenko & Song 2010), soft GMM correspondences; for
+  comparison only (points drift along the bone, least accurate in the validation),
 * ``fast_rnrr`` - Fast-RNRR (Yao et al. 2020), external executable built on the user's
   computer (``mskpipe setup fast-rnrr``, research use only) or supplied by the user,
 * ``none`` - similarity only.
@@ -80,7 +81,8 @@ class AtlasRegistrationParams(PluginParams):
         0.9, gt=0.5, le=1.0, description="Fraction of closest pairs kept (bones of other extent)."
     )
     nonrigid: Literal["coherent_icp", "cpd", "fast_rnrr", "none"] = Field(
-        "coherent_icp", description="Non-rigid stage after the similarity ICP."
+        "coherent_icp",
+        description="Non-rigid stage after the similarity ICP (cpd: for comparison only).",
     )
     nonrigid_points: int = Field(
         1500,
