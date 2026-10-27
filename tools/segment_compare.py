@@ -8,7 +8,7 @@ With ``--reference``: Dice, volume ratio, centroid shift, ASSD and HD95 per mask
 MuscleMap muscles under unified names).
 
     pixi run -e dev-cpu python tools/segment_compare.py runs/<run> `
-        --reference C:/msk-pipe-kiv-zcu/reference/labelmap/raw --json segment_vs_bp.json
+        --reference <reference>/labelmap/raw --json segment_vs_bp.json
 
 Exit code 0 = sanity checks passed and every reference mask has Dice >= --min-dice.
 """

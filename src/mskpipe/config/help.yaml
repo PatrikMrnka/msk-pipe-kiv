@@ -78,7 +78,7 @@ segmentation.bones:
   help: >-
     Tool segmenting all bones: pelvis, sacrum, femur, tibia and fibula. TotalSegmentator is
     trained on many CT and MRI scans and gives smooth bone masks; its tibia and fibula come
-    from the appendicular_bones task (as in the BP thesis), which needs a free academic
+    from the appendicular_bones task, which needs a free academic
     licence key. MuscleMap segments bones only as a by-product but needs no key.
   example: musclemap when no TotalSegmentator licence key is set, or to compare the bones.
 segmentation.muscles:
@@ -96,8 +96,8 @@ segmentation.totalsegmentator.fast:
 segmentation.totalsegmentator.higher_order_resampling:
   help: >-
     Resample the network output to the input grid smoothly instead of voxel by voxel, which
-    removes the staircase on the bone surfaces. Off = behaviour of the BP thesis.
-  example: On (default); off only for the comparison with the BP thesis.
+    removes the staircase on the bone surfaces.
+  example: On (default); off gives stair-stepped bone surfaces.
 segmentation.totalsegmentator.roi_subset:
   help: >-
     Predict only the structures the pipeline needs instead of all 117. Faster and lighter on
@@ -127,13 +127,13 @@ segmentation.musclemap.overlap:
   help: >-
     Overlap of the sliding windows in percent. Higher = more predictions averaged per voxel,
     slower; lower = faster, possibly rougher masks.
-  example: 50 is faster than 90 (default, as in the BP thesis).
+  example: 50 is faster than 90 (default).
 segmentation.musclemap.chunk_size:
   help: >-
     Number of axial slices processed at once. auto chooses it from the free CPU or GPU
     memory; a fixed number avoids running out of memory on large scans. MuscleMap segments
     2D slices, so any positive number works (smaller = less memory, slower).
-  example: 15 (value used in the BP thesis) when auto runs out of memory.
+  example: 15 when auto runs out of memory.
 segmentation.musclemap.extra_args:
   help: >-
     Additional command-line arguments passed to mm_segment unchanged (advanced). msk-pipe
@@ -156,13 +156,13 @@ labelmap.bones.min_volume_ml: &min_volume
     A structure smaller than this volume after cleaning is treated as missing (a few stray
     voxels are not meshed). In ml, so it does not depend on the voxel size; the smallest
     structures (fibula about 40 ml, obturators 15-20 ml) must stay above it.
-  example: 2 ml (bones) and 1 ml (muscles) = 2000 and 1000 voxels at 1 mm spacing (BP).
+  example: 2 ml (bones) and 1 ml (muscles) = 2000 and 1000 voxels at 1 mm spacing.
 labelmap.muscles.min_volume_ml: *min_volume
 labelmap.bones.closing_radius_mm: &closing
   help: >-
     Morphological closing in mm: fills gaps and notches narrower than about twice the radius
     (grows only into background, never into another structure). 0 = off.
-  example: 1.5 mm = a ball of radius 1 voxel on a 1 mm CT (as in the BP thesis).
+  example: 1.5 mm = a ball of radius 1 voxel on a 1 mm CT.
 labelmap.muscles.closing_radius_mm: *closing
 labelmap.bones.opening_radius_mm: &opening
   help: >-
@@ -230,7 +230,7 @@ mesh.bones.smooth_iterations: &iterations
   help: >-
     Iterations of windowed sinc smoothing that removes the voxel staircase. More = smoother
     surface; the volume is preserved. 0 = off.
-  example: 40 for bones and 30 for muscles (as in the BP thesis).
+  example: 40 for bones and 30 for muscles (defaults).
 mesh.muscles.smooth_iterations: *iterations
 mesh.bones.passband: &passband
   help: >-
@@ -285,7 +285,9 @@ mesh.on_invalid:
 skeleton:
   help: >-
     OpenSim skeletal model (04_skeleton/) built by pystaple, a Python port of STAPLE, from
-    the bone meshes: anatomical coordinate systems, hip and knee joints.
+    the bone meshes: anatomical coordinate systems, hip and knee joints. The tibia body is
+    the tibia and fibula together (STAPLE convention), so that muscles attached to the
+    fibula move with the shank.
 skeleton.backend:
   help: Program that builds the skeletal model.
   example: pystaple (the only backend; same results as MATLAB STAPLE).
@@ -306,11 +308,6 @@ skeleton.tibia_algorithm:
 skeleton.joint_definitions:
   help: Set of joint definitions of the model.
   example: auto2020 (hip with 3 rotations, knee with 1).
-skeleton.include_fibula:
-  help: >-
-    The tibia body of the model uses the tibia and fibula together (STAPLE and BP
-    convention), so that muscles attached to the fibula move with the shank.
-  example: On (default); biceps femoris inserts on the fibular head.
 skeleton.body_mass:
   help: >-
     Subject mass in kg; sets segment masses and inertias (gait2392 ratios). Muscle Wrapping
@@ -343,7 +340,7 @@ plugins.attachments.atlas_registration.atlas_dir:
     Folder of the attachment atlas (atlas.json, bones/, muscles/). Empty = the
     MSKPIPE_ATLAS_DIR environment variable (set by the Windows release to the bundled
     atlas), else the atlas installed with `mskpipe setup atlas`.
-  example: C:\msk-pipe-kiv-zcu\msk-PIPE\data\reference-GT\lhdl_atlas
+  example: D:\atlases\lhdl (a folder with atlas.json, bones\ and muscles\).
 plugins.attachments.atlas_registration.n_points:
   help: Points sampled on each atlas bone for the rigid registration.
   example: 3000 (default); more = slower, rarely better.
@@ -400,7 +397,7 @@ plugins.attachments.atlas_registration.cpd_lambda:
   example: "2"
 plugins.attachments.atlas_registration.cpd_w:
   help: cpd weight of outliers (0 = none). Raise it when the bones cover different extents.
-  example: 0.1 (default); 0 = as in the BP thesis.
+  example: 0.1 (default); 0 = no outliers expected.
 plugins.attachments.atlas_registration.cpd_iterations:
   help: Maximum cpd iterations.
   example: "150"

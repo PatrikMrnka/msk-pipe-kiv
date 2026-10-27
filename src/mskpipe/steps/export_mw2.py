@@ -299,11 +299,7 @@ class ExportMw2Step(Step):
             parts = [stem]
             if stem == "pelvis_no_sacrum" and cfg.pelvis_with_sacrum and "sacrum" in bones:
                 parts.append("sacrum")
-            if (
-                stem == f"tibia_{side}"
-                and ctx.config.skeleton.include_fibula
-                and f"fibula_{side}" in bones
-            ):
+            if stem == f"tibia_{side}" and f"fibula_{side}" in bones:
                 parts.append(f"fibula_{side}")
             if all(p in bones for p in parts):
                 meshes = [read_mesh(bones[p]) for p in parts]

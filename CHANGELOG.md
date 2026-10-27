@@ -18,7 +18,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 - `mskpipe config check [--config] [--set] [--image --modality]` prints these checks; the pre-run checks of `mskpipe run`, `mskpipe batch --dry-run` and the GUI include them. GUI: values outside the recommended range are marked amber with the reason in the tooltip and listed below the form; every numeric tooltip names its recommended range; `mskpipe config init` writes the ranges into the comments.
 - Step `export_mw2` warns when the motion leaves the coordinate range of the model or has more than 1000 frames; `mskpipe batch` warns about `repeat` above 10.
 - Unknown config keys and muscle names suggest the closest valid one ("did you mean ...?").
-- GUI: a grey line under every setting shows its default, the allowed values and the recommended range (e.g. `Default 40 · allowed 0 to 500 · recommended 10 to 100`; what an empty value means, e.g. `empty = all cores`); it turns amber with the field when the value is outside the recommended range.
+- GUI: the '?' of every setting shows, below the explanation, its default, the allowed values and the recommended range (e.g. `Default 40`, `Allowed 0 to 500`, `Recommended 10 to 100`; what an empty value means, e.g. `empty = all cores`).
 
 ### Changed
 - `segmentation.bones` chooses the source of all bones: `totalsegmentator` (pelvis, sacrum, femur; tibia and fibula from `appendicular_bones`, licence key) or `musclemap` (all bones incl. sacrum, MuscleMap label 6160; no key, TotalSegmentator is not run when the muscles come from MuscleMap too). `segmentation.tibia_fibula` was removed: a value agreeing with `bones` is ignored (0.1.0 configs stay valid), mixed sources are an error. *Use MuscleMap instead* in the setup window sets `segmentation.bones = musclemap`.
@@ -29,6 +29,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 - New `mesh.on_invalid` (`fail` default, `warn`): a bone that is still invalid after the repair stops the run after step `mesh` instead of failing later in pystaple.
 - `attachments.params.nonrigid = cpd` is documented as for comparison only (help, GUI): its areas drift along the bone and were the least accurate on LHDL and with the atlas of the other side; `coherent_icp` stays the default.
 - `labelmap.{bones,muscles}.min_voxels` became `min_volume_ml` (default 2 ml bones, 1 ml muscles), independent of the voxel size; old configs are converted with 1 voxel = 1 mm³ (the BP grid).
+- `skeleton.include_fibula` was removed: the tibia body of the model is always tibia + fibula (STAPLE convention). `true` in older configs is ignored, `false` is an error.
+- Explanations and examples of the settings (GUI '?', `mskpipe config init`) no longer refer to the bachelor thesis or to local paths.
 - `attachments.atlas` was removed (it was never read; the atlas is `attachments.params.atlas_dir` or the installed one); old configs still load.
 - `export.muscles` and `export.exclude` accept only muscles of the unified label scheme (a typo was silently ignored).
 - `segmentation.{totalsegmentator,musclemap}.extra_args` reject options msk-pipe sets itself (input, output, task, device, fast, ROI subset, resampling, saving workers, licence; for MuscleMap all its current options); `-ns` in `extra_args` no longer overrides `nr_thr_saving`.

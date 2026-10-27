@@ -20,11 +20,18 @@ BADGE_STYLE = (
 )
 
 
-def help_html(info: Help, key: str | None = None) -> str:
-    """Rich-text explanation (wrapped by Qt) with the example and the config key."""
-    parts = [f"<p>{html.escape(info.text)}</p>"]
-    if info.example:
-        parts.append(f"<p><i>Example:</i> {html.escape(info.example)}</p>")
+def help_html(info: Help | None, key: str | None = None, values: str = "") -> str:
+    """Rich-text explanation (wrapped by Qt) with the example, the default, allowed and
+    recommended values (``values``: 'Default 40 · allowed 0 to 500 · ...') and the config
+    key."""
+    parts = []
+    if info is not None:
+        parts.append(f"<p>{html.escape(info.text)}</p>")
+        if info.example:
+            parts.append(f"<p><i>Example:</i> {html.escape(info.example)}</p>")
+    if values:
+        lines = [html.escape(v[:1].upper() + v[1:]) for v in values.split(" · ")]
+        parts.append("<p>" + "<br>".join(lines) + "</p>")
     if key:
         parts.append(f'<p style="color:#7f8c8d">{html.escape(key)}</p>')
     return "".join(parts)

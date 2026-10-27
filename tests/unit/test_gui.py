@@ -18,7 +18,7 @@ pytest.importorskip("PySide6.QtWidgets")
 import yaml
 from fake_pipeline import write_nifti
 from PySide6.QtCore import QEventLoop, QSettings
-from PySide6.QtWidgets import QApplication, QDoubleSpinBox, QMessageBox, QSpinBox
+from PySide6.QtWidgets import QApplication, QDoubleSpinBox, QLabel, QMessageBox, QSpinBox
 
 from mskpipe import api
 from mskpipe.config import load_config
@@ -153,7 +153,7 @@ def test_form_marks_values_outside_recommended_range(qapp):
     assert form.validate() is None and form.warnings == [] and passband.editor.styleSheet() == ""
 
 
-def test_form_shows_default_allowed_and_recommended_values(qapp):
+def test_help_shows_default_allowed_and_recommended_values(qapp):
     form = ConfigForm()
     assert form.hint_text("mesh", "bones", "smooth_iterations") == (
         "Default 40 · allowed 0 to 500 · recommended 10 to 100"
@@ -174,11 +174,13 @@ def test_form_shows_default_allowed_and_recommended_values(qapp):
     assert "at most N points" in form.hint_text("attachments", "params", "nonrigid_points")
     # every number in the form says what it accepts
     numbers = [f for f in form._fields.values() if isinstance(f.editor, QSpinBox | QDoubleSpinBox)]
-    assert numbers and all("allowed" in (f.hint.text() if f.hint else "") for f in numbers)
-    # the hint turns amber with the field
-    form.field("mesh", "muscles", "passband").set(0.8)
-    form.validate()
-    assert "ca6f1e" in form._fields[("mesh", "muscles", "passband")].hint.styleSheet()
+    assert numbers and all("allowed" in f.hint for f in numbers)
+    # shown by the '?' of the field (one line each), not under the field
+    tip = form.help_text("mesh", "bones", "smooth_iterations")
+    assert "Default 40<br>Allowed 0 to 500<br>Recommended 10 to 100" in tip
+    assert "Allowed &gt; 0.5 and ≤ 1" in form.help_text("attachments", "params", "trim")
+    shown = [w.text() for w in form.findChildren(QLabel)]
+    assert not any("Default 40" in s for s in shown)  # nothing under the fields
 
 
 class _OtherParams(PluginParams):
@@ -497,8 +499,6 @@ def test_gui_does_not_change_registry_default():
 
 
 def test_form_explanations_behind_badges(qapp):
-    from PySide6.QtWidgets import QLabel
-
     from mskpipe.gui.help_badge import HelpBadge
 
     form = ConfigForm()
@@ -508,7 +508,7 @@ def test_form_explanations_behind_badges(qapp):
     badge = form._badges[("mesh", "bones", "smooth_iterations")]
     assert isinstance(badge, HelpBadge) and badge.text() == "?"
     tip = form.field("mesh", "bones", "smooth_iterations").editor.toolTip()
-    assert tip.startswith(text) and "Recommended: 10 - 100" in tip  # explanation + range
+    assert "staircase" in tip and "Recommended: 10 - 100" in tip  # explanation + range
     # no explanation text in the form itself, only behind the badges
     shown = [w.text() for w in form.findChildren(QLabel) if not isinstance(w, HelpBadge)]
     assert not any("staircase" in s for s in shown)

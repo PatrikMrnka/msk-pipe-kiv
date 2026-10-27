@@ -11,7 +11,7 @@ ground_pelvis), so any rigid difference between their frames cancels out.
 
     pixi run -e dev-cpu python tools/skeleton_compare.py `
         runs/<run>/04_skeleton/bone_model.osim `
-        C:/msk-pipe-kiv-zcu/reference/skeleton/bone_model.osim `
+        <reference>/skeleton/bone_model.osim `
         --json skeleton_vs_bp.json
 
 Exit code 0 = compared (no pass/fail: the numbers are the result).

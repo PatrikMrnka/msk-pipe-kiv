@@ -196,10 +196,12 @@ def test_tibia_body_includes_fibula(tmp_path, spec, registry):
     index = read_skeleton_index(out)
     assert index["body_geometry_sources"]["tibia_r"] == ["tibia_r", "fibula_r"]
 
-    result = run_pipeline(
-        [MeshWithFibula(), SkeletonStep(registry)],
-        spec,
-        config(tmp_path, "skeleton.include_fibula=false"),
-    )
-    mesh_dir = result.ws.step_dir("mesh")
-    assert FakeStaple.received["tibia_r"] == mesh_dir / "bones" / "tibia_r.stl"
+
+def test_include_fibula_removed(tmp_path):
+    """0.1.0 configs with include_fibula=true still load; false is an error."""
+    from mskpipe.config import ConfigError
+
+    cfg = config(tmp_path, "skeleton.include_fibula=true")
+    assert "include_fibula" not in cfg.skeleton.model_dump()
+    with pytest.raises(ConfigError, match="include_fibula was removed"):
+        config(tmp_path, "skeleton.include_fibula=false")

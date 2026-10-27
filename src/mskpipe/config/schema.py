@@ -250,7 +250,7 @@ class TotalSegmentatorConfig(StrictModel):
     higher_order_resampling: bool = Field(
         True,
         description="Higher-order upsampling of the segmentation to the input grid "
-        "(--higher_order_resampling): smooth instead of staircase masks; false = BP behaviour.",
+        "(--higher_order_resampling): smooth instead of staircase masks.",
     )
     roi_subset: bool = Field(
         True,
@@ -294,8 +294,7 @@ class MuscleMapConfig(StrictModel):
         90.0,
         ge=0,
         le=99,
-        description="Sliding-window overlap in percent; higher = slower, possibly more "
-        "accurate (BP: 90).",
+        description="Sliding-window overlap in percent; higher = slower, possibly more accurate.",
         json_schema_extra=recommended(
             50, 95, "below 50 window edges show, above 95 inference is very slow"
         ),
@@ -336,7 +335,7 @@ class SegmentationConfig(StrictModel):
     bones: Segmenter = Field(
         Segmenter.TOTALSEGMENTATOR,
         description="Source of all bones (pelvis, sacrum, femur, tibia, fibula): "
-        "'totalsegmentator' (tibia/fibula from its appendicular_bones task, as BP; needs a "
+        "'totalsegmentator' (tibia/fibula from its appendicular_bones task; needs a "
         "free academic licence key) or 'musclemap' (no key).",
     )
     muscles: Segmenter = Field(
@@ -510,7 +509,7 @@ class LabelmapConfig(StrictModel):
 # Meshes are written in world coordinates (NIfTI RAS+, mm); see mskpipe.geometry.surface.
 
 
-_SMOOTHING = recommended(10, 100, "BP: 30 (muscles), 40 (bones); more flattens details")
+_SMOOTHING = recommended(10, 100, "more flattens details")
 
 
 class MeshParams(StrictModel):
@@ -622,10 +621,6 @@ class SkeletonConfig(StrictModel):
     joint_definitions: Literal["auto2020"] = Field(
         "auto2020", description="Joint definition scheme."
     )
-    include_fibula: bool = Field(
-        True,
-        description="STAPLE convention: the tibia body geometry is tibia + fibula (as in BP).",
-    )
     body_mass: float = Field(
         64.0,
         ge=10,
@@ -648,6 +643,21 @@ class SkeletonConfig(StrictModel):
         pattern=r"^[A-Za-z][A-Za-z0-9_]{0,63}$",
         description="File name of the model (<model_name>.osim).",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _removed_include_fibula(cls, data: Any) -> Any:
+        """``include_fibula`` (0.1.0) was removed: the tibia body geometry is always tibia +
+        fibula (STAPLE convention). ``true`` is dropped (configs of 0.1.0 runs stay valid)."""
+        if not isinstance(data, dict) or "include_fibula" not in data:
+            return data
+        data = dict(data)
+        if data.pop("include_fibula") not in (True, "true", "True"):
+            raise ValueError(
+                "include_fibula was removed: the tibia body of the model is always tibia + "
+                "fibula (muscles attached to the fibula move with the shank)"
+            )
+        return data
 
     @field_validator("model_name")
     @classmethod
@@ -760,7 +770,7 @@ class ExportConfig(StrictModel):
         ge=1,
         le=200,
         description="Segments per fibre (points - 1).",
-        json_schema_extra=recommended(5, 50, "BP: 15"),
+        json_schema_extra=recommended(5, 50, "fewer slices = less memory, slower"),
     )
     decomposition_method: Literal["kukacka", "hoang"] = Field(
         "kukacka", description="Muscle decomposition method of Muscle Wrapping 2.x."

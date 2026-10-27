@@ -10,8 +10,8 @@ the ``Params`` schema of the selected attachment plugin.
 The form is the source of truth for a run: :meth:`ConfigForm.overrides` returns the
 values that differ from the defaults as ``key.path=value`` strings for ``mskpipe run``.
 
-Below every field a grey line shows its default, the values the schema accepts and the
-recommended range (``recommended`` in the schema). Validation marks fields: red = invalid
+The '?' of every field explains it and shows its default, the values the schema accepts and
+the recommended range (``recommended`` in the schema). Validation marks fields: red = invalid
 value (schema error), amber = valid but outside the recommended range or a setting that is
 probably not meant (:mod:`mskpipe.config.sanity`).
 """
@@ -70,8 +70,6 @@ _UNITS = {"mm": "mm", "s": "s", "deg": "°"}
 _INT_MIN, _INT_MAX = -(2**31) + 1, 2**31 - 1  # QSpinBox is 32-bit
 ERROR_STYLE = "border: 1px solid #c0392b;"
 WARNING_STYLE = "border: 1px solid #d68910; background-color: rgba(241, 196, 15, 0.18);"
-HINT_STYLE = "color: #7f8c8d; font-size: 11px;"
-HINT_WARNING_STYLE = "color: #ca6f1e; font-size: 11px;"
 _ERROR_LINE = re.compile(r"^\s+(\S+): (.+)$")
 
 
@@ -205,7 +203,7 @@ class Field:
         self.connect = connect
         self.editor = editor or widget  # widget to mark/focus
         self.label: QLabel | None = None
-        self.hint: QLabel | None = None  # default, allowed and recommended values
+        self.hint = ""  # default, allowed and recommended values (shown by the '?')
 
 
 def _bool_field(path: Path_, node: dict[str, Any]) -> Field:
@@ -444,7 +442,8 @@ class ConfigForm(QWidget):
             self._add_hint(field, child, resolved, kind)
             field.connect(lambda p=child_path: self._on_change(p))
             self._fields[child_path] = field
-            form.addRow(label_with_badge(label, self._badge(child_path)), field.widget)
+            badge = self._badge(child_path, field.hint)
+            form.addRow(label_with_badge(label, badge), field.widget)
             self._rows[child_path] = form
             for key, shown_for in (child.get("show_if") or {}).items():
                 self._show_if[child_path] = ((*path, key), list(shown_for))
@@ -452,28 +451,15 @@ class ConfigForm(QWidget):
     def _add_hint(
         self, field: Field, node: Mapping[str, Any], resolved: Mapping[str, Any], kind: str
     ) -> None:
-        """Grey line under the field: default, allowed values, recommended range."""
+        """Default, allowed values and recommended range of the field (for its '?')."""
         if field.path == EXCLUDE_PATH:  # the check-box list explains itself
             return
         default = node.get("default", flatten(self._defaults).get(field.path, _MISSING))
-        text = field_hint(node, resolved, kind, default)
-        if not text:
-            return
-        hint = QLabel(text)
-        hint.setStyleSheet(HINT_STYLE)
-        hint.setWordWrap(True)
-        box = QWidget()
-        column = QVBoxLayout(box)
-        column.setContentsMargins(0, 0, 0, 0)
-        column.setSpacing(1)
-        column.addWidget(field.widget)
-        column.addWidget(hint)
-        field.widget, field.hint = box, hint
+        field.hint = field_hint(node, resolved, kind, default)
 
     def hint_text(self, *path: str) -> str:
-        """The grey line under a field ('' if there is none)."""
-        hint = self._fields[tuple(path)].hint
-        return hint.text() if hint is not None else ""
+        """Default, allowed and recommended values of a field ('' if there are none)."""
+        return self._fields[tuple(path)].hint
 
     def _make_field(self, path: Path_, kind: str, node: dict[str, Any], nullable: bool) -> Field:
         if path == EXCLUDE_PATH:
@@ -537,10 +523,11 @@ class ConfigForm(QWidget):
         info = self._help(path)
         return help_html(info, ".".join(path)) if info is not None else ""
 
-    def _badge(self, path: Path_) -> HelpBadge | None:
-        tip = self._help_tip(path)
-        if not tip:
+    def _badge(self, path: Path_, values: str = "") -> HelpBadge | None:
+        info = self._help(path)
+        if info is None and not values:
             return None
+        tip = help_html(info, ".".join(path), values)
         badge = HelpBadge(tip)
         self._badges[path] = badge
         return badge
@@ -700,8 +687,6 @@ class ConfigForm(QWidget):
         for path, field in self._fields.items():
             field.editor.setStyleSheet("")
             field.editor.setToolTip(self._tips.get(path, ""))
-            if field.hint is not None:
-                field.hint.setStyleSheet(HINT_STYLE)
         self.warnings = []
         self.warning_label.hide()
         try:
@@ -732,8 +717,6 @@ class ConfigForm(QWidget):
         for path, messages in notes.items():
             field = self._fields[path]
             field.editor.setStyleSheet(WARNING_STYLE)
-            if field.hint is not None:
-                field.hint.setStyleSheet(HINT_WARNING_STYLE)
             tip = self._tips.get(path, "")
             if tip and not tip.lstrip().startswith("<"):  # plain text -> rich text
                 tip = html.escape(tip).replace("\n", "<br>")

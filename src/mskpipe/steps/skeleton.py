@@ -6,7 +6,7 @@ Input (``03_mesh/``): ``bones/<name>.stl`` listed in ``meshes.json``.
 Output (``04_skeleton/``)::
 
     <model_name>.osim       OpenSim model written by the backend (default pystaple)
-    bodies/tibia_<s>.stl    tibia + fibula, the tibia body geometry of STAPLE (include_fibula)
+    bodies/tibia_<s>.stl    tibia + fibula, the tibia body geometry of STAPLE
     Geometry/<bone>.obj     visualization geometries referenced by the model
     skeleton.json           index: model, frame, settings, warnings and quality checks
 
@@ -79,12 +79,12 @@ class SkeletonStep(Step):
         if not meshes:
             raise StepError("No bone meshes from step 'mesh'")
         _require_closed(ctx.step_dir("mesh"), meshes)
-        bones, sources = body_meshes(meshes, cfg.side, cfg.include_fibula, ctx.out_dir / BODIES_DIR)
+        bones, sources = body_meshes(meshes, cfg.side, ctx.out_dir / BODIES_DIR)
         for body, parts in sources.items():
             if len(parts) > 1:
                 ctx.logger.info("[skeleton] %s geometry = %s", body, " + ".join(parts))
         tibia = f"tibia_{cfg.side}"
-        if cfg.include_fibula and tibia in meshes and len(sources.get(tibia, ())) < 2:
+        if tibia in meshes and len(sources.get(tibia, ())) < 2:
             ctx.logger.warning(
                 "[skeleton] fibula_%s missing: %s geometry is tibia only", cfg.side, tibia
             )
@@ -161,13 +161,13 @@ class SkeletonStep(Step):
 
 
 def body_meshes(
-    meshes: dict[str, Path], side: str, include_fibula: bool, work_dir: Path
+    meshes: dict[str, Path], side: str, work_dir: Path
 ) -> tuple[dict[str, Path], dict[str, list[str]]]:
     """Bone meshes as the skeleton backend expects them, and what each one is made of.
 
     STAPLE (and BP) use one geometry for the tibia body: tibia + fibula of the same leg
-    (meshes concatenated, as BP ``merge_mesh.py``). With ``include_fibula`` and both meshes
-    present, ``tibia_<side>`` is replaced by ``work_dir/tibia_<side>.stl``.
+    (meshes concatenated, as BP ``merge_mesh.py``). With both meshes present, ``tibia_<side>``
+    is replaced by ``work_dir/tibia_<side>.stl``.
     """
     import numpy as np
 
@@ -176,7 +176,7 @@ def body_meshes(
     bones = dict(meshes)
     sources = {name: [name] for name in bones}
     tibia, fibula = f"tibia_{side}", f"fibula_{side}"
-    if include_fibula and tibia in meshes and fibula in meshes:
+    if tibia in meshes and fibula in meshes:
         parts = [read_mesh(meshes[tibia]), read_mesh(meshes[fibula])]
         offset = parts[0].n_vertices
         merged = TriMesh(

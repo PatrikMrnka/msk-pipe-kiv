@@ -2,8 +2,8 @@
 """Label map cleaning vs. BP ``clean_masks.py`` (see mskpipe.validation.labelmap).
 
     pixi run -e dev-cpu python tools/labelmap_compare.py `
-        --raw C:/msk-pipe-kiv-zcu/reference/labelmap/raw `
-        --cleaned C:/msk-pipe-kiv-zcu/reference/labelmap/cleaned --json labelmap_compare.json
+        --raw <reference>/labelmap/raw `
+        --cleaned <reference>/labelmap/cleaned --json labelmap_compare.json
 
 Exit code 0 = every structure has Dice >= --min-dice and no voxel outside the BP mask.
 """

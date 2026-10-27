@@ -70,7 +70,7 @@ class AttachmentsStep(Step):
         bones = mesh_paths(mesh_dir, "bone")
         if not bones:
             raise StepError("No bone meshes from step 'mesh'")
-        bones, sources = body_meshes(bones, side, True, ctx.out_dir / "bodies")
+        bones, sources = body_meshes(bones, side, ctx.out_dir / "bodies")
         bones, sources = pelvis_body(bones, sources, ctx.out_dir / "bodies")
         if "sacrum" not in sources:
             ctx.logger.warning("[attachments] no sacrum mesh: sacral areas cannot be snapped")
