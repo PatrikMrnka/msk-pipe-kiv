@@ -60,6 +60,13 @@ class Plugin(ABC):
         return []
 
     @classmethod
+    def preflight_warnings(cls, config: PipelineConfig, modality: str) -> list[str]:
+        """Settings that work but are probably not what the user wants, found before the
+        run (reported as warnings). Same constraints as :meth:`preflight`. Default: none.
+        """
+        return []
+
+    @classmethod
     def missing(cls) -> list[str]:
         """Dependencies not found in the current environment (empty list = available)."""
         missing = [m for m in cls.requires_modules if not _has_module(m)]

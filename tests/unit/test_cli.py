@@ -259,7 +259,7 @@ def test_run_modality_auto(fake, image, tmp_path):
     assert result.exit_code == 0, result.output
     events = [RunEvent.from_line(line) for line in result.stdout.splitlines()]
     notes = [e.message for e in events if e.kind == "log" and "Modality:" in (e.message or "")]
-    assert notes and notes[0].startswith("Modality: MRI")  # a zero volume has no air in HU
+    assert notes and notes[0].startswith("Modality: CT")  # the fake volume is air + tissue in HU
 
 
 def test_qc_command(tmp_path) -> None:

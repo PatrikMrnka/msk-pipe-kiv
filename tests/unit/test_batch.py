@@ -248,6 +248,23 @@ def test_cli_warns_about_cache_with_repeats(folder):
     assert "runtime.cache=true" not in quiet.output
 
 
+def test_cli_warns_about_many_repeats(folder):
+    many = "repeat: 11\njobs:\n  - {image: data/a.nii.gz, modality: ct}\n"
+    dry = cli.invoke(app, ["batch", str(write(folder, many)), "--dry-run", "--no-cache"])
+    assert dry.exit_code == 0 and "repeat 11 > 10" in dry.output
+    few = "repeat: 3\njobs:\n  - {image: data/a.nii.gz, modality: ct}\n"
+    assert "repeat 3" not in cli.invoke(app, ["batch", str(write(folder, few)), "--dry-run"]).output
+
+
+def test_dry_run_rejects_a_bad_matrix_value(folder):
+    text = (
+        "jobs:\n  - image: data/a.nii.gz\n    modality: ct\n"
+        "    matrix: {export.num_of_lines: [100, 0]}\n"
+    )
+    dry = cli.invoke(app, ["batch", str(write(folder, text)), "--dry-run"])
+    assert dry.exit_code == 2 and "export.num_of_lines" in dry.output
+
+
 @pytest.mark.parametrize(
     "path", sorted((Path(__file__).parents[2] / "paper" / "experiments").glob("*.yaml"))
 )

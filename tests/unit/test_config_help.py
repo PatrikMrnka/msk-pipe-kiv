@@ -62,7 +62,8 @@ def test_lookup_and_examples():
     entry = help_for(("mesh", "bones", "smooth_iterations"))
     assert entry is not None and entry.example and "  " not in entry.text
     assert (
-        help_for("labelmap.muscles.min_voxels").text == help_for("labelmap.bones.min_voxels").text
+        help_for("labelmap.muscles.min_volume_ml").text
+        == help_for("labelmap.bones.min_volume_ml").text
     )
     assert plugin_help("attachments", "atlas_registration", "nonrigid") is not None
     assert help_for("nope.nope") is None

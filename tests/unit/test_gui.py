@@ -135,6 +135,24 @@ def test_form_nullable_and_validation(qapp):
     assert form.error_label.isHidden()
 
 
+def test_form_marks_values_outside_recommended_range(qapp):
+    form = ConfigForm()
+    assert form.validate() is None and form.warnings == [] and form.warning_label.isHidden()
+    passband = form.field("mesh", "muscles", "passband")
+    passband.set(0.8)  # valid (< 2) but hardly any smoothing
+    assert form.validate() is None  # a warning does not block the run
+    assert "d68910" in passband.editor.styleSheet() and "0.8" in passband.editor.toolTip()
+    assert not form.warning_label.isHidden()
+    assert [i.field for i in form.warnings] == ["mesh.muscles.passband"]
+    trim = form.field("attachments", "params", "trim")
+    trim.set(0.6)  # plugin parameter outside 0.8 - 1
+    form.validate()
+    assert "d68910" in trim.editor.styleSheet()
+    passband.set(0.01)
+    trim.set(0.9)
+    assert form.validate() is None and form.warnings == [] and passband.editor.styleSheet() == ""
+
+
 class _OtherParams(PluginParams):
     radius_mm: float = 5.0
 
@@ -461,7 +479,8 @@ def test_form_explanations_behind_badges(qapp):
     assert "Example:" in form.help_text("attachments", "params", "nonrigid")
     badge = form._badges[("mesh", "bones", "smooth_iterations")]
     assert isinstance(badge, HelpBadge) and badge.text() == "?"
-    assert form.field("mesh", "bones", "smooth_iterations").editor.toolTip() == text
+    tip = form.field("mesh", "bones", "smooth_iterations").editor.toolTip()
+    assert tip.startswith(text) and "Recommended: 10 - 100" in tip  # explanation + range
     # no explanation text in the form itself, only behind the badges
     shown = [w.text() for w in form.findChildren(QLabel) if not isinstance(w, HelpBadge)]
     assert not any("staircase" in s for s in shown)
@@ -543,15 +562,14 @@ def test_exported_muscles_list(qapp):
 def test_explicit_muscle_list_from_config(qapp, tmp_path):
     source = tmp_path / "quick.yaml"
     source.write_text(
-        "skeleton: {side: l}\n"
-        "export: {muscles: [iliacus_l, pectineus_l, piriformis_l, unknown_muscle_l]}\n",
+        "skeleton: {side: l}\nexport: {muscles: [iliacus_l, pectineus_l, piriformis_l]}\n",
         encoding="utf-8",
     )
     form = ConfigForm()
     form.load(source)
     picker = form.picker("export", "exclude")
-    # piriformis stays excluded by the default exclusions, unknown names are kept
-    assert picker.checked() == ["iliacus", "pectineus", "unknown_muscle"]
+    # piriformis stays excluded by the default exclusions
+    assert picker.checked() == ["iliacus", "pectineus"]
     config = api.resolved_config(overrides=form.overrides())
     assert config.export.muscles == "all"
     assert "gluteus_maximus" in config.export.exclude and "iliacus" not in config.export.exclude

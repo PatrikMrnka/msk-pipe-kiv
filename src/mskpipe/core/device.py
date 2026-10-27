@@ -115,6 +115,19 @@ class DeviceReport(BaseModel):
 # ---------------------------------------------------------------------- selection
 
 
+def gpu_unavailable_reason() -> str | None:
+    """Why a GPU run cannot work, from the driver only (NVML / nvidia-smi, no PyTorch probe;
+    cheap enough for pre-run checks). ``None`` = a GPU and a recent driver are present;
+    :func:`resolve_device` still tests PyTorch when the run starts."""
+    found = detect_gpus()
+    if not found["gpus"]:
+        return f"no NVIDIA GPU found (NVML and nvidia-smi). {_GPU_HINT}"
+    major = _driver_major(found["driver_version"])
+    if major is not None and major < MIN_DRIVER:
+        return f"NVIDIA driver {found['driver_version']} is older than {MIN_DRIVER}. {_GPU_HINT}"
+    return None
+
+
 def resolve_device(requested: str, *, probe_torch: bool | None = None) -> DeviceReport:
     """Translate ``runtime.device`` into the device actually used.
 

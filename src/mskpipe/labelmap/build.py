@@ -11,7 +11,7 @@
 3. Parts are written to one label map: bones first, then muscles. A voxel claimed by two
    structures of the same kind becomes background (e.g. a gap between two muscles or the
    joint space); bones win over muscles.
-4. Structures with fewer than ``min_voxels`` voxels are removed (status ``too_small``).
+4. Structures smaller than ``min_volume_ml`` are removed (status ``too_small``).
 
 Bone parts also get their topology checked and repaired (``labelmap.bones.topology``,
 :class:`~mskpipe.labelmap.clean.Topology`): holes are filled from the same bone of the
@@ -232,11 +232,11 @@ def build_labelmap(
             continue
         s = stats[name]
         n = int(counts[struct.value])
-        min_voxels = getattr(config, KIND_PARAMS[struct.kind]).min_voxels
-        entry["status"] = "ok" if n >= max(min_voxels, 1) else "too_small"
+        min_ml = getattr(config, KIND_PARAMS[struct.kind]).min_volume_ml
+        entry["status"] = "ok" if n >= 1 and n * voxel_ml >= min_ml else "too_small"
         if entry["status"] == "too_small":
             data[data == struct.value] = 0
-            _warn(log, "%s: %d voxels < min_voxels %d, removed", name, n, min_voxels)
+            _warn(log, "%s: %.2f ml < min_volume_ml %g, removed", name, n * voxel_ml, min_ml)
         entry.update(
             parts=s["parts"],
             raw_voxels=s["raw_voxels"],

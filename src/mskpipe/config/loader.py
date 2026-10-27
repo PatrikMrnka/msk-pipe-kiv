@@ -15,7 +15,7 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ValidationError
 
-from mskpipe.config.schema import PipelineConfig
+from mskpipe.config.schema import PipelineConfig, unknown_key_hint
 
 __all__ = [
     "ConfigError",
@@ -96,7 +96,10 @@ def _format_errors(exc: ValidationError, source: str) -> str:
     lines = [f"Invalid configuration ({source}):"]
     for err in exc.errors():
         loc = ".".join(str(p) for p in err["loc"]) or "<root>"
-        lines.append(f"  {loc}: {err['msg']}")
+        hint = (
+            unknown_key_hint(PipelineConfig, err["loc"]) if err["type"] == "extra_forbidden" else ""
+        )
+        lines.append(f"  {loc}: {err['msg']}{hint}")
     return "\n".join(lines)
 
 
@@ -132,6 +135,10 @@ def _render(model: BaseModel, level: int, out: list[str]) -> None:
         choices = _choices(field.annotation)
         if choices:
             doc = f"{doc} Options: {' | '.join(choices)}".strip()
+        extra = field.json_schema_extra
+        if isinstance(extra, dict) and "recommended" in extra:
+            low, high = extra["recommended"]  # type: ignore[misc]
+            doc = f"{doc} Recommended: {_bound(low, '-inf')} - {_bound(high, 'inf')}.".strip()
         if doc:
             out.append(f"{pad}# {doc}")
         if isinstance(child, BaseModel):
@@ -140,6 +147,10 @@ def _render(model: BaseModel, level: int, out: list[str]) -> None:
         else:
             dumped = yaml.safe_dump(values[name], default_flow_style=True, allow_unicode=True)
             out.append(f"{pad}{name}: {dumped.strip().removesuffix('...').strip()}")
+
+
+def _bound(value: Any, missing: str) -> str:
+    return missing if value is None else f"{value:g}"
 
 
 def _choices(annotation: Any) -> list[str]:

@@ -47,7 +47,7 @@ def _ts_appendicular() -> tuple[np.ndarray, dict[str, int]]:
 def _musclemap() -> tuple[np.ndarray, dict[str, int]]:
     d = np.zeros(SHAPE, np.uint16)
     d[8:26, 20:28, 20:34] = 6122  # gluteus_maximus_r, overlaps hip_right at j = 20..21
-    d[30:32, 2:4, 2:4] = 6182  # piriformis_r: 8 voxels, below min_voxels
+    d[30:32, 2:4, 2:4] = 6182  # piriformis_r: 8 voxels, below min_volume_ml
     labels = {"gluteus_maximus_r": 6122, "iliacus_r": 6142, "piriformis_r": 6182}
     return d, labels
 
@@ -92,8 +92,8 @@ def config(tmp_path: Path, *overrides: str):
     return load_config(
         overrides=[
             f"runtime.runs_dir={(tmp_path / 'runs').as_posix()}",
-            "labelmap.bones.min_voxels=100",
-            "labelmap.muscles.min_voxels=100",
+            "labelmap.bones.min_volume_ml=0.15",  # 100 voxels of 1.5 mm³
+            "labelmap.muscles.min_volume_ml=0.15",
             *overrides,
         ]
     )

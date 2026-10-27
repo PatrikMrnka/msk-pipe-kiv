@@ -66,6 +66,7 @@ BATCH_FILE = "batch.json"
 SUMMARY_FILE = "summary.csv"
 FORMAT = "mskpipe.batch"
 VERSION = 1
+RECOMMENDED_REPEAT = 10  # timings (median of n >= 3) settle long before; CLI warns above
 _NAME = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
 SUMMARY_COLUMNS = (
     "index",

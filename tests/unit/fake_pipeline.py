@@ -195,7 +195,8 @@ def write_nifti(
     path: Path, *, spacing: tuple[float, float, float] = (0.8, 0.8, 1.5), qform: bool = True
 ) -> Path:
     """Small CT-like volume with a valid header."""
-    data = np.zeros((8, 8, 6), dtype=np.int16)
+    data = np.full((8, 8, 6), -1024, dtype=np.int16)  # air, as CT in HU
+    data[2:6, 2:6, 1:5] = 40  # soft tissue
     affine = np.diag([*spacing, 1.0])
     img = nib.Nifti1Image(data, affine)
     if qform:

@@ -524,3 +524,14 @@ def test_isb_pelvis_stands_upright_in_the_rest_pose(tmp_path, spec, default_run)
     # the fixture pelvis of the other tests (90 deg about z in RAS) is not upright
     lying = read_export_index(default_run.ws.step_dir("export_mw2"))["rest_pose"]["values"]
     assert abs(lying["pelvis_list"]) == pytest.approx(90.0, abs=1e-6)
+
+
+def test_motion_beyond_model_range_and_many_frames_warn(tmp_path, spec, caplog):
+    import logging
+
+    caplog.set_level(logging.WARNING, logger="mskpipe")
+    cfg = config(tmp_path, "export.motion.end_deg=150", "export.motion.step_deg=0.1")
+    run_pipeline(STEPS, spec, cfg)
+    text = caplog.text
+    assert "leaves its range in the model" in text  # hip flexion range of the model: +-120
+    assert "motion frames" in text

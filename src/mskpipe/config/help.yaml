@@ -111,7 +111,10 @@ segmentation.totalsegmentator.nr_thr_saving:
     chooses 1-6 from the RAM and page file size; the segmentation itself does not change.
   example: 1 on a computer with little memory; 6 = TotalSegmentator's own default.
 segmentation.totalsegmentator.extra_args:
-  help: Additional command-line arguments passed to TotalSegmentator unchanged (advanced).
+  help: >-
+    Additional command-line arguments passed to TotalSegmentator unchanged (advanced).
+    Options msk-pipe sets itself (input, output, task, device, fast, ROI subset, resampling,
+    saving workers, licence) are rejected; use the matching settings instead.
   example: "[--robust_crop] (see TotalSegmentator --help)."
 segmentation.musclemap:
   help: Settings of MuscleMap.
@@ -128,10 +131,14 @@ segmentation.musclemap.overlap:
 segmentation.musclemap.chunk_size:
   help: >-
     Number of axial slices processed at once. auto chooses it from the free CPU or GPU
-    memory; a fixed number avoids running out of memory on large scans.
+    memory; a fixed number avoids running out of memory on large scans. MuscleMap segments
+    2D slices, so any positive number works (smaller = less memory, slower).
   example: 15 (value used in the BP thesis) when auto runs out of memory.
 segmentation.musclemap.extra_args:
-  help: Additional command-line arguments passed to mm_segment unchanged (advanced).
+  help: >-
+    Additional command-line arguments passed to mm_segment unchanged (advanced). msk-pipe
+    sets all options of the current MuscleMap itself, so they are rejected here; the list is
+    for options of newer versions.
   example: "[]"
 
 # ------------------------------------------------------------------ labelmap
@@ -144,12 +151,13 @@ labelmap.bones:
   help: Cleaning of the bone masks.
 labelmap.muscles:
   help: Cleaning of the muscle masks.
-labelmap.bones.min_voxels: &min_voxels
+labelmap.bones.min_volume_ml: &min_volume
   help: >-
-    A structure with fewer voxels after cleaning is treated as missing (a few stray voxels
-    are not meshed).
-  example: 2000 voxels at 1 mm spacing are 2 cm³.
-labelmap.muscles.min_voxels: *min_voxels
+    A structure smaller than this volume after cleaning is treated as missing (a few stray
+    voxels are not meshed). In ml, so it does not depend on the voxel size; the smallest
+    structures (fibula about 40 ml, obturators 15-20 ml) must stay above it.
+  example: 2 ml (bones) and 1 ml (muscles) = 2000 and 1000 voxels at 1 mm spacing (BP).
+labelmap.muscles.min_volume_ml: *min_volume
 labelmap.bones.closing_radius_mm: &closing
   help: >-
     Morphological closing in mm: fills gaps and notches narrower than about twice the radius
@@ -327,9 +335,6 @@ attachments:
 attachments.method:
   help: Method computing the attachment areas (see `mskpipe plugins`).
   example: atlas_registration
-attachments.atlas:
-  help: Name of the attachment atlas, informational; the files come from Atlas dir below.
-  example: lhdl
 attachments.params:
   help: Parameters of the selected method.
 
@@ -374,7 +379,7 @@ plugins.attachments.atlas_registration.nonrigid:
     drift along the bone and were the least accurate in the validation).
   example: none, to compare with the rigid transfer only.
 plugins.attachments.atlas_registration.nonrigid_points:
-  help: Atlas points driving the non-rigid stage (coherent_icp and cpd).
+  help: Atlas points driving the non-rigid stage (coherent_icp and cpd); at most N points.
   example: "1500"
 plugins.attachments.atlas_registration.coherent_beta_mm:
   help: >-

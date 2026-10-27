@@ -33,8 +33,9 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import Field
+from pydantic import Field, ValidationInfo, field_validator
 
+from mskpipe.config.schema import SEED_MAX, recommended
 from mskpipe.plugins.base import AttachmentsPlugin, PluginParams
 from mskpipe.resources.atlas import ATLAS_ENV, ATLAS_INDEX, resolve_atlas_dir
 
@@ -63,22 +64,39 @@ class AtlasRegistrationParams(PluginParams):
         "else the atlas installed by `mskpipe setup atlas`.",
     )
     n_points: int = Field(
-        3000, ge=200, le=20000, description="Atlas surface samples per bone (ICP source)."
+        3000,
+        ge=200,
+        le=20000,
+        description="Atlas surface samples per bone (ICP source).",
+        json_schema_extra=recommended(
+            1000, 10000, "fewer samples make the ICP noisy, more only slow it down"
+        ),
     )
     target_points: int = Field(
         50000,
         ge=1000,
         le=500000,
         description="Subject surface samples per bone (ICP target); denser = less bias.",
+        json_schema_extra=recommended(10000, 200000, "a sparse target biases the ICP"),
     )
     scale: bool = Field(True, description="Allow a uniform scale in the rigid stage.")
     icp_metric: Literal["point_to_plane", "point_to_point"] = Field(
         "point_to_plane",
         description="Final ICP metric; point_to_plane refines a point_to_point start.",
     )
-    icp_iterations: int = Field(100, ge=1, le=1000, description="Maximum ICP iterations.")
+    icp_iterations: int = Field(
+        100,
+        ge=1,
+        le=1000,
+        description="Maximum ICP iterations.",
+        json_schema_extra=recommended(20, 300, "the ICP converges in tens of iterations"),
+    )
     trim: float = Field(
-        0.9, gt=0.5, le=1.0, description="Fraction of closest pairs kept (bones of other extent)."
+        0.9,
+        gt=0.5,
+        le=1.0,
+        description="Fraction of closest pairs kept (bones of other extent).",
+        json_schema_extra=recommended(0.8, 1.0, "below 0.8 good pairs are discarded"),
     )
     nonrigid: Literal["coherent_icp", "cpd", "fast_rnrr", "none"] = Field(
         "coherent_icp",
@@ -88,66 +106,89 @@ class AtlasRegistrationParams(PluginParams):
         1500,
         ge=100,
         le=5000,
-        description="Atlas points driving coherent_icp / cpd per bone.",
-        json_schema_extra=_ONLY_COHERENT_ICP_CPD,
+        description="Atlas points driving coherent_icp / cpd per bone (at most n_points).",
+        json_schema_extra={
+            **_ONLY_COHERENT_ICP_CPD,
+            **recommended(500, 3000, "coarse field below 500 points, slow above 3000"),
+        },
     )
     coherent_beta_mm: float = Field(
         40.0,
         gt=1.0,
         le=200.0,
         description="coherent_icp: width of the Gaussian kernel [mm].",
-        json_schema_extra=_ONLY_COHERENT_ICP,
+        json_schema_extra={
+            **_ONLY_COHERENT_ICP,
+            **recommended(20, 100, "bones are 100-450 mm long; a narrow kernel follows noise"),
+        },
     )
     coherent_lambda: float = Field(
         2.0,
         gt=0.0,
         le=100.0,
         description="coherent_icp: regularisation (larger = stiffer).",
-        json_schema_extra=_ONLY_COHERENT_ICP,
+        json_schema_extra={
+            **_ONLY_COHERENT_ICP,
+            **recommended(0.5, 10, "low = follows noise, high = nearly rigid"),
+        },
     )
     coherent_iterations: int = Field(
         30,
         ge=1,
         le=500,
         description="coherent_icp: iterations.",
-        json_schema_extra=_ONLY_COHERENT_ICP,
+        json_schema_extra={
+            **_ONLY_COHERENT_ICP,
+            **recommended(10, 100, "converges in tens of iterations"),
+        },
     )
     cpd_beta: float = Field(
         2.0,
         gt=0.0,
         le=20.0,
         description="cpd: kernel width in normalised units (paper: 2).",
-        json_schema_extra=_ONLY_CPD,
+        json_schema_extra={**_ONLY_CPD, **recommended(1, 5, "paper: 2")},
     )
     cpd_lambda: float = Field(
         2.0,
         gt=0.0,
         le=100.0,
         description="cpd: regularisation (paper: 2).",
-        json_schema_extra=_ONLY_CPD,
+        json_schema_extra={**_ONLY_CPD, **recommended(0.5, 10, "paper: 2")},
     )
     cpd_w: float = Field(
         0.1,
         ge=0.0,
-        lt=1.0,
+        le=0.9,
         description="cpd: outlier weight (0 = none, probreg default).",
-        json_schema_extra=_ONLY_CPD,
+        json_schema_extra={**_ONLY_CPD, **recommended(0, 0.3, "above 0.3 surface is ignored")},
     )
     cpd_iterations: int = Field(
-        150, ge=1, le=2000, description="cpd: maximum EM iterations.", json_schema_extra=_ONLY_CPD
+        150,
+        ge=1,
+        le=2000,
+        description="cpd: maximum EM iterations.",
+        json_schema_extra={
+            **_ONLY_CPD,
+            **recommended(50, 500, "EM converges in tens to hundreds of iterations"),
+        },
     )
     cpd_target_points: int = Field(
         5000,
         ge=500,
         le=20000,
         description="cpd: subject points (memory ~ points x nonrigid).",
-        json_schema_extra=_ONLY_CPD,
+        json_schema_extra={
+            **_ONLY_CPD,
+            **recommended(2000, 10000, "memory ~ points x nonrigid_points x 8 B per matrix"),
+        },
     )
     cpd_sigma_init_mm: float | None = Field(
         None,
         gt=0.0,
+        le=100.0,
         description="cpd: initial GMM width [mm]; None = standard CPD start (all pairs).",
-        json_schema_extra=_ONLY_CPD,
+        json_schema_extra={**_ONLY_CPD, **recommended(1, 20, "E07: 5 mm")},
     )
     fast_rnrr_exe: str | None = Field(
         None,
@@ -162,12 +203,32 @@ class AtlasRegistrationParams(PluginParams):
         ge=1000,
         le=500000,
         description="fast_rnrr: atlas bone decimated to this size.",
-        json_schema_extra=_ONLY_FAST_RNRR,
+        json_schema_extra={
+            **_ONLY_FAST_RNRR,
+            **recommended(5000, 50000, "Fast-RNRR time grows quickly with the faces"),
+        },
     )
     max_projection_mm: float = Field(
-        10.0, ge=0.0, le=100.0, description="Snap points closer than this onto the bone; 0 = off."
+        10.0,
+        ge=0.0,
+        le=100.0,
+        description="Snap points closer than this onto the bone; 0 = off.",
+        json_schema_extra=recommended(
+            2, 20, "about 1 mm after registration; above 20 mm points can snap to another bone"
+        ),
     )
-    seed: int = Field(0, description="Seed of the surface sampling.")
+    seed: int = Field(0, ge=0, le=SEED_MAX, description="Seed of the surface sampling.")
+
+    @field_validator("nonrigid_points")
+    @classmethod
+    def _subset_of_samples(cls, value: int, info: ValidationInfo) -> int:
+        n_points, nonrigid = info.data.get("n_points"), info.data.get("nonrigid")
+        if nonrigid in ("coherent_icp", "cpd") and n_points is not None and value > n_points:
+            raise ValueError(
+                f"must not exceed n_points ({n_points}): the non-rigid stage uses a subset "
+                "of the atlas samples"
+            )
+        return value
 
 
 def atlas_dir(params: Mapping[str, Any] | AtlasRegistrationParams) -> Path | None:
@@ -175,6 +236,40 @@ def atlas_dir(params: Mapping[str, Any] | AtlasRegistrationParams) -> Path | Non
         params.atlas_dir if isinstance(params, AtlasRegistrationParams) else params.get("atlas_dir")
     )
     return resolve_atlas_dir(value)[0]
+
+
+def inspect_atlas(folder: Path, side: str) -> tuple[list[str], list[str]]:
+    """(errors, warnings) of an atlas folder: index readable, RAS mm, outline files present;
+    warns if it has no muscles of ``side``. Reads only ``atlas.json`` (cheap)."""
+    index = folder / ATLAS_INDEX
+    if not index.is_file():
+        return [f"Attachment atlas index not found: {index}"], []
+    try:
+        atlas = json.loads(index.read_text(encoding="utf-8"))
+        entries = dict(atlas["muscles"])
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        return [f"Attachment atlas index {index} is not readable: {exc}"], []
+    errors: list[str] = []
+    if atlas.get("units", "mm") != "mm" or atlas.get("frame", "ras") != "ras":
+        errors.append(f"Atlas must be in RAS mm, got {atlas.get('frame')} {atlas.get('units')}")
+    missing = sorted(
+        str(area["file"])
+        for entry in entries.values()
+        for kind in ("Ori", "Ins")
+        if isinstance(area := (entry or {}).get(kind), dict)
+        and "file" in area
+        and not (folder / area["file"]).is_file()
+    )
+    if missing:
+        more = f" (+{len(missing) - 3} more)" if len(missing) > 3 else ""
+        errors.append(f"Atlas outline files missing in {folder}: {', '.join(missing[:3])}{more}")
+    warnings = []
+    if not any(name.endswith(f"_{side}") for name in entries):
+        warnings.append(
+            f"The attachment atlas has no muscles of side '{side}': no attachment areas "
+            "will be transferred (skeleton.side)"
+        )
+    return errors, warnings
 
 
 def atlas_fingerprint(folder: Path | None) -> str:
@@ -219,8 +314,8 @@ class AtlasRegistration(AttachmentsPlugin):
         folder = atlas_dir(params)
         if folder is None:
             problems.append(NO_ATLAS)
-        elif not (folder / ATLAS_INDEX).is_file():
-            problems.append(f"Attachment atlas index not found: {folder / ATLAS_INDEX}")
+        else:
+            problems += inspect_atlas(folder, config.skeleton.side)[0]
         if params.get("nonrigid") == "fast_rnrr":
             from mskpipe.geometry.fast_rnrr import FastRnrrError, find_executable
 
@@ -229,6 +324,15 @@ class AtlasRegistration(AttachmentsPlugin):
             except FastRnrrError as exc:
                 problems.append(str(exc))
         return problems
+
+    @classmethod
+    def preflight_warnings(cls, config: PipelineConfig, modality: str) -> list[str]:
+        params = config.attachments.params
+        folder = atlas_dir(params)
+        notes = [] if folder is None else inspect_atlas(folder, config.skeleton.side)[1]
+        if params.get("nonrigid") == "cpd":
+            notes.append("nonrigid=cpd is offered for comparison only; coherent_icp is the default")
+        return notes
 
     def compute(
         self,
@@ -257,14 +361,10 @@ class AtlasRegistration(AttachmentsPlugin):
         folder = atlas_dir(params)
         if folder is None:
             raise ValueError(NO_ATLAS)
-        index_path = folder / ATLAS_INDEX
-        if not index_path.is_file():
-            raise FileNotFoundError(f"Atlas index not found: {index_path}")
-        atlas = json.loads(index_path.read_text(encoding="utf-8"))
-        if atlas.get("units", "mm") != "mm" or atlas.get("frame", "ras") != "ras":
-            raise ValueError(
-                f"Atlas must be in RAS mm, got {atlas.get('frame')} {atlas.get('units')}"
-            )
+        errors = inspect_atlas(folder, side)[0]
+        if errors:
+            raise ValueError("; ".join(errors))
+        atlas = json.loads((folder / ATLAS_INDEX).read_text(encoding="utf-8"))
 
         with_sacrum = "pelvis_with_sacrum" in bones
         subject = {

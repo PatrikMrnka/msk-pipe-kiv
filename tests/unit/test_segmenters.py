@@ -331,13 +331,42 @@ def test_build_command_saving_workers():
         Path("i"), Path("o"), "total", {"femur_left"}, cfg, device="cpu", saving=2
     )
     assert argv[argv.index("-ns") + 1] == "2"
-    custom = load_config(
-        overrides=['segmentation.totalsegmentator.extra_args=["--nr_thr_saving", "1"]']
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--nr_thr_saving", "1"],
+        ["-ns", "1"],
+        ["--task=total"],
+        ["--tas", "total"],  # argparse abbreviation
+        ["-d", "gpu"],
+        ["--license_number", "x"],
+    ],
+)
+def test_extra_args_cannot_override_controlled_options(args):
+    from mskpipe.config.loader import ConfigError
+
+    with pytest.raises(ConfigError, match="set by msk-pipe itself"):
+        load_config(overrides=[f"segmentation.totalsegmentator.extra_args={args!r}"])
+
+
+def test_extra_args_pass_other_options():
+    cfg = load_config(
+        overrides=['segmentation.totalsegmentator.extra_args=["--robust_crop"]']
     ).segmentation.totalsegmentator
     argv = ts.build_command(
-        Path("i"), Path("o"), "total", {"femur_left"}, custom, device="cpu", saving=2
+        Path("i"), Path("o"), "total", {"femur_left"}, cfg, device="cpu", saving=2
     )
-    assert "-ns" not in argv and argv[-2:] == ["--nr_thr_saving", "1"]
+    assert argv[-1] == "--robust_crop" and argv[argv.index("-ns") + 1] == "2"
+
+
+@pytest.mark.parametrize("args", [["-x", "_seg"], ["--model", "m.pth"], ["--overlap=50"]])
+def test_musclemap_extra_args_cannot_override_controlled_options(args):
+    from mskpipe.config.loader import ConfigError
+
+    with pytest.raises(ConfigError, match="set by msk-pipe itself"):
+        load_config(overrides=[f"segmentation.musclemap.extra_args={args!r}"])
 
 
 def test_saving_workers_config_validation():

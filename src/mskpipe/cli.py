@@ -426,6 +426,12 @@ def batch(
         variant = f" [{p.variant}]" if p.variant else ""
         typer.echo(f"  {p.index:>3}. {p.job}{variant} #{p.repeat}", err=as_json)
     repeats = max(p.repeat for p in planned)
+    if repeats > batch_mod.RECOMMENDED_REPEAT:
+        typer.echo(
+            f"WARNING: repeat {repeats} > {batch_mod.RECOMMENDED_REPEAT}: timings settle after "
+            "3 runs, more repetitions only take time",
+            err=True,
+        )
     if repeats > 1 and first.config.runtime.cache:
         typer.echo(
             "WARNING: repeated runs with runtime.cache=true reuse earlier results "
@@ -1011,6 +1017,49 @@ def config_show(
         typer.echo(json.dumps(resolved.model_dump(mode="json"), indent=2, ensure_ascii=False))
     else:
         typer.echo(api.config_yaml(resolved), nl=False)
+
+
+@config_app.command("check")
+def config_check(
+    config: Annotated[Path | None, typer.Option("--config", "-c", help="YAML config.")] = None,
+    overrides: Annotated[
+        list[str] | None,
+        typer.Option("--set", metavar="KEY=VALUE", help="Override a config value (repeatable)."),
+    ] = None,
+    image: Annotated[
+        Path | None,
+        typer.Option("--image", "-i", help="Also check this input volume (spacing, modality)."),
+    ] = None,
+    modality: Annotated[
+        ModalityChoice | None,
+        typer.Option("--modality", "-m", help="Modality given for --image (checked against it)."),
+    ] = None,
+) -> None:
+    """Check a config: errors, values outside the recommended ranges, settings that are
+    probably not meant, this computer (threads, RAM, disk, GPU) and optionally an input."""
+    from mskpipe import api
+    from mskpipe.config import sanity
+
+    try:
+        resolved = api.resolved_config(config, overrides or ())
+    except api.SetupError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(EXIT_SETUP) from None
+    issues: list[sanity.Issue] = []
+    if image is not None:
+        if not image.is_file():
+            typer.echo(f"Error: input image not found: {image}", err=True)
+            raise typer.Exit(EXIT_SETUP)
+        issues += api.check_image(image)
+    given = modality.value if modality is not None and modality.value != "auto" else None
+    issues += sanity.check(resolved, image, given)
+    for issue in issues:
+        typer.echo(f"{issue.severity.upper()}: {issue.where}: {issue.message}")
+    errors = sum(i.severity == "error" for i in issues)
+    warnings = sum(i.severity == "warning" for i in issues)
+    typer.echo(f"{errors} error(s), {warnings} warning(s)" if issues else "OK: no issues found")
+    if errors:
+        raise typer.Exit(EXIT_SETUP)
 
 
 @config_app.command("schema")

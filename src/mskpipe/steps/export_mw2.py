@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Mapping
 from pathlib import Path, PureWindowsPath
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -68,6 +69,7 @@ MUSCLES_DIR = "muscles"
 ANALYSIS_DIR = "analysis/"
 FIBRES_DIR = "fibres/"
 POSE_TOL_DEG = 1e-6
+MAX_MOTION_FRAMES = 1000  # mskpipe.config.sanity.MAX_FRAMES: more only slows Muscle Wrapping
 KINDS = {"Ori": "origin", "Ins": "insertion"}
 MW2_COMMAND = "opensim-cmd -L OsimMuscleGeneratorTool.dll run-tool " + SETUP_FILE
 
@@ -140,7 +142,8 @@ class ExportMw2Step(Step):
         times["bodies"] = time.perf_counter() - mark
         mark = time.perf_counter()
         pose_info, rest, rotational = self._model(ctx, model, model_dst, geometry)
-        motion_path, motion_info = self._motion(ctx, rest, rotational, side)
+        limits = {c: r for j in model.joints.values() for c, r in j.coordinates.items()}
+        motion_path, motion_info = self._motion(ctx, rest, rotational, side, limits)
         times["rest_pose"] = time.perf_counter() - mark
         ctx.check_cancel()
 
@@ -409,8 +412,15 @@ class ExportMw2Step(Step):
         return info, {c: degrees[c] for c in columns}, pose.rotational
 
     def _motion(
-        self, ctx: StepContext, rest: dict[str, float], rotational: dict[str, bool], side: str
+        self,
+        ctx: StepContext,
+        rest: dict[str, float],
+        rotational: dict[str, bool],
+        side: str,
+        limits: Mapping[str, tuple[float, float]] | None = None,
     ) -> tuple[Path, dict[str, Any]]:
+        """Motion file: rest pose, then ``coord`` swept to ``end_deg``. ``limits``: coordinate
+        ranges of the model [rad]; a sweep beyond them or with many frames is reported."""
         import numpy as np
 
         from mskpipe.io.mw2 import write_motion
@@ -433,6 +443,23 @@ class ExportMw2Step(Step):
             raise StepError(
                 f"export.motion.end_deg ({mcfg.end_deg}) must lie above the rest pose of "
                 f"{coord} ({start:.2f} deg); the first motion row is the rest pose"
+            )
+        if limits and coord in limits:
+            lo, hi = (float(np.degrees(v)) for v in limits[coord])
+            if sweep[-1] > hi + 1e-6 or sweep[0] < lo - 1e-6:
+                ctx.logger.warning(
+                    "[export_mw2] motion of %s up to %.1f deg leaves its range in the model "
+                    "(%.1f to %.1f deg)",
+                    coord,
+                    sweep[-1],
+                    lo,
+                    hi,
+                )
+        if len(sweep) + 1 > MAX_MOTION_FRAMES:
+            ctx.logger.warning(
+                "[export_mw2] %d motion frames; Muscle Wrapping time grows with the frames "
+                "(export.motion.step_deg)",
+                len(sweep) + 1,
             )
         rows = np.tile([rest[c] for c in columns], (len(sweep) + 1, 1))
         rows[1:, columns.index(coord)] = sweep

@@ -40,7 +40,9 @@ from mskpipe.config import (
     json_schema,
     load_config,
     render_template,
+    sanity,
 )
+from mskpipe.config.sanity import Issue
 from mskpipe.core.device import DeviceError, DeviceReport, resolve_device
 from mskpipe.core.manifest import Manifest
 from mskpipe.core.registry import PluginError, Registry, default_registry, resolve_plugins
@@ -252,18 +254,6 @@ def resolved_config(
 # ---------------------------------------------------------------------------- preflight
 
 
-@dataclass(frozen=True)
-class Issue:
-    """A problem found before a run. ``error`` would make the run fail."""
-
-    severity: Literal["error", "warning"]
-    where: str
-    message: str
-
-    def __str__(self) -> str:
-        return f"{self.severity}: {self.where}: {self.message}"
-
-
 def preflight(prepared: PreparedRun, registry: Registry | None = None) -> list[Issue]:
     """Cheap checks of what the planned steps need: input header, plugins and their data.
 
@@ -291,7 +281,31 @@ def preflight(prepared: PreparedRun, registry: Registry | None = None) -> list[I
             issues.append(Issue("warning", where, f"'{name}' preflight failed: {exc}"))
             continue
         issues += [Issue("error", where, p) for p in problems]
+        try:
+            notes = plugin.preflight_warnings(prepared.config, prepared.modality)
+        except Exception as exc:  # a broken third-party check must not block the run
+            notes = [f"'{name}' preflight failed: {exc}"]
+        issues += [Issue("warning", where, n) for n in notes]
+    issues += _sanity(prepared, reg)
     return issues
+
+
+def _sanity(prepared: PreparedRun, registry: Registry) -> list[Issue]:
+    """Recommended ranges, settings, this computer and the input (:mod:`mskpipe.config.sanity`)."""
+    config, req = prepared.config, prepared.request
+    if prepared.workspace is not None and req.device is not None:  # resume on another device
+        runtime = config.runtime.model_copy(update={"device": Device(req.device)})
+        config = config.model_copy(update={"runtime": runtime})
+    image = None
+    if "segment" in prepared.steps:
+        image = prepared.workspace.input_image if prepared.workspace else prepared.spec.image
+    return sanity.check(
+        config,
+        image,
+        prepared.modality,
+        registry=registry,
+        detect_modality=str(req.modality) != AUTO,
+    )
 
 
 def _plugins(prepared: PreparedRun) -> list[tuple[str, str, str]]:

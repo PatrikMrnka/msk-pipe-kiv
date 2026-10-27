@@ -9,10 +9,15 @@ the ``Params`` schema of the selected attachment plugin.
 
 The form is the source of truth for a run: :meth:`ConfigForm.overrides` returns the
 values that differ from the defaults as ``key.path=value`` strings for ``mskpipe run``.
+
+Validation marks fields: red = invalid value (schema error), amber = valid but outside the
+recommended range or a setting that is probably not meant (:mod:`mskpipe.config.sanity`);
+the tooltip of every numeric field names its recommended range.
 """
 
 from __future__ import annotations
 
+import html
 import math
 import re
 from collections.abc import Callable, Mapping
@@ -41,6 +46,7 @@ from PySide6.QtWidgets import (
 )
 
 from mskpipe import api
+from mskpipe.config import sanity
 from mskpipe.config.help import Help, help_for, plugin_help
 from mskpipe.core.registry import PluginError, Registry, default_registry
 from mskpipe.gui.help_badge import HelpBadge, help_html, label_with_badge
@@ -60,6 +66,9 @@ EXCLUDE_PATH: Path_ = ("export", "exclude")
 LABELS: dict[Path_, str] = {EXCLUDE_PATH: "Exported muscles"}
 
 _UNITS = {"mm": "mm", "s": "s", "deg": "°"}
+_INT_MIN, _INT_MAX = -(2**31) + 1, 2**31 - 1  # QSpinBox is 32-bit
+ERROR_STYLE = "border: 1px solid #c0392b;"
+WARNING_STYLE = "border: 1px solid #d68910; background-color: rgba(241, 196, 15, 0.18);"
 _ERROR_LINE = re.compile(r"^\s+(\S+): (.+)$")
 
 
@@ -231,13 +240,13 @@ def _choice_field(path: Path_, values: list[Any]) -> Field:
 def _int_field(path: Path_, node: dict[str, Any]) -> Field:
     spin = _NoWheelSpin()
     spin.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-    low = node.get("minimum", node.get("exclusiveMinimum", -(2**31) + 1))
+    low = node.get("minimum", node.get("exclusiveMinimum", _INT_MIN))
     if "exclusiveMinimum" in node and "minimum" not in node:
         low += 1
-    high = node.get("maximum", node.get("exclusiveMaximum", 2**31 - 1))
+    high = node.get("maximum", node.get("exclusiveMaximum", _INT_MAX))
     if "exclusiveMaximum" in node and "maximum" not in node:
         high -= 1
-    spin.setRange(int(low), int(high))
+    spin.setRange(max(int(low), _INT_MIN), min(int(high), _INT_MAX))
     return Field(
         path,
         spin,
@@ -370,6 +379,14 @@ class ConfigForm(QWidget):
         self.error_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.error_label.hide()
         layout.addWidget(self.error_label)
+        self.warning_label = QLabel()
+        self.warning_label.setWordWrap(True)
+        self.warning_label.setStyleSheet("color: #ca6f1e;")
+        self.warning_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.warning_label.hide()
+        layout.addWidget(self.warning_label)
+        self._tips: dict[Path_, str] = {}  # base tooltip of each field (warnings are added)
+        self.warnings: list[sanity.Issue] = []  # of the last validate()
 
         self._building = True
         for name, node in schema["properties"].items():
@@ -415,8 +432,10 @@ class ConfigForm(QWidget):
             field = self._make_field(child_path, kind, resolved, nullable)
             label = QLabel(LABELS.get(child_path, humanize(name)))
             tip = self._help_tip(child_path) or _tooltip(child_path, resolved)
+            tip += _recommended_tip(child, rich=bool(self._help_tip(child_path)))
             label.setToolTip(tip)
             field.editor.setToolTip(tip)
+            self._tips[child_path] = tip
             field.label = label
             field.connect(lambda p=child_path: self._on_change(p))
             self._fields[child_path] = field
@@ -644,11 +663,16 @@ class ConfigForm(QWidget):
     # ------------------------------------------------------------------ validation
 
     def validate(self, extra_overrides: list[str] | None = None) -> str | None:
-        """Check the values with the config schema; marks bad fields, returns the error."""
-        for field in self._fields.values():
+        """Check the values with the config schema; marks bad fields, returns the error.
+        A valid config is also checked for values outside the recommended ranges and
+        settings that are probably not meant (marked amber, listed below the form)."""
+        for path, field in self._fields.items():
             field.editor.setStyleSheet("")
+            field.editor.setToolTip(self._tips.get(path, ""))
+        self.warnings = []
+        self.warning_label.hide()
         try:
-            api.resolved_config(
+            resolved = api.resolved_config(
                 overrides=[*(extra_overrides or []), *self.overrides()], registry=self._registry
             )
         except api.SetupError as exc:
@@ -657,12 +681,34 @@ class ConfigForm(QWidget):
                 match = _ERROR_LINE.match(line)
                 field = self._field_for(match.group(1)) if match else None
                 if field is not None:
-                    field.editor.setStyleSheet("border: 1px solid #c0392b;")
+                    field.editor.setStyleSheet(ERROR_STYLE)
             self.error_label.setText(message)
             self.error_label.show()
             return message
         self.error_label.hide()
+        self._show_warnings(sanity.check_config(resolved, self._registry))
         return None
+
+    def _show_warnings(self, issues: list[sanity.Issue]) -> None:
+        self.warnings = [i for i in issues if i.severity != "error"]
+        notes: dict[Path_, list[str]] = {}
+        for issue in self.warnings:
+            field = self._field_for(issue.field) if issue.field else None
+            if field is not None and issue.severity == "warning":
+                notes.setdefault(field.path, []).append(issue.message)
+        for path, messages in notes.items():
+            field = self._fields[path]
+            field.editor.setStyleSheet(WARNING_STYLE)
+            tip = self._tips.get(path, "")
+            if tip and not tip.lstrip().startswith("<"):  # plain text -> rich text
+                tip = html.escape(tip).replace("\n", "<br>")
+            warning = "<br>".join(f"⚠ {html.escape(m)}" for m in messages)
+            field.editor.setToolTip(f"<p>{warning}</p><hr>{tip}" if tip else f"<p>{warning}</p>")
+        if self.warnings:
+            self.warning_label.setText(
+                "\n".join(f"{i.severity.capitalize()}: {i.message}" for i in self.warnings)
+            )
+            self.warning_label.show()
 
     def _field_for(self, location: str) -> Field | None:
         """Field of an error location; unions add parts (``a.b.list[str].0`` -> ``a.b``)."""
@@ -717,6 +763,19 @@ class ConfigForm(QWidget):
             font = QFont(field.label.font())
             font.setBold(path not in ref or field.get() != ref[path])
             field.label.setFont(font)
+
+
+def _recommended_tip(node: Mapping[str, Any], *, rich: bool) -> str:
+    """'Recommended: lo - hi (why)' for a field with a recommended range ('' otherwise)."""
+    rec = node.get("recommended")
+    if not rec:
+        return ""
+    low, high = rec
+    text = "Recommended: " + " - ".join("…" if v is None else f"{v:g}" for v in (low, high))
+    why = node.get("recommended_why")
+    if why:
+        text += f" ({why})"
+    return f"<p><i>{html.escape(text)}</i></p>" if rich else f"\n\n{text}"
 
 
 def _tooltip(path: Path_, node: Mapping[str, Any]) -> str:

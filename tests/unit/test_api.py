@@ -286,7 +286,39 @@ def test_atlas_registration_preflight(tmp_path, monkeypatch):
     cfg = load_config(overrides=[f"attachments.params.atlas_dir={tmp_path.as_posix()}"])
     assert "index not found" in AtlasRegistration.preflight(cfg, "ct")[0]
     (tmp_path / "atlas.json").write_text("{}", encoding="utf-8")
+    assert "not readable" in AtlasRegistration.preflight(cfg, "ct")[0]  # no muscles
+    write_atlas_index(tmp_path, {"units": "mm", "frame": "ras"})
     assert AtlasRegistration.preflight(cfg, "ct") == []
+    assert AtlasRegistration.preflight_warnings(cfg, "ct") == []
+    left = load_config(
+        overrides=[f"attachments.params.atlas_dir={tmp_path.as_posix()}", "skeleton.side=l"]
+    )
+    assert "no muscles of side 'l'" in AtlasRegistration.preflight_warnings(left, "ct")[0]
+
+
+def write_atlas_index(folder: Path, header: dict, files: bool = True) -> None:
+    """atlas.json with one right muscle; ``files`` = write its outline files too."""
+    import json
+
+    area = {"Ori": {"file": "muscles/iliacus_r/Iliacus_Ori.vtk", "bone": "pelvis"}}
+    index = {**header, "muscles": {"iliacus_r": {"stem": "Iliacus", **area}}}
+    (folder / "atlas.json").write_text(json.dumps(index), encoding="utf-8")
+    if files:
+        out = folder / "muscles/iliacus_r/Iliacus_Ori.vtk"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text("# vtk", encoding="utf-8")
+
+
+def test_atlas_preflight_units_and_files(tmp_path):
+    from mskpipe.config import load_config
+    from mskpipe.plugins.attachments.atlas_registration import AtlasRegistration
+
+    cfg = load_config(overrides=[f"attachments.params.atlas_dir={tmp_path.as_posix()}"])
+    write_atlas_index(tmp_path, {"units": "m", "frame": "ras"})
+    assert "RAS mm" in AtlasRegistration.preflight(cfg, "ct")[0]
+    (tmp_path / "muscles/iliacus_r/Iliacus_Ori.vtk").unlink()
+    write_atlas_index(tmp_path, {}, files=False)
+    assert "outline files missing" in AtlasRegistration.preflight(cfg, "ct")[0]
 
 
 # ---------------------------------------------------------------------------- config

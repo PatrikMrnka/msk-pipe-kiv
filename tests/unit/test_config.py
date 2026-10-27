@@ -118,7 +118,8 @@ def test_input_spec_rejects_non_nifti():
 
 def test_defaults_match_bp_config():
     cfg = PipelineConfig()
-    assert (cfg.labelmap.bones.min_voxels, cfg.labelmap.muscles.min_voxels) == (2000, 1000)
+    # BP: 2000 / 1000 voxels on its 1 mm grid
+    assert (cfg.labelmap.bones.min_volume_ml, cfg.labelmap.muscles.min_volume_ml) == (2.0, 1.0)
     assert cfg.labelmap.bones.closing_radius_mm == cfg.labelmap.muscles.opening_radius_mm == 1.5
     assert cfg.labelmap.bones.min_component_fraction == 1.0  # BP: keep_largest
     assert (cfg.mesh.bones.smooth_iterations, cfg.mesh.muscles.smooth_iterations) == (40, 30)

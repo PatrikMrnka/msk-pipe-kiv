@@ -128,7 +128,7 @@ def build_command(
     saving: int | None = None,
 ) -> list[str]:
     """Command line of one TotalSegmentator run (multi-label output file); ``saving`` =
-    ``--nr_thr_saving`` unless ``extra_args`` sets it."""
+    ``--nr_thr_saving`` (``extra_args`` cannot set it, see the config schema)."""
     argv = [sys.executable, "-m", MODULE, "-i", str(image), "-o", str(out_file), "--ml"]
     argv += ["-ta", task, "-d", "gpu" if device == "cuda" else "cpu"]
     if task in ROI_TASKS:
@@ -138,7 +138,7 @@ def build_command(
             argv.append("-f")
     if cfg.higher_order_resampling:
         argv.append("--higher_order_resampling")
-    if saving is not None and not {"-ns", "--nr_thr_saving"} & set(cfg.extra_args):
+    if saving is not None:
         argv += ["-ns", str(saving)]
     argv += list(cfg.extra_args)
     return argv

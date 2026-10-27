@@ -24,6 +24,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from mskpipe.config import ConfigError, PipelineConfig
+from mskpipe.config.schema import unknown_key_hint
 from mskpipe.plugins.base import KIND_BASES, KINDS, Plugin, PluginKind, PluginParams
 
 logger = logging.getLogger("mskpipe")
@@ -168,7 +169,10 @@ class Registry:
             lines = [f"Invalid configuration (plugin {kind}/{name}):"]
             for err in exc.errors():
                 loc = ".".join(str(p) for p in (where, "params", *err["loc"]))
-                lines.append(f"  {loc}: {err['msg']}")
+                hint = ""
+                if err["type"] == "extra_forbidden":
+                    hint = unknown_key_hint(plugin.Params, err["loc"])
+                lines.append(f"  {loc}: {err['msg']}{hint}")
             raise PluginError("\n".join(lines)) from None
 
     def identity(self, kind: PluginKind, name: str) -> dict[str, str]:

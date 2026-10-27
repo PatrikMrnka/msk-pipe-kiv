@@ -148,8 +148,8 @@ def test_segment_writes_index_and_metrics(tmp_path, spec, registry):
 def test_segment_then_labelmap(tmp_path, spec, registry, bones):
     cfg = config(
         tmp_path,
-        "labelmap.bones.min_voxels=1",
-        "labelmap.muscles.min_voxels=1",
+        "labelmap.bones.min_volume_ml=0",
+        "labelmap.muscles.min_volume_ml=0",
         f"segmentation.bones={bones}",
     )
     result = run_pipeline([SegmentStep(registry), LabelmapStep()], spec, cfg)

@@ -7,17 +7,27 @@ the GUI can build its forms from :func:`json_schema`.
 
 ``InputSpec`` (what to process) is deliberately separate from
 ``PipelineConfig`` (how to process it), so one config can drive a batch.
+
+Two levels of checks: the ``ge``/``le``/``gt``/``lt`` bounds and validators reject values
+that are impossible or make a step fail (errors); :func:`recommended` attaches the range
+of sensible values to a numeric field, and values outside it are reported as warnings by
+:mod:`mskpipe.config.sanity` (``mskpipe config check``, pre-run checks, GUI).
 """
 
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
 import re
+import typing
 from enum import StrEnum
+from functools import cache
+from importlib.resources import files
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
+import yaml
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -31,6 +41,64 @@ CONFIG_VERSION = 1
 
 _IDENT = r"^[a-z][a-z0-9_]*$"
 MuscleName = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]*_[lr]$")]
+SEED_MAX = 2**32 - 1  # numpy.random.RandomState accepts 0 .. 2**32 - 1
+
+# Names Windows reserves for devices; a run folder or file with such a stem cannot be created
+WINDOWS_RESERVED = frozenset(
+    {"CON", "PRN", "AUX", "NUL"} | {f"{port}{i}" for port in ("COM", "LPT") for i in range(1, 10)}
+)
+
+
+def recommended(low: float | None, high: float | None, why: str = "") -> dict[str, Any]:
+    """``json_schema_extra`` of a numeric field: values outside ``[low, high]`` are valid
+    but reported as warnings (``None`` = no bound on that side). ``why`` is shown with
+    the warning and in the GUI tooltip."""
+    extra: dict[str, Any] = {"recommended": [low, high]}
+    if why:
+        extra["recommended_why"] = why
+    return extra
+
+
+def windows_reserved(name: str) -> bool:
+    """Whether ``name`` is a device name on Windows (also with an extension, ``CON.txt``)."""
+    return name.split(".", 1)[0].upper() in WINDOWS_RESERVED
+
+
+@cache
+def known_muscles() -> tuple[str, ...]:
+    """Muscles of the unified label scheme with side suffix (``gluteus_maximus_r``), in
+    scheme order. Read directly from ``unified_labels.yaml`` (no import of the labelmap
+    package, which depends on this module)."""
+    text = files("mskpipe.config").joinpath("unified_labels.yaml").read_text(encoding="utf-8")
+    structures = (yaml.safe_load(text) or {}).get("structures", {})
+    return tuple(n for n, s in structures.items() if (s or {}).get("kind") == "muscle")
+
+
+def _unknown_names(given: list[str], known: list[str], what: str) -> None:
+    unknown = [n for n in given if n not in known]
+    if unknown:
+        hints = []
+        for name in unknown:
+            close = difflib.get_close_matches(name, known, n=1)
+            hints.append(f"'{name}'" + (f" (did you mean '{close[0]}'?)" if close else ""))
+        raise ValueError(f"unknown {what}: {', '.join(hints)}")
+
+
+def blocked_args(args: list[str], blocked: frozenset[str], tool: str) -> None:
+    """Reject command-line options of ``tool`` that msk-pipe sets itself. Long options may
+    be abbreviated (argparse) or written as ``--opt=value``."""
+    bad = []
+    for arg in args:
+        opt = arg.split("=", 1)[0]
+        if opt in blocked or (
+            opt.startswith("--") and len(opt) > 2 and any(b.startswith(opt) for b in blocked)
+        ):
+            bad.append(arg)
+    if bad:
+        raise ValueError(
+            f"{', '.join(bad)}: set by msk-pipe itself (input, output, task, device, model, "
+            f"resolution or saving of {tool}); use the matching config key instead"
+        )
 
 
 class StrictModel(BaseModel):
@@ -70,7 +138,9 @@ TIBIA_FIBULA_SOURCE: dict[str, str] = {
 
 def _subject_from_path(path: Path) -> str:
     stem = re.sub(r"\.nii(\.gz)?$", "", path.name, flags=re.IGNORECASE)
-    cleaned = re.sub(r"[^A-Za-z0-9._-]", "_", stem).lstrip("._-")[:64]
+    cleaned = re.sub(r"[^A-Za-z0-9._-]", "_", stem).lstrip("._-")[:64].rstrip(".")
+    if windows_reserved(cleaned):
+        cleaned = f"{cleaned[:62]}_s"
     return cleaned or "subject"
 
 
@@ -99,6 +169,15 @@ class InputSpec(StrictModel):
             )
         return self
 
+    @field_validator("subject_id")
+    @classmethod
+    def _windows_name(cls, value: str) -> str:
+        if windows_reserved(value) or value.endswith("."):
+            raise ValueError(
+                f"'{value}' cannot be a folder name on Windows (device name or trailing dot)"
+            )
+        return value
+
 
 # --------------------------------------------------------------------------- runtime
 
@@ -108,8 +187,13 @@ class RuntimeConfig(StrictModel):
         Device.CPU,
         description="Compute device; 'auto' uses an NVIDIA GPU if available, otherwise CPU.",
     )
-    threads: int | None = Field(None, ge=1, description="Max CPU threads; null = all cores.")
-    seed: int = Field(0, ge=0, description="Random seed for stochastic steps.")
+    threads: int | None = Field(
+        None,
+        ge=1,
+        le=1024,
+        description="Max CPU threads; null = all cores (more than the cores = warning).",
+    )
+    seed: int = Field(0, ge=0, le=SEED_MAX, description="Random seed for stochastic steps.")
     runs_dir: Path = Field(Path("runs"), description="Directory in which run folders are created.")
     cache: bool = Field(
         True, description="Reuse step outputs whose inputs and settings are unchanged."
@@ -121,6 +205,29 @@ class RuntimeConfig(StrictModel):
 
 
 # --------------------------------------------------------------------------- segmentation
+
+
+# Options of TotalSegmentator 2.18 and MuscleMap that msk-pipe sets itself, or that change
+# where and in which form the output is written; extra_args must not contain them.
+TOTALSEGMENTATOR_CONTROLLED = frozenset(
+    {
+        *("-i", "-o", "-ml", "--ml", "-ta", "--task", "-d", "--device"),
+        *("-rs", "--roi_subset", "-rsr", "--roi_subset_robust"),
+        *("-f", "--fast", "-ff", "--fastest", "-sl", "--save_lowres"),
+        *("-ho", "--higher_order_resampling", "--high_order_resampling"),
+        *("--higher_order_resampling_LEGACY", "--high_order_resampling_LEGACY"),
+        *("-ns", "--nr_thr_saving", "-ot", "--output_type", "-ss", "--skip_saving"),
+        *("-l", "--license_number", "-lt", "--list-tasks", "-lc", "--list-classes"),
+        *("--version", "--test"),
+    }
+)
+MUSCLEMAP_CONTROLLED = frozenset(
+    {
+        *("-i", "--input_image", "-o", "--output_dir", "-r", "--region", "-m", "--model"),
+        *("-v", "--model_version", "-g", "--use_GPU", "-s", "--overlap"),
+        *("-c", "--chunk_size", "-x", "--suffix"),
+    }
+)
 
 
 class TotalSegmentatorConfig(StrictModel):
@@ -142,9 +249,11 @@ class TotalSegmentatorConfig(StrictModel):
         "auto",
         description="Worker processes exporting the segmentation (--nr_thr_saving); each loads "
         "PyTorch. 'auto' = from RAM + page file (1-6), fewer on small machines.",
+        json_schema_extra=recommended(1, 6, "each worker loads PyTorch (1-2 GB of memory)"),
     )
     extra_args: list[str] = Field(
-        default_factory=list, description="Extra CLI arguments passed verbatim."
+        default_factory=list,
+        description="Extra CLI arguments passed verbatim (not those msk-pipe sets itself).",
     )
 
     @model_validator(mode="after")
@@ -152,6 +261,12 @@ class TotalSegmentatorConfig(StrictModel):
         if isinstance(self.nr_thr_saving, int) and not 1 <= self.nr_thr_saving <= 16:
             raise ValueError("nr_thr_saving must be 1-16 or 'auto'")
         return self
+
+    @field_validator("extra_args")
+    @classmethod
+    def _not_controlled(cls, value: list[str]) -> list[str]:
+        blocked_args(value, TOTALSEGMENTATOR_CONTROLLED, "TotalSegmentator")
+        return value
 
 
 class MuscleMapConfig(StrictModel):
@@ -163,23 +278,42 @@ class MuscleMapConfig(StrictModel):
     overlap: float = Field(
         90.0,
         ge=0,
-        lt=100,
+        le=99,
         description="Sliding-window overlap in percent; higher = slower, possibly more "
         "accurate (BP: 90).",
+        json_schema_extra=recommended(
+            50, 95, "below 50 window edges show, above 95 inference is very slow"
+        ),
     )
     chunk_size: int | Literal["auto"] = Field(
         "auto",
-        description="Axial slices per inference chunk, or 'auto' (from free CPU/GPU memory).",
+        description="Axial slices per inference chunk, or 'auto' (from free CPU/GPU memory); "
+        "MuscleMap segments 2D slices, any positive value works (memory vs speed).",
     )
     extra_args: list[str] = Field(
-        default_factory=list, description="Extra CLI arguments passed verbatim."
+        default_factory=list,
+        description="Extra CLI arguments passed verbatim (not those msk-pipe sets itself).",
     )
+
+    @field_validator("model_version", mode="before")
+    @classmethod
+    def _version_text(cls, value: Any) -> Any:
+        # `--set ...model_version=1.4` and unquoted YAML give a number
+        if isinstance(value, int | float) and not isinstance(value, bool):
+            return str(value)
+        return value
 
     @model_validator(mode="after")
     def _check_chunk(self) -> MuscleMapConfig:
         if isinstance(self.chunk_size, int) and self.chunk_size < 1:
             raise ValueError("chunk_size must be a positive integer or 'auto'")
         return self
+
+    @field_validator("extra_args")
+    @classmethod
+    def _not_controlled(cls, value: list[str]) -> list[str]:
+        blocked_args(value, MUSCLEMAP_CONTROLLED, "MuscleMap")
+        return value
 
 
 class SegmentationConfig(StrictModel):
@@ -224,19 +358,26 @@ class SegmentationConfig(StrictModel):
 
 
 class PreprocessParams(StrictModel):
-    min_voxels: int = Field(0, ge=0, description="Labels with fewer voxels are treated as missing.")
+    min_volume_ml: float = Field(
+        0.0,
+        ge=0,
+        le=1000,
+        description="Labels smaller than this volume [ml] are treated as missing.",
+    )
     closing_radius_mm: float = Field(
         1.5,
         ge=0,
-        le=20,
+        le=10,
         description="Morphological closing radius in mm (applied first, only into background); "
         "0 disables.",
+        json_schema_extra=recommended(0, 3, "larger closings merge neighbouring structures"),
     )
     opening_radius_mm: float = Field(
         1.5,
         ge=0,
-        le=20,
+        le=10,
         description="Morphological opening radius in mm (applied after hole filling); 0 disables.",
+        json_schema_extra=recommended(0, 3, "an opening removes parts thinner than 2 x radius"),
     )
     fill_holes: bool = Field(True, description="Fill internal cavities of each label (3D).")
     min_component_fraction: float = Field(
@@ -247,7 +388,23 @@ class PreprocessParams(StrictModel):
             "Connected components smaller than this fraction of the largest are removed; "
             "1 keeps only the largest, 0 keeps all."
         ),
+        json_schema_extra=recommended(0.05, 1, "below 0.05 segmentation noise is kept"),
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _min_voxels(cls, data: Any) -> Any:
+        """``min_voxels`` (0.1.0) became ``min_volume_ml``: converted with 1 voxel = 1 mm^3,
+        the grid of the BP (configs of 0.1.0 runs stay valid)."""
+        if not isinstance(data, dict) or "min_voxels" not in data:
+            return data
+        data = dict(data)
+        voxels = data.pop("min_voxels")
+        if "min_volume_ml" in data:
+            raise ValueError("min_voxels was replaced by min_volume_ml; give only min_volume_ml")
+        if voxels is not None:
+            data["min_volume_ml"] = voxels / 1000.0
+        return data
 
 
 class BoneTopologyParams(StrictModel):
@@ -262,19 +419,29 @@ class BoneTopologyParams(StrictModel):
         le=200,
         description="Holes wider than this are reported, never filled by interpolation "
         "(voxels of another segmentation of the same bone fill holes of any size).",
+        json_schema_extra=recommended(
+            10, 60, "holes in the iliac wing of TLEM 2.0 MRI were 28-48 mm (E17)"
+        ),
     )
     repair_gaps: bool = Field(
         True,
         description="Bridge gaps between fragments of a long bone (fibula); off = only report.",
     )
     max_gap_mm: float = Field(
-        40.0, gt=0, le=200, description="Longer gaps are reported, never bridged."
+        40.0,
+        gt=0,
+        le=200,
+        description="Longer gaps are reported, never bridged.",
+        json_schema_extra=recommended(
+            10, 80, "the fibula gap of TLEM 2.0 MRI was 39 mm (E17); long bridges are guesses"
+        ),
     )
     min_length_ratio: float = Field(
         0.85,
         ge=0,
         le=1,
         description="Fibula shorter than this fraction of the tibia is reported as a defect.",
+        json_schema_extra=recommended(0.7, 0.95, "the fibula is about 0.9-1.0 of the tibia"),
     )
     on_unfixed: Literal["warn", "fail"] = Field(
         "warn",
@@ -284,15 +451,36 @@ class BoneTopologyParams(StrictModel):
 
 
 class BonePreprocessParams(PreprocessParams):
-    min_voxels: int = Field(
-        2000, ge=0, description="Labels with fewer voxels are treated as missing."
+    min_volume_ml: float = Field(
+        2.0,
+        ge=0,
+        le=1000,
+        description="Labels smaller than this volume [ml] are treated as missing.",
+        json_schema_extra=recommended(
+            0, 20, "the smallest bone (fibula) is about 40 ml; larger limits may drop it"
+        ),
+    )
+    opening_radius_mm: float = Field(
+        1.5,
+        ge=0,
+        le=10,
+        description="Morphological opening radius in mm (applied after hole filling); 0 disables.",
+        json_schema_extra=recommended(
+            0, 2, "the iliac wing is 2-3 mm thin; a larger opening perforates it"
+        ),
     )
     topology: BoneTopologyParams = Field(default_factory=BoneTopologyParams)
 
 
 class MusclePreprocessParams(PreprocessParams):
-    min_voxels: int = Field(
-        1000, ge=0, description="Labels with fewer voxels are treated as missing."
+    min_volume_ml: float = Field(
+        1.0,
+        ge=0,
+        le=1000,
+        description="Labels smaller than this volume [ml] are treated as missing.",
+        json_schema_extra=recommended(
+            0, 10, "the smallest muscles (obturators) are about 15-20 ml"
+        ),
     )
 
 
@@ -306,18 +494,34 @@ class LabelmapConfig(StrictModel):
 # Meshes are written in world coordinates (NIfTI RAS+, mm); see mskpipe.geometry.surface.
 
 
+_SMOOTHING = recommended(10, 100, "BP: 30 (muscles), 40 (bones); more flattens details")
+
+
 class MeshParams(StrictModel):
     smooth_iterations: int = Field(
-        30, ge=0, le=500, description="Windowed sinc smoothing iterations; 0 disables smoothing."
+        30,
+        ge=0,
+        le=500,
+        description="Windowed sinc smoothing iterations; 0 disables smoothing.",
+        json_schema_extra=_SMOOTHING,
     )
     passband: float = Field(
-        0.01, gt=0.0, lt=2.0, description="Smoothing pass band; lower = stronger smoothing."
+        0.01,
+        gt=0.0,
+        lt=2.0,
+        description="Smoothing pass band; lower = stronger smoothing.",
+        json_schema_extra=recommended(
+            0.001, 0.1, "VTK recommends 0.01-0.1; above 0.5 there is hardly any smoothing"
+        ),
     )
     target_reduction: float = Field(
         0.8,
         ge=0.0,
-        lt=1.0,
+        le=0.99,
         description="Fraction of triangles removed by quadric decimation; 0 disables.",
+        json_schema_extra=recommended(
+            0, 0.9, "stronger decimation leaves too few triangles for Muscle Wrapping"
+        ),
     )
     min_component_fraction: float = Field(
         0.1,
@@ -327,12 +531,17 @@ class MeshParams(StrictModel):
             "Surface parts smaller than this fraction of the largest part are removed; "
             "1 keeps only the largest, 0 keeps all."
         ),
+        json_schema_extra=recommended(0.01, 1, "below 0.01 loose fragments are kept"),
     )
 
 
 class BoneMeshParams(MeshParams):
     smooth_iterations: int = Field(
-        40, ge=0, le=500, description="Windowed sinc smoothing iterations; 0 disables smoothing."
+        40,
+        ge=0,
+        le=500,
+        description="Windowed sinc smoothing iterations; 0 disables smoothing.",
+        json_schema_extra=_SMOOTHING,
     )
 
 
@@ -349,6 +558,7 @@ class MeshRepairConfig(StrictModel):
         le=10,
         description="Largest morphological opening tried when remeshing a muscle mask (1, 1.5, "
         "2, 3 mm); cuts thin bridges, e.g. a sheet of muscle left next to a bone (genus > 0).",
+        json_schema_extra=recommended(0, 3, "larger openings erase thin muscles"),
     )
     max_closing_mm: float = Field(
         6.0,
@@ -356,6 +566,7 @@ class MeshRepairConfig(StrictModel):
         le=20,
         description="Largest morphological closing tried when remeshing a muscle mask (steps "
         "1.5 mm); fills tunnels.",
+        json_schema_extra=recommended(0, 8, "larger closings fill real concavities"),
     )
     max_volume_change: float = Field(
         0.05,
@@ -363,6 +574,7 @@ class MeshRepairConfig(StrictModel):
         le=0.5,
         description="A repaired surface is accepted only if its volume changes by at most this "
         "fraction (an opening can erase thin muscles or cut off their ends).",
+        json_schema_extra=recommended(0.01, 0.1, "above 10 % a repair changes the muscle"),
     )
 
 
@@ -400,9 +612,10 @@ class SkeletonConfig(StrictModel):
     )
     body_mass: float = Field(
         64.0,
-        gt=0,
+        ge=10,
         le=300,
         description="Subject mass in kg; sets segment masses and inertias (gait2392 ratios).",
+        json_schema_extra=recommended(35, 150, "adult subject"),
     )
     geometry_format: Literal["obj", "stl"] = Field(
         "obj", description="Format of the model's visualization geometries."
@@ -412,12 +625,20 @@ class SkeletonConfig(StrictModel):
         gt=0,
         le=1,
         description="Fraction of triangles kept in the visualization geometries (1 = all).",
+        json_schema_extra=recommended(0.1, 1, "below 0.1 the bones look coarse"),
     )
     model_name: str = Field(
         "bone_model",
-        pattern=r"^[A-Za-z][A-Za-z0-9_]*$",
+        pattern=r"^[A-Za-z][A-Za-z0-9_]{0,63}$",
         description="File name of the model (<model_name>.osim).",
     )
+
+    @field_validator("model_name")
+    @classmethod
+    def _windows_name(cls, value: str) -> str:
+        if windows_reserved(value):
+            raise ValueError(f"'{value}' cannot be a file name on Windows (device name)")
+        return value
 
 
 # --------------------------------------------------------------------------- attachments
@@ -431,9 +652,6 @@ class AttachmentsConfig(StrictModel):
         "atlas_registration",
         pattern=_IDENT,
         description="Attachment method plugin (see `mskpipe plugins`).",
-    )
-    atlas: str = Field(
-        "lhdl", pattern=_IDENT, description="Atlas providing reference attachment areas."
     )
     params: dict[str, Any] = Field(
         default_factory=dict,
@@ -449,6 +667,15 @@ class AttachmentsConfig(StrictModel):
         # renamed before 0.1.0; configs and experiment files of earlier runs still load
         return RENAMED_ATTACHMENT_METHODS.get(value, value) if isinstance(value, str) else value
 
+    @model_validator(mode="before")
+    @classmethod
+    def _removed_atlas(cls, data: Any) -> Any:
+        """``atlas`` (0.1.0) was never read: the atlas is the folder ``params.atlas_dir``
+        (or the installed one). Dropped, so configs of 0.1.0 runs stay valid."""
+        if isinstance(data, dict) and "atlas" in data:
+            data = {k: v for k, v in data.items() if k != "atlas"}
+        return data
+
 
 # --------------------------------------------------------------------------- export
 # Muscle Wrapping 2.x input. Files are written in mm with scale_factors 0.001 (MW2 runs its
@@ -463,9 +690,21 @@ class MotionConfig(StrictModel):
         "null = hip_flexion_<side>.",
     )
     end_deg: float = Field(
-        90.0, ge=-180, le=180, description="Last value of the swept coordinate [deg]."
+        90.0,
+        ge=-180,
+        le=180,
+        description="Last value of the swept coordinate [deg] (the anatomical range of the "
+        "coordinate is checked before the run, the range in the model by step export_mw2).",
     )
-    step_deg: float = Field(2.0, gt=0, le=45, description="Step of the swept coordinate [deg].")
+    step_deg: float = Field(
+        2.0,
+        gt=0,
+        le=45,
+        description="Step of the swept coordinate [deg].",
+        json_schema_extra=recommended(
+            0.5, 10, "Muscle Wrapping time grows with the frames; coarse steps miss detail"
+        ),
+    )
 
 
 class ExportConfig(StrictModel):
@@ -484,8 +723,22 @@ class ExportConfig(StrictModel):
         "fascia running around a bony pulley or down to the tibia; their insertion cannot be "
         "placed on the segmented belly (reasons in export.json). [] exports all.",
     )
-    num_of_lines: int = Field(100, ge=1, le=2000, description="Fibres per muscle.")
-    line_res: int = Field(15, ge=1, le=200, description="Segments per fibre (points - 1).")
+    num_of_lines: int = Field(
+        100,
+        ge=1,
+        le=2000,
+        description="Fibres per muscle.",
+        json_schema_extra=recommended(
+            10, 500, "Muscle Wrapping time grows linearly (E13: 100 fibres x 15 muscles = 25 s)"
+        ),
+    )
+    line_res: int = Field(
+        15,
+        ge=1,
+        le=200,
+        description="Segments per fibre (points - 1).",
+        json_schema_extra=recommended(5, 50, "BP: 15"),
+    )
     decomposition_method: Literal["kukacka", "hoang"] = Field(
         "kukacka", description="Muscle decomposition method of Muscle Wrapping 2.x."
     )
@@ -520,6 +773,7 @@ class ExportConfig(StrictModel):
         description="An attachment outline that collapses when projected onto the muscle "
         "(missing tendon; Muscle Wrapping would crash) is replaced by the outline of a patch "
         "of the muscle surface of this radius [mm] around it (grown until it is a disc).",
+        json_schema_extra=recommended(2, 15, "larger patches no longer resemble the attachment"),
     )
     on_invalid: Literal["exclude", "keep"] = Field(
         "exclude",
@@ -528,6 +782,20 @@ class ExportConfig(StrictModel):
         "from the setup XML or 'keep' (written with a warning). Attachment outline checks "
         "are reported only and never exclude a muscle.",
     )
+
+    @field_validator("muscles")
+    @classmethod
+    def _known_muscles(cls, value: list[str] | str) -> list[str] | str:
+        if isinstance(value, list):
+            _unknown_names(value, list(known_muscles()), "muscle in export.muscles")
+        return value
+
+    @field_validator("exclude")
+    @classmethod
+    def _known_bases(cls, value: list[str]) -> list[str]:
+        bases = list(dict.fromkeys(re.sub(r"_[lr]$", "", m) for m in known_muscles()))
+        _unknown_names(value, bases, "muscle in export.exclude (names without _l/_r)")
+        return value
 
 
 # --------------------------------------------------------------------------- root
@@ -599,3 +867,27 @@ class PipelineConfig(StrictModel):
 def json_schema() -> dict[str, Any]:
     """JSON Schema of the config file (editor completion, GUI forms)."""
     return PipelineConfig.model_json_schema()
+
+
+def unknown_key_hint(model: type[BaseModel], loc: tuple[Any, ...]) -> str:
+    """`` (did you mean 'x'?)`` for an unknown key at ``loc`` of ``model``; '' if no close
+    match (or ``loc`` leaves the nested models)."""
+    for part in loc[:-1]:
+        field = model.model_fields.get(str(part))
+        sub = (
+            next(
+                (
+                    a
+                    for a in (field.annotation, *typing.get_args(field.annotation))
+                    if isinstance(a, type) and issubclass(a, BaseModel)
+                ),
+                None,
+            )
+            if field is not None
+            else None
+        )
+        if sub is None:
+            return ""
+        model = sub
+    close = difflib.get_close_matches(str(loc[-1]), list(model.model_fields), n=1)
+    return f" (did you mean '{close[0]}'?)" if close else ""
