@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-27
+
 ### Added
 - Geometry check of the bones in step `labelmap` (`labelmap.bones.topology`): through-holes in thin bone (genus above the anatomy, e.g. iliac wing holes in MRI; the obturator foramen is kept) are filled from the other tool's segmentation of the same bone (MuscleMap hip bone), else by plate patches; gaps in long bones are bridged before the opening so the component filter keeps the whole bone; fibula shorter than 85 % of the tibia is reported. `02_labelmap/defects.json` + `patches.nii.gz`, per-structure `topology` in `labelmap.json`, `defects` metrics; `on_unfixed: fail` stops the run.
 - Step `mesh` reports bone surfaces whose genus exceeds the anatomy, step `export_mw2` muscles whose mesh Muscle Wrapping cannot use (`defects.json` in each step folder).
@@ -20,7 +22,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 
 ### Changed
 - `segmentation.bones` chooses the source of all bones: `totalsegmentator` (pelvis, sacrum, femur; tibia and fibula from `appendicular_bones`, licence key) or `musclemap` (all bones incl. sacrum, MuscleMap label 6160; no key, TotalSegmentator is not run when the muscles come from MuscleMap too). `segmentation.tibia_fibula` was removed: a value agreeing with `bones` is ignored (0.1.0 configs stay valid), mixed sources are an error. *Use MuscleMap instead* in the setup window sets `segmentation.bones = musclemap`.
-- Steps `labelmap` (v2) and `mesh` (v2) are recomputed once; on LHDL CT the label map is unchanged (0 voxels differ).
+- Runs of 0.1.0 are recomputed from step `labelmap` on (step versions `labelmap` 3, `mesh` 3). With the bone repair alone (v2) the LHDL CT label map was unchanged (0 voxels differ).
 - Step `labelmap` (v3): the genus of a bone is counted on its Flying Edges surface (the surface step `mesh` builds), not on the 26-connected voxels. Voxels touching only along an edge or a corner no longer count as closing a hole, so a hole reported as fixed is closed in the mesh too (TLEM 2.0 MRI: pelvis surface genus 1 + 1 instead of 4 + 2). `mskpipe.labelmap.topology.surface_topology`.
 - Step `mesh` (v3) is where surfaces are guaranteed: every structure is checked as the next steps need it (bones closed, manifold, outward for pystaple; muscles in addition one part with genus 0 for Muscle Wrapping) and repaired there (mesh-level fixes, then remeshing with topology-preserving decimation, muscles also with openings and closings; `mskpipe.geometry.checked`). `meshes.json` per structure: `valid`, `problems`, `check`, `repair`, `decimation`; metrics `repaired`, `invalid`; `defects.json` lists repaired and invalid bones, located at their open edges. Surfaces that pass are the BP meshes, unchanged.
 - The muscle repair moved from step `export_mw2` to step `mesh`: `export.repair`, `export.repair_max_opening_mm`, `export.repair_max_closing_mm`, `export.repair_max_volume_change` are now `mesh.repair.enabled`, `.max_opening_mm`, `.max_closing_mm`, `.max_volume_change` (old keys are still read, e.g. by `--resume` of 0.1.0 runs). `export_mw2` only verifies the mesh and copies the repair record into `export.json`; it no longer reads the label map.
@@ -125,5 +127,6 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 - BP `VotingBinaryIterativeHoleFilling` grew masks instead of filling cavities; BP binarization was correct only for uint8 masks; BP cleaned masks could overlap (e.g. femur/hip).
 - MuscleMap exits with code 0 on errors and stores labels with the input header (8-bit inputs scale label IDs lossily): the output is checked and 8-bit inputs get a float32 copy.
 
-[Unreleased]: https://github.com/kivzcu/msk-pipe/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/kivzcu/msk-pipe/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/kivzcu/msk-pipe/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/kivzcu/msk-pipe/releases/tag/v0.1.0
