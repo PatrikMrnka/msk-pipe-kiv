@@ -770,7 +770,9 @@ class ExportConfig(StrictModel):
         ge=1,
         le=200,
         description="Segments per fibre (points - 1).",
-        json_schema_extra=recommended(5, 50, "fewer slices = less memory, slower"),
+        json_schema_extra=recommended(
+            5, 50, "fewer segments = coarser fibre paths; more = slower Muscle Wrapping"
+        ),
     )
     decomposition_method: Literal["kukacka", "hoang"] = Field(
         "kukacka", description="Muscle decomposition method of Muscle Wrapping 2.x."

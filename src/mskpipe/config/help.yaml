@@ -100,9 +100,10 @@ segmentation.totalsegmentator.higher_order_resampling:
   example: On (default); off gives stair-stepped bone surfaces.
 segmentation.totalsegmentator.roi_subset:
   help: >-
-    Predict only the structures the pipeline needs instead of all 117. Faster and lighter on
-    memory, same masks of the needed structures.
-  example: On (default).
+    Predict only the structures the pipeline needs instead of all 117: faster and lighter on
+    memory. The masks depend slightly on which structures are requested (TotalSegmentator
+    crops the image around them), so they can differ a little from a full run.
+  example: On (default); off to compare with a full TotalSegmentator run.
 segmentation.totalsegmentator.nr_thr_saving:
   help: >-
     Number of worker processes that write the segmentation. Each one loads PyTorch (with the
