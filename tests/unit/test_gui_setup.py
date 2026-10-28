@@ -16,10 +16,13 @@ from PySide6.QtCore import QEventLoop, QSettings
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from mskpipe.config import load_config
+from mskpipe.core.device import DeviceReport, GpuInfo
 from mskpipe.gui import app as gui_app
 from mskpipe.gui import setup_dialog as sd
 from mskpipe.resources import atlas, gpu
+from mskpipe.resources import status as status_mod
 from mskpipe.resources.status import collect
+from mskpipe.resources.weights import WeightsItem
 
 CLI = [sys.executable, "-m", "mskpipe"]
 TIMEOUT_S = 60
@@ -78,11 +81,29 @@ def test_weights_args():
     ]  # fmt: skip
 
 
-def test_needs_attention():
+@pytest.fixture
+def weights_ok(monkeypatch):
+    """All model weights present (the real ones depend on the computer)."""
+    monkeypatch.setattr(status_mod, "weights_status", lambda config, modalities: [])
+
+
+def missing_weights(*items):
+    return lambda config, modalities: [
+        WeightsItem(tool=tool, name=name, status="missing") for tool, name in items
+    ]
+
+
+def test_needs_attention(weights_ok):
     status = status_fn()()
     assert sd.needs_attention(status) == ["TotalSegmentator licence key", "attachment atlas"]
     status = status_fn(**{"segmentation.bones": "musclemap"})()
     assert sd.needs_attention(status) == ["attachment atlas"]
+
+
+def test_needs_attention_weights(monkeypatch):
+    monkeypatch.setattr(status_mod, "weights_status", missing_weights(("musclemap", "x")))
+    status = status_fn(**{"segmentation.bones": "musclemap"})()
+    assert sd.needs_attention(status) == ["attachment atlas", "model weights"]
 
 
 # ---------------------------------------------------------------------------- dialog
@@ -209,7 +230,7 @@ def test_window_opens_setup_at_start(window, tmp_path):
     assert window.check_setup() is None
 
 
-def test_window_nothing_missing(window, tmp_path):
+def test_window_nothing_missing(window, tmp_path, weights_ok):
     atlas.install_atlas(str(make_atlas(tmp_path / "a")), print)
     window.apply_setting(("segmentation", "bones"), "musclemap")
     assert window.check_setup() is None
@@ -340,7 +361,7 @@ def test_parse_progress_of_fast_rnrr_build():
     assert sd.parse_progress("  compiled 30/30: tools.cpp") == ("compiling", 100)
 
 
-def test_needs_attention_fast_rnrr(monkeypatch):
+def test_needs_attention_fast_rnrr(monkeypatch, weights_ok):
     monkeypatch.delenv("MSKPIPE_FAST_RNRR", raising=False)
     monkeypatch.setenv("PATH", "")
     status = status_fn(
@@ -369,3 +390,135 @@ def test_fast_rnrr_build_asks_first(qapp, monkeypatch):
     assert dlg.build_fast_rnrr()
     assert started == [["setup", "fast-rnrr", "--accept-research-licence"]]
     dlg.deleteLater()
+
+
+# ---------------------------------------------------------------------------- run requirements
+
+
+def _texts(window):
+    return " ".join(sd_plain(b) for b in window.blockers)
+
+
+def sd_plain(text):
+    return gui_app._plain(text)
+
+
+def test_run_needs_licence_unless_musclemap(window, tmp_path, weights_ok, monkeypatch):
+    atlas.install_atlas(str(make_atlas(tmp_path / "a")), print)
+    window._validate()
+    assert window.form.values()["segmentation"]["bones"] == "totalsegmentator"
+    assert not window.run_button.isEnabled()
+    assert "licence key is not set" in _texts(window) and "MuscleMap" in _texts(window)
+    assert window.block_label.isVisible() or not window.isVisible()
+    started = []
+    monkeypatch.setattr(window.process, "start", lambda *a: started.append(a))
+    assert window.start_run() is False and started == []
+    # the link in the explanation switches the bones to MuscleMap: no key needed
+    window.block_label.linkActivated.emit("musclemap")
+    window._validate()
+    assert window.blockers == [] and window.run_button.isEnabled()
+    assert not window.block_label.isVisible()
+    # back to TotalSegmentator: blocked again, with the reason
+    window.apply_setting(("segmentation", "bones"), "totalsegmentator")
+    window._validate()
+    assert not window.run_button.isEnabled() and "appendicular_bones" in _texts(window)
+
+
+def test_run_needs_atlas_and_weights(window, monkeypatch):
+    monkeypatch.setattr(
+        status_mod, "weights_status", missing_weights(("musclemap", "pelvis_thigh"))
+    )
+    window.apply_setting(("segmentation", "bones"), "musclemap")
+    window._validate()
+    text = _texts(window)
+    assert "atlas is missing" in text
+    assert "Model weights are missing: MuscleMap pelvis_thigh" in text
+    assert "licence" not in text and not window.run_button.isEnabled()
+    window.block_label.linkActivated.emit("setup")
+    assert window.setup_dialog is not None and window.setup_dialog.isVisible()
+    assert "missing: attachment atlas, model weights" in window.setup_dialog.ready_label.text()
+    window.setup_dialog.accept()
+
+
+def test_unknown_modality_needs_weights_of_one_modality(window, monkeypatch, tmp_path):
+    atlas.install_atlas(str(make_atlas(tmp_path / "a")), print)
+
+    def only_ct(config, modalities):
+        return (
+            []
+            if tuple(modalities) == ("ct",)
+            else [WeightsItem(tool="musclemap", name="mr", status="missing")]
+        )
+
+    monkeypatch.setattr(status_mod, "weights_status", only_ct)
+    monkeypatch.setattr("mskpipe.resources.weights.weights_status", only_ct)
+    window.apply_setting(("segmentation", "bones"), "musclemap")
+    gui_app._select(window.modality_combo, "auto")  # no input: CT or MRI
+    window._validate()
+    assert window.blockers == []
+    gui_app._select(window.modality_combo, "mri")
+    window._validate()
+    assert "Model weights are missing" in _texts(window)
+
+
+def test_fast_rnrr_offered_only_when_built(window, monkeypatch, weights_ok, tmp_path):
+    monkeypatch.delenv("MSKPIPE_FAST_RNRR", raising=False)
+    monkeypatch.setenv("PATH", "")
+    path = ("attachments", "params", "nonrigid")
+
+    def offered():  # the parameter widgets are rebuilt with the plugin parameters
+        return window.form.field(*path).widget.findData("fast_rnrr") >= 0
+
+    window._validate()
+    assert not offered()
+    # set by a configuration: shown, but the run explains and offers coherent_icp
+    window.form.set_values({"attachments": {"params": {"nonrigid": "fast_rnrr"}}})
+    window._validate()
+    assert "Fast-RNRR is not built" in _texts(window)
+    window.block_label.linkActivated.emit("nonrigid")
+    window._validate()
+    assert window.form.field(*path).get() == "coherent_icp" and not offered()
+    exe = tmp_path / "Fast_RNRR.exe"
+    exe.write_bytes(b"")
+    monkeypatch.setenv("MSKPIPE_FAST_RNRR", str(exe))
+    window._validate()
+    assert offered()
+
+
+class _Proc:
+    def __init__(self, out):
+        self.out = out
+
+    def readAllStandardOutput(self):
+        return self.out.encode()
+
+    def readAllStandardError(self):
+        return b""
+
+
+def _devices(window):
+    combo = window.device_combo
+    return [combo.itemData(i) for i in range(combo.count())]
+
+
+def test_gpu_offered_only_when_usable(window, monkeypatch):
+    window._wanted_device = "gpu"
+    window._fill_devices()
+    assert _devices(window) == ["cpu"] and window.device_combo.currentData() == "cpu"
+    usable = DeviceReport(
+        requested="auto",
+        selected="cuda",
+        gpu_index=0,
+        reason="auto: usable NVIDIA GPU",
+        gpus=[GpuInfo(index=0, name="RTX Test")],
+    )
+    monkeypatch.setattr(window, "_device_proc", _Proc(usable.model_dump_json()))
+    window._device_detected(0, None)
+    assert _devices(window) == ["auto", "cpu", "gpu"]
+    assert window.device_combo.currentData() == "gpu"  # the wanted device, now offered
+    assert "RTX Test" in window.device_label.text()
+    cpu_only = DeviceReport(requested="auto", selected="cpu", reason="auto: no NVIDIA GPU found")
+    monkeypatch.setattr(window, "_device_proc", _Proc(cpu_only.model_dump_json()))
+    window._device_detected(0, None)
+    assert _devices(window) == ["cpu"] and "CPU only" in window.device_label.text()
+    assert window._wanted_device == "gpu"  # remembered for when GPU support is installed

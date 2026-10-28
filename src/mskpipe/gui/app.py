@@ -9,13 +9,16 @@ and the result on the right. The pipeline runs as a child process (:mod:`mskpipe
 from __future__ import annotations
 
 import html
+import re
 import sys
 import time
 from collections.abc import Sequence
+from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import (
+    QEvent,
     QObject,
     QProcess,
     QRunnable,
@@ -63,8 +66,10 @@ from mskpipe.gui.setup_dialog import SetupDialog, needs_attention
 from mskpipe.io.dicom import DICOM_SUFFIXES
 
 if TYPE_CHECKING:
+    from mskpipe.core.device import DeviceReport
     from mskpipe.gui.qc_dialog import DefectDialog
     from mskpipe.io.dicom import DicomScan, DicomVolume
+    from mskpipe.resources.status import SetupStatus
 
 __all__ = ["STEP_LABELS", "MainWindow", "main"]
 
@@ -96,11 +101,15 @@ PLACEHOLDERS = {
     "nifti": "CT or MRI volume (.nii / .nii.gz)",
     "dicom": "folder with the DICOM files of the CT or MRI",
 }
+_TOOLS = {"totalsegmentator": "TotalSegmentator", "musclemap": "MuscleMap"}
 RED, AMBER, GREEN, GREY = "#c0392b", "#ca6f1e", "#1e8449", "#7f8c8d"
 MAX_LISTED = 6  # unusable DICOM series listed under the image
 CONFIG_FILTER = "YAML config (*.yaml *.yml);;All files (*)"
 LOG_LINES = 20_000
 AUTO = api.AUTO
+DEVICES_GPU = (("Auto", "auto"), ("CPU", "cpu"), ("GPU (NVIDIA)", "gpu"))
+DEVICES_CPU = (("CPU", "cpu"),)
+NONRIGID = ("attachments", "params", "nonrigid")
 
 
 class MainWindow(QMainWindow):
@@ -128,6 +137,12 @@ class MainWindow(QMainWindow):
         self.setup_dialog: SetupDialog | None = None
         self._setup_opened_at_start = False
         self._run_active = False
+        # device: what the user wants (settings, config file, combo) and what the probe
+        # found; GPU choices are offered only when a GPU run works here
+        self._wanted_device = "auto"
+        self.gpu_report: DeviceReport | None = None
+        self._gpu_probing = False
+        self.blockers: list[str] = []  # why Run is disabled (rich text), see run_blockers
 
         self.setWindowTitle(f"msk-pipe {__version__}")
         self.resize(1280, 820)
@@ -200,6 +215,7 @@ class MainWindow(QMainWindow):
         self.modality_combo.addItem("CT", "ct")
         self.modality_combo.addItem("MRI", "mri")
         self.modality_combo.currentIndexChanged.connect(lambda _=None: self._show_modality())
+        self.modality_combo.currentIndexChanged.connect(lambda _=None: self._schedule_validation())
         self.modality_label = QLabel()
         self.modality_label.setWordWrap(True)
         self.modality_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -207,9 +223,7 @@ class MainWindow(QMainWindow):
         self.subject_edit.setPlaceholderText("from the file name")
 
         self.device_combo = QComboBox()
-        for label, value in (("Auto", "auto"), ("CPU", "cpu"), ("GPU (NVIDIA)", "gpu")):
-            self.device_combo.addItem(label, value)
-        self.device_combo.currentIndexChanged.connect(lambda _=None: self.detect_device())
+        self.device_combo.currentIndexChanged.connect(lambda _=None: self._device_chosen())
         self.device_label = QLabel()
         self.device_label.setWordWrap(True)
         self.device_label.linkActivated.connect(lambda _link: self.open_setup())
@@ -302,6 +316,11 @@ class MainWindow(QMainWindow):
         font.setBold(True)
         self.run_button.setFont(font)
         self.run_button.clicked.connect(self.start_run)
+        self.block_label = QLabel()  # why Run is disabled, with links to the fix
+        self.block_label.setWordWrap(True)
+        self.block_label.setTextFormat(Qt.TextFormat.RichText)
+        self.block_label.linkActivated.connect(self._block_link)
+        self.block_label.hide()
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self.cancel_run)
         self.open_run_button = QPushButton("Open run folder")
@@ -339,6 +358,7 @@ class MainWindow(QMainWindow):
         QVBoxLayout(log_box).addWidget(self.log_view)
         right_layout.addWidget(progress_box)
         right_layout.addWidget(log_box, 1)
+        right_layout.addWidget(self.block_label)
         right_layout.addLayout(
             _hbox(
                 self.setup_button,
@@ -379,7 +399,8 @@ class MainWindow(QMainWindow):
         self.image_edit.setPlaceholderText(PLACEHOLDERS[self._format])
         self.image_edit.setText(self._paths[self._format])
         _select(self.modality_combo, s.value("modality", AUTO))
-        _select(self.device_combo, s.value("device", "auto"))
+        self._wanted_device = str(s.value("device", "auto"))
+        self._fill_devices()
         self.runs_edit.setText(str(s.value("runs_dir", str(Path.cwd() / "runs"))))
         _select(self.until_combo, s.value("until", api.PIPELINE_STEPS[-1]))
         self.verbose_check.setChecked(str(s.value("verbose", "false")).lower() == "true")
@@ -405,7 +426,7 @@ class MainWindow(QMainWindow):
         vol = self.current_dicom()
         s.setValue("series", vol.id if vol is not None else (self._wanted_series or ""))
         s.setValue("modality", self.modality_combo.currentData())
-        s.setValue("device", self.device_combo.currentData())
+        s.setValue("device", self._wanted_device)
         s.setValue("runs_dir", self.runs_edit.text())
         s.setValue("until", self.until_combo.currentData())
         s.setValue("verbose", "true" if self.verbose_check.isChecked() else "false")
@@ -459,6 +480,7 @@ class MainWindow(QMainWindow):
 
     def _image_changed(self) -> None:
         """Check the input when the path or the format changed (DICOM: in the background)."""
+        self._schedule_validation()  # the weights a run needs depend on the modality
         text = self.image_edit.text().strip()
         self.image_info.setVisible(bool(text))
         self._show_series_row()
@@ -617,6 +639,7 @@ class MainWindow(QMainWindow):
         self._series_changed()
 
     def _series_changed(self) -> None:
+        self._schedule_validation()
         result = self.dicom_scan()
         if result is None or isinstance(result, str):
             return
@@ -697,6 +720,7 @@ class MainWindow(QMainWindow):
         self._detecting.discard(key)
         self._modalities[key] = guess
         self._show_modality()
+        self._schedule_validation()  # the weights a run needs depend on the modality
 
     def _current_key(self) -> str | None:
         """Key of the current input in the modality cache (DICOM: folder and series)."""
@@ -770,12 +794,143 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ setup
 
-    def setup_status(self):
+    def setup_status(self, modalities: Sequence[str] | None = None) -> SetupStatus:
         """What a run with the current settings needs (:mod:`mskpipe.resources.status`)."""
         from mskpipe.resources.status import collect
 
         config = api.resolved_config(None, tuple(self.form.overrides()))
-        return collect(config, self.setup_modalities())
+        return collect(config, modalities or self.setup_modalities())
+
+    def run_blockers(self, modalities: Sequence[str] | None = None) -> list[str]:
+        """Why a run cannot start now (rich text with links to the fix); empty = it can.
+
+        Required: the TotalSegmentator licence key (only when a licensed task runs, i.e.
+        bones from TotalSegmentator), the attachment atlas (atlas_registration), the model
+        weights of the configured segmenters and Fast-RNRR when nonrigid = fast_rnrr. GPU
+        support is optional (without it only the CPU is offered). ``modalities``: those of
+        the run; by default the current input's, or both while it is not known.
+        """
+        if self.setup_running() and self.setup_dialog is not None:
+            task = html.escape(self.setup_dialog.blocked_reason() or "")
+            return [
+                f"<b>A setup task is running</b> ({task}). The run can start when it has "
+                "finished or was cancelled in "
+                '<a href="setup">Setup…</a>.'
+            ]
+        if not self.form.error_label.isHidden():
+            return ["<b>Invalid settings</b> - see the message below the settings."]
+        mods = tuple(modalities or self.setup_modalities())
+        try:
+            status = self.setup_status(mods)
+        except Exception as exc:  # e.g. a setting the form does not check
+            return [f"<b>Cannot check what the run needs:</b> {html.escape(str(exc))}"]
+        out: list[str] = []
+        lic = status.licence
+        if lic.needed and (not lic.present or lic.problem):
+            tasks = self._licensed_tasks(mods)
+            state = "is not set" if not lic.present else f"is invalid ({lic.problem})"
+            out.append(
+                f"<b>TotalSegmentator licence key {html.escape(state)}.</b> With "
+                "<i>Segmentation → Bones = totalsegmentator</i> the tibia and fibula come "
+                f"from the licensed task {html.escape(', '.join(tasks) or 'appendicular_bones')}"
+                '. Enter the key in <a href="setup">Setup…</a>, or '
+                '<a href="musclemap">take all bones from MuscleMap</a> (no key needed).'
+            )
+        if status.atlas.needed and not status.atlas.ok:
+            out.append(
+                "<b>The attachment atlas is missing.</b> <i>Attachments = "
+                "atlas_registration</i> transfers the attachment areas from it. Install it "
+                'in <a href="setup">Setup…</a>.'
+            )
+        rnrr = status.fast_rnrr
+        if rnrr is not None and rnrr.needed and not rnrr.ok:
+            out.append(
+                "<b>Fast-RNRR is not built on this computer</b>, but <i>Non-rigid = "
+                "fast_rnrr</i> is set (e.g. by a loaded configuration). Build it in "
+                '<a href="setup">Setup…</a> or <a href="nonrigid">use coherent_icp</a>.'
+            )
+        missing = self._missing_weights(status, mods)
+        unknown = [w for w in missing if w.status == "unknown"]
+        if unknown:
+            out.append(
+                f"<b>The model weights cannot be checked:</b> {html.escape(unknown[0].detail)}."
+            )
+        elif missing:
+            names = ", ".join(f"{_TOOLS.get(w.tool, w.tool)} {w.name}" for w in missing)
+            out.append(
+                f"<b>Model weights are missing:</b> {html.escape(names)}. Download them in "
+                '<a href="setup">Setup…</a> (Download now; needs internet).'
+            )
+        return out
+
+    def _licensed_tasks(self, modalities: Sequence[str]) -> list[str]:
+        """TotalSegmentator tasks of the current settings that need the licence key."""
+        from mskpipe.plugins.segmenters.totalsegmentator import LICENSED_TASKS
+        from mskpipe.resources.weights import required_ts_tasks
+
+        config = api.resolved_config(None, tuple(self.form.overrides()))
+        return sorted(set(required_ts_tasks(config, modalities)) & LICENSED_TASKS)
+
+    def _missing_weights(self, status: SetupStatus, modalities: Sequence[str]) -> list:
+        """Weights a run needs that are not present. While the modality of the input is
+        not known (both modalities asked), the weights of one complete modality suffice;
+        the start of the run checks the actual modality."""
+        missing = [w for w in status.weights if w.status != "ok"]
+        if not missing or len(modalities) < 2:
+            return missing
+        from mskpipe.resources.weights import weights_status
+
+        config = api.resolved_config(None, tuple(self.form.overrides()))
+        for modality in modalities:
+            if all(w.status == "ok" for w in weights_status(config, (modality,))):
+                return []
+        return missing
+
+    def _wait_reason(self) -> str | None:
+        """A short wait before Run is possible (not an error)."""
+        if self._gpu_probing and self._wanted_device != "cpu":
+            return "Detecting whether the GPU can be used…"
+        return None
+
+    def _update_run_state(self) -> None:
+        """Enable Run only when nothing blocks it; say why not above the buttons."""
+        running = self._run_active or self.process.is_running()
+        self.blockers = [] if running else self.run_blockers()
+        wait = None if running else self._wait_reason()
+        self._offer_nonrigid()
+        self.run_button.setEnabled(not running and not self.blockers and wait is None)
+        items = "".join(f"<li>{b}</li>" for b in self.blockers)
+        text = ""
+        if items:
+            text = (
+                f'<span style="color:{RED}">The run cannot start:</span>'
+                f'<ul style="margin:0 0 0 -24px">{items}</ul>'
+            )
+        if wait:
+            text += _colored(wait, GREY)
+        self.block_label.setText(text)
+        self.block_label.setVisible(bool(text))
+        self.run_button.setToolTip("\n".join(_plain(b) for b in self.blockers) or (wait or ""))
+
+    def _offer_nonrigid(self) -> None:
+        """Offer nonrigid = fast_rnrr only where Fast-RNRR is available (optional)."""
+        from mskpipe.resources.fast_rnrr import locate
+
+        params = self.form.values().get("attachments", {}).get("params", {})
+        try:
+            path, _source = locate(params.get("fast_rnrr_exe"))
+        except OSError:
+            path = None
+        reason = "Fast-RNRR is not built on this computer (Setup… → Fast-RNRR)"
+        self.form.set_unavailable(NONRIGID, {} if path is not None else {"fast_rnrr": reason})
+
+    def _block_link(self, link: str) -> None:
+        if link == "musclemap":
+            self.apply_setting(("segmentation", "bones"), "musclemap")
+        elif link == "nonrigid":
+            self.apply_setting(NONRIGID, "coherent_icp")
+        else:
+            self.open_setup()
 
     def setup_modalities(self) -> tuple[str, ...]:
         """CT/MRI of the current input if known (no detection here), else both."""
@@ -879,34 +1034,72 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ device
 
+    @property
+    def gpu_usable(self) -> bool:
+        """A GPU run works here: NVIDIA GPU, driver and a CUDA build of PyTorch (GPU
+        support installed) - found by :meth:`detect_device`."""
+        return self.gpu_report is not None and self.gpu_report.selected == "cuda"
+
     def detect_device(self) -> None:
-        """Probe the device a run would use (``mskpipe device --json``, child process)."""
+        """Probe whether a GPU run works (``mskpipe device --device auto --json``, child
+        process: NVML / nvidia-smi and a PyTorch CUDA test). Until it answers, and when
+        no GPU is usable, only the CPU is offered."""
         if self._device_proc.state() != QProcess.ProcessState.NotRunning:
             self._device_proc.kill()
             self._device_proc.waitForFinished(2000)
-        self.device_label.setText("detecting…")
-        requested = self.device_combo.currentData()
-        argv = [*self.command, "device", "--device", requested, "--json"]
+        self._gpu_probing = True
+        self.device_label.setText(_colored("detecting the GPU…", GREY))
+        argv = [*self.command, "device", "--device", "auto", "--json"]
         self._device_proc.start(argv[0], argv[1:])
+        self._update_run_state()
 
     def _device_detected(self, code: int, _status: QProcess.ExitStatus) -> None:
         out = bytes(self._device_proc.readAllStandardOutput()).decode("utf-8", "replace")
         err = bytes(self._device_proc.readAllStandardError()).decode("utf-8", "replace")
+        self._gpu_probing = False
+        self.gpu_report = None
+        text = None
         if code == 0:
             from mskpipe.core.device import DeviceReport
 
-            try:
-                report = DeviceReport.model_validate_json(out)
-            except ValueError:
-                pass
-            else:
-                text = html.escape(report.summary())
-                if "mskpipe setup gpu" in report.reason:
-                    text += ' - <a href="setup">install GPU support…</a>'
-                self.device_label.setText(text)
-                return
-        message = err.strip().removeprefix("Error: ") or "device detection failed"
-        self.device_label.setText(_colored(message, "#c0392b"))
+            with suppress(ValueError):
+                self.gpu_report = DeviceReport.model_validate_json(out)
+        report = self.gpu_report
+        if report is not None and self.gpu_usable and report.gpu is not None:
+            text = _colored(f"GPU available: cuda:{report.gpu.index} ({report.gpu.name})", GREEN)
+        elif report is not None:
+            reason = report.reason.removeprefix("auto: ")
+            text = _colored(f"CPU only - GPU not available: {reason}", GREY)
+            if "mskpipe setup gpu" in report.reason:
+                text += ' - <a href="setup">install GPU support…</a>'
+        else:
+            message = err.strip().removeprefix("Error: ") or "GPU detection failed"
+            text = _colored(f"CPU only - {message}", RED)
+        self.device_label.setText(text)
+        self._fill_devices()
+        self._update_run_state()
+
+    def _fill_devices(self) -> None:
+        """Auto / CPU / GPU when a GPU run works here, else CPU only (GPU support is
+        optional). The wanted device is kept and selected once it is offered."""
+        combo = self.device_combo
+        options = DEVICES_GPU if self.gpu_usable else DEVICES_CPU
+        combo.blockSignals(True)
+        try:
+            combo.clear()
+            for label, value in options:
+                combo.addItem(label, value)
+            i = combo.findData(self._wanted_device)
+            combo.setCurrentIndex(i if i >= 0 else combo.findData("cpu"))
+        finally:
+            combo.blockSignals(False)
+        combo.setToolTip("" if self.gpu_usable else "GPU not available here: the run uses the CPU")
+
+    def _device_chosen(self) -> None:
+        value = self.device_combo.currentData()
+        if value is not None:
+            self._wanted_device = str(value)
+        self._update_run_state()
 
     # ------------------------------------------------------------------ config
 
@@ -916,7 +1109,11 @@ class MainWindow(QMainWindow):
     def _validate(self) -> bool:
         ok = self.form.validate() is None
         if not self.process.is_running():
-            self.run_button.setEnabled(ok and not self.setup_running())
+            self._update_run_state()
+            dialog = self.setup_dialog
+            if dialog is not None and dialog.isVisible() and not dialog.is_running():
+                dialog.modalities = self.setup_modalities()  # e.g. MuscleMap <-> TS bones
+                dialog.refresh()
         return ok
 
     def _load_config(self) -> None:
@@ -929,11 +1126,16 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Invalid configuration", str(exc))
             return
         runtime = data.get("runtime", {})
-        _select(self.device_combo, runtime.get("device"))
+        if runtime.get("device"):
+            self._wanted_device = str(runtime["device"])
+            self._fill_devices()
         if runtime.get("runs_dir"):
             runs = Path(runtime["runs_dir"])
             self.runs_edit.setText(str(runs if runs.is_absolute() else Path(path).parent / runs))
-        self.statusBar().showMessage(f"Loaded {path}", 5000)
+        note = ""
+        if self._wanted_device != "cpu" and not self.gpu_usable:
+            note = " - GPU not available here, the run uses the CPU"
+        self.statusBar().showMessage(f"Loaded {path}{note}", 8000)
 
     def _save_config(self) -> None:
         path, _ = QFileDialog.getSaveFileName(self, "Save configuration", "", CONFIG_FILTER)
@@ -1001,6 +1203,19 @@ class MainWindow(QMainWindow):
             return False
         try:
             child = self.child_request()
+        except (ValueError, api.SetupError) as exc:
+            QMessageBox.warning(self, "Cannot start", str(exc))
+            return False
+        blockers = self.run_blockers((child.modality,))  # the actual modality
+        if blockers:
+            self._update_run_state()
+            QMessageBox.warning(
+                self,
+                "Cannot start",
+                "The run cannot start:\n\n" + "\n\n".join(_plain(b) for b in blockers),
+            )
+            return False
+        try:
             prepared = api.prepare_run(
                 api.RunRequest(
                     image=child.image,
@@ -1270,9 +1485,7 @@ class MainWindow(QMainWindow):
             widget.setEnabled(not running)
         self.series_combo.setEnabled(not running and self.series_combo.count() > 1)
         self.cancel_button.setEnabled(running)
-        self.run_button.setEnabled(
-            not running and not self.setup_running() and self.form.error_label.isHidden()
-        )
+        self._update_run_state()
         if self.setup_dialog is not None and not self.setup_running():
             self.setup_dialog.refresh()  # its actions are disabled while a run is active
         self.open_run_button.setEnabled(not running and self.process.run_dir is not None)
@@ -1285,6 +1498,13 @@ class MainWindow(QMainWindow):
     def _open(self, path: Path | None) -> None:
         if path is not None and Path(path).exists():
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+
+    def changeEvent(self, event: QEvent) -> None:
+        """Back in the window (e.g. after ``mskpipe setup ...`` in a console): check again
+        what a run needs."""
+        if event.type() == QEvent.Type.ActivationChange and self.isActiveWindow():
+            self._schedule_validation()
+        super().changeEvent(event)
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self.setup_running():
@@ -1405,6 +1625,11 @@ def _select(combo: QComboBox, value: Any) -> None:
     i = combo.findData(value)
     if i >= 0:
         combo.setCurrentIndex(i)
+
+
+def _plain(text: str) -> str:
+    """Rich text of a blocker as plain text (message boxes, tooltips)."""
+    return html.unescape(re.sub(r"<[^>]+>", "", text))
 
 
 def _colored(text: str, color: str) -> str:
