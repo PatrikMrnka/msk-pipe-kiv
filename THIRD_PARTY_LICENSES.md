@@ -19,7 +19,7 @@ msk-pipe itself is licensed under [Apache-2.0](LICENSE). It relies on the compon
 
 The Windows release additionally bundles further Python and conda packages. Their complete list and license texts are generated automatically at release time and shipped in the `licenses/` folder of the release archive.
 
-## Demo only
+## Not included (read the output of msk-pipe)
 
 | Component | License | Role |
 |---|---|---|
