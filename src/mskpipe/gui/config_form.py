@@ -14,6 +14,11 @@ The '?' of every field explains it and shows its default, the values the schema 
 the recommended range (``recommended`` in the schema). Validation marks fields: red = invalid
 value (schema error), amber = valid but outside the recommended range or a setting that is
 probably not meant (:mod:`mskpipe.config.sanity`).
+
+Only the basic settings (``basic`` in the schema, :data:`mskpipe.config.schema.BASIC`) are
+shown until "Show advanced settings" is checked; group boxes and tabs left empty are hidden.
+Hidden settings keep their values, a note counts those that differ from the defaults, and an
+invalid value on a hidden setting turns the advanced settings on.
 """
 
 from __future__ import annotations
@@ -369,11 +374,29 @@ class ConfigForm(QWidget):
         # field -> (sibling field it depends on, values for which it is shown) and its form
         self._show_if: dict[Path_, tuple[Path_, list[Any]]] = {}
         self._rows: dict[Path_, QFormLayout] = {}
+        self._basic: set[Path_] = set()  # fields shown without the advanced settings
+        # group boxes (nested models, plugin parameters) and the form they are a row of
+        self._boxes: dict[Path_, tuple[QFormLayout, QGroupBox]] = {}
+        self._tab_index: dict[str, int] = {}
         self._building = False
+
+        self.advanced_check = QCheckBox("Show advanced settings")
+        advanced_help = help_for("gui.show_advanced")
+        if advanced_help is not None:
+            self.advanced_check.setToolTip(help_html(advanced_help))
+        self.advanced_check.toggled.connect(self._advanced_toggled)
+        self.advanced_note = QLabel()
+        self.advanced_note.setStyleSheet("color: #7f8c8d;")
+        self.advanced_note.linkActivated.connect(lambda _link: self.set_show_advanced(True))
+        self.advanced_note.hide()
+        top = QHBoxLayout()
+        top.addWidget(self.advanced_check)
+        top.addWidget(self.advanced_note, 1)
 
         self.tabs = QTabWidget()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.addLayout(top)
         layout.addWidget(self.tabs)
         self.error_label = QLabel()
         self.error_label.setWordWrap(True)
@@ -404,6 +427,7 @@ class ConfigForm(QWidget):
             scroll.setWidget(page)
             index = self.tabs.addTab(scroll, humanize(name))
             self.tabs.setTabToolTip(index, self._help_tip((name,)))
+            self._tab_index[name] = index
         self._building = False
         self.set_values(self._defaults)
 
@@ -424,12 +448,14 @@ class ConfigForm(QWidget):
                 inner.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
                 self._add_group(inner, child_path, resolved)
                 form.addRow(box)
+                self._boxes[child_path] = (form, box)
                 continue
             if child_path in PLUGIN_PARAMS:
                 box = QGroupBox(humanize(name))
                 QFormLayout(box)
                 self._plugin_boxes[child_path] = box
                 form.addRow(box)
+                self._boxes[child_path] = (form, box)
                 continue
             field = self._make_field(child_path, kind, resolved, nullable)
             label = QLabel(LABELS.get(child_path, humanize(name)))
@@ -445,6 +471,8 @@ class ConfigForm(QWidget):
             badge = self._badge(child_path, field.hint)
             form.addRow(label_with_badge(label, badge), field.widget)
             self._rows[child_path] = form
+            if child.get("basic"):
+                self._basic.add(child_path)
             for key, shown_for in (child.get("show_if") or {}).items():
                 self._show_if[child_path] = ((*path, key), list(shown_for))
 
@@ -563,6 +591,10 @@ class ConfigForm(QWidget):
             del self._fields[path]
             self._rows.pop(path, None)
             self._show_if.pop(path, None)
+            self._basic.discard(path)
+        for path in [p for p in self._boxes if p[: len(params_path)] == params_path]:
+            if path != params_path:  # nested groups of the old plugin
+                del self._boxes[path]
         for path in [p for p in self._badges if p[: len(params_path)] == params_path]:
             del self._badges[path]
         while form.rowCount():
@@ -622,6 +654,7 @@ class ConfigForm(QWidget):
             self._apply_muscle_list(given)
         finally:
             self._building = False
+        self._apply_visibility()
         self._refresh_marks()
         self.changed.emit()
 
@@ -695,11 +728,17 @@ class ConfigForm(QWidget):
             )
         except api.SetupError as exc:
             message = str(exc)
+            marked: list[Field] = []
             for line in message.splitlines():
                 match = _ERROR_LINE.match(line)
                 field = self._field_for(match.group(1)) if match else None
                 if field is not None:
                     field.editor.setStyleSheet(ERROR_STYLE)
+                    marked.append(field)
+            hidden = [f for f in marked if f.path not in self._basic]
+            if hidden and not self.show_advanced:  # an invalid value is never hidden
+                self.set_show_advanced(True)
+                self.tabs.setCurrentIndex(self._tab_index.get(hidden[0].path[0], 0))
             self.error_label.setText(message)
             self.error_label.show()
             return message
@@ -742,6 +781,44 @@ class ConfigForm(QWidget):
     def tab_names(self) -> list[str]:
         return [self.tabs.tabText(i) for i in range(self.tabs.count())]
 
+    def visible_tab_names(self) -> list[str]:
+        return [self.tabs.tabText(i) for i in range(self.tabs.count()) if self.tabs.isTabVisible(i)]
+
+    # ------------------------------------------------------------------ advanced settings
+
+    @property
+    def show_advanced(self) -> bool:
+        return self.advanced_check.isChecked()
+
+    def set_show_advanced(self, on: bool) -> None:
+        self.advanced_check.setChecked(on)
+
+    def is_basic(self, *path: str) -> bool:
+        return tuple(path) in self._basic
+
+    def hidden_changes(self) -> list[Path_]:
+        """Advanced settings that differ from the default while they are hidden."""
+        if self.show_advanced:
+            return []
+        return [p for p in self.changes() if p not in self._basic]
+
+    def _advanced_toggled(self, _on: bool) -> None:
+        self._apply_visibility()
+        self._update_advanced_note()
+
+    def _update_advanced_note(self) -> None:
+        hidden = self.hidden_changes()
+        if not hidden:
+            self.advanced_note.hide()
+            return
+        n = len(hidden)
+        self.advanced_note.setText(
+            f"{n} hidden advanced setting{'s differ' if n > 1 else ' differs'} from the "
+            "defaults (<a href='show'>show</a>)"
+        )
+        self.advanced_note.setToolTip("\n".join(".".join(p) for p in hidden))
+        self.advanced_note.show()
+
     # ------------------------------------------------------------------ internals
 
     def _on_change(self, path: Path_) -> None:
@@ -759,14 +836,34 @@ class ConfigForm(QWidget):
         self.changed.emit()
 
     def _apply_visibility(self) -> None:
-        """Show a parameter only for the choice it belongs to (``show_if`` in its schema,
-        e.g. the cpd_* parameters only for ``nonrigid: cpd``). Hidden fields keep their
-        values, so a saved or resolved config is the same either way."""
-        for path, (depends_on, shown_for) in self._show_if.items():
-            field, other = self._fields.get(path), self._fields.get(depends_on)
-            if field is None or other is None or path not in self._rows:
+        """Show a field only for the choice it belongs to (``show_if`` in its schema, e.g.
+        the cpd_* parameters only for ``nonrigid: cpd``) and, unless the advanced settings
+        are shown, only basic fields; group boxes and tabs without a visible field are
+        hidden. Hidden fields keep their values, so a saved or resolved config is the same
+        either way."""
+        advanced = self.show_advanced
+        visible: set[Path_] = set()
+        for path, field in self._fields.items():
+            form = self._rows.get(path)
+            if form is None:
                 continue
-            self._rows[path].setRowVisible(field.widget, other.get() in shown_for)
+            shown = advanced or path in self._basic
+            rule = self._show_if.get(path)
+            if shown and rule is not None:
+                other = self._fields.get(rule[0])
+                shown = other is None or other.get() in rule[1]
+            form.setRowVisible(field.widget, shown)
+            if shown:
+                visible.add(path)
+        for path, (form, box) in self._boxes.items():
+            n = len(path)
+            empty = not any(p[:n] == path for p in self._fields)  # e.g. plugin not found
+            shown = (advanced and empty) or any(p[:n] == path for p in visible)
+            form.setRowVisible(box, shown)
+            if shown:
+                visible.add(path)
+        for name, index in self._tab_index.items():
+            self.tabs.setTabVisible(index, any(p[0] == name for p in visible))
 
     def is_shown(self, *path: str) -> bool:
         """Whether the row of a field is visible (the form may itself be hidden)."""
@@ -781,6 +878,7 @@ class ConfigForm(QWidget):
             font = QFont(field.label.font())
             font.setBold(path not in ref or field.get() != ref[path])
             field.label.setFont(font)
+        self._update_advanced_note()
 
 
 _MISSING = object()

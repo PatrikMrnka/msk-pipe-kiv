@@ -19,6 +19,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 - Step `export_mw2` warns when the motion leaves the coordinate range of the model or has more than 1000 frames; `mskpipe batch` warns about `repeat` above 10.
 - Unknown config keys and muscle names suggest the closest valid one ("did you mean ...?").
 - GUI: the '?' of every setting shows, below the explanation, its default, the allowed values and the recommended range (e.g. `Default 40`, `Allowed 0 to 500`, `Recommended 10 to 100`; what an empty value means, e.g. `empty = all cores`).
+- GUI: *Show advanced settings*. Without it the form shows the 14 basic settings (threads, cache, bone segmentation, side, body mass, non-rigid registration, exported muscles, fibres per muscle and their segments, fibre lengths, fibre export, motion); the other settings and the tabs *Labelmap* and *Mesh* are hidden but keep their values. A note counts hidden settings that differ from the defaults (with a link that shows them), an invalid value on a hidden setting turns the advanced settings on, and the choice is remembered. Basic settings are marked `basic` in the schema (`json_schema_extra`, also in plugin parameters); values, fingerprints, config files and the command line are unchanged.
 
 ### Changed
 - `segmentation.bones` chooses the source of all bones: `totalsegmentator` (pelvis, sacrum, femur; tibia and fibula from `appendicular_bones`, licence key) or `musclemap` (all bones incl. sacrum, MuscleMap label 6160; no key, TotalSegmentator is not run when the muscles come from MuscleMap too). `segmentation.tibia_fibula` was removed: a value agreeing with `bones` is ignored (0.1.0 configs stay valid), mixed sources are an error. *Use MuscleMap instead* in the setup window sets `segmentation.bones = musclemap`.
@@ -30,11 +31,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 - `attachments.params.nonrigid = cpd` is documented as for comparison only (help, GUI): its areas drift along the bone and were the least accurate on LHDL and with the atlas of the other side; `coherent_icp` stays the default.
 - `labelmap.{bones,muscles}.min_voxels` became `min_volume_ml` (default 2 ml bones, 1 ml muscles), independent of the voxel size; old configs are converted with 1 voxel = 1 mm³ (the BP grid).
 - `skeleton.include_fibula` was removed: the tibia body of the model is always tibia + fibula (STAPLE convention). `true` in older configs is ignored, `false` is an error.
+- `export.pelvis_with_sacrum` was removed: the pelvis body is always the hip bones + the sacrum when it is segmented. `true` in older configs is ignored, `false` is an error. Step `export_mw2` of older runs is recomputed (its settings changed); the other steps are reused.
+- `runtime.seed` and `runtime.keep_intermediate` were removed: they were never read (the seed of the surface sampling is `attachments.params.seed`; the outputs of all steps are always kept). Older configs still load, the values are ignored.
 - Explanations and examples of the settings (GUI '?', `mskpipe config init`) no longer refer to the bachelor thesis or to local paths.
 - `attachments.atlas` was removed (it was never read; the atlas is `attachments.params.atlas_dir` or the installed one); old configs still load.
 - `export.muscles` and `export.exclude` accept only muscles of the unified label scheme (a typo was silently ignored).
 - `segmentation.{totalsegmentator,musclemap}.extra_args` reject options msk-pipe sets itself (input, output, task, device, fast, ROI subset, resampling, saving workers, licence; for MuscleMap all its current options); `-ns` in `extra_args` no longer overrides `nr_thr_saving`.
-- `attachments.params.nonrigid_points` must not exceed `n_points` for `coherent_icp`/`cpd` (it was cut silently); `attachments.params.seed` and `runtime.seed` are 0 to 2³²-1.
+- `attachments.params.nonrigid_points` must not exceed `n_points` for `coherent_icp`/`cpd` (it was cut silently); `attachments.params.seed` is 0 to 2³²-1.
 - Tighter hard bounds: `runtime.threads` ≤ 1024, `musclemap.overlap` ≤ 99, closing/opening radius ≤ 10 mm, `target_reduction` ≤ 0.99, `skeleton.body_mass` ≥ 10 kg, `cpd_w` ≤ 0.9, `cpd_sigma_init_mm` ≤ 100; `subject_id` and `skeleton.model_name` cannot be Windows device names (CON, NUL, COM1, ...).
 - The attachment atlas (index readable, RAS mm, outline files present) is checked before the run, not when step `attachments` starts; an atlas without muscles of `skeleton.side` is a warning.
 

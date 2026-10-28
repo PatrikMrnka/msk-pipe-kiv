@@ -43,6 +43,13 @@ gui.until:
 gui.verbose:
   help: Show the output of TotalSegmentator, MuscleMap and pystaple in the log.
   example: Turn on when a segmentation fails, to see the tool's own error message.
+gui.show_advanced:
+  help: >-
+    Show all settings. Without it, only the settings most runs change are shown (threads,
+    cache, bone segmentation, side, body mass, non-rigid registration, exported muscles,
+    fibres and motion); the hidden ones keep their values, and a note says how many of
+    them differ from the defaults. A setting with an invalid value is always shown.
+  example: On to change the mesh smoothing or the label map cleaning.
 
 # ------------------------------------------------------------------ runtime
 runtime:
@@ -52,19 +59,11 @@ runtime.threads:
     Upper limit of CPU threads used by the tools (OMP, MKL, OpenBLAS). Empty = all cores.
     Lower it to keep the computer usable during a long CPU run.
   example: 8 on a 12-core CPU leaves 4 cores free.
-runtime.seed:
-  help: >-
-    Random seed for steps that sample randomly. With the same seed, input and settings, a
-    run gives the same result.
-  example: 0 (default); change it only to test how much the result depends on sampling.
 runtime.cache:
   help: >-
     Reuse the result of a step from an earlier run when its input and settings are
     identical, instead of computing it again. Turn off to measure computation times.
   example: Off for the timing experiments of the paper (every step really runs).
-runtime.keep_intermediate:
-  help: Keep the outputs of all steps (segmentations, label map, meshes) in the run folder.
-  example: On (default); needed for checking the results in 3D Slicer.
 runtime.log_level:
   help: Detail of logs/run.log in the run folder.
   example: DEBUG also records the commands and the output of every tool.
@@ -432,7 +431,9 @@ plugins.attachments.atlas_registration.seed:
 export:
   help: >-
     Input folder for Muscle Wrapping 2.x (06_mw2_input/): setup XML, model, motion, bone
-    and muscle meshes, attachment outlines. Muscle Wrapping itself is not run.
+    and muscle meshes, attachment outlines. Muscle Wrapping itself is not run. The pelvis
+    body is the hip bones and the sacrum (when segmented), so that fibres starting on the
+    sacrum (gluteus maximus) move with the pelvis.
 export.muscles:
   help: >-
     Explicit list of exported muscles (with side suffix) for config files and the command
@@ -464,11 +465,6 @@ export.bone_weights:
     InverseDistance = by distance to each bone; PositionOnFibre... = by the position along
     the fibre (quadratic spline or S-curve from origin to insertion).
   example: InverseDistance (default of Muscle Wrapping).
-export.pelvis_with_sacrum:
-  help: >-
-    The pelvis body includes the sacrum, so that fibres starting on the sacrum (gluteus
-    maximus) move with the pelvis.
-  example: On (default).
 export.align_child_frames:
   help: >-
     The STAPLE knee has one rotation and cannot reproduce the knee pose of the scan exactly.

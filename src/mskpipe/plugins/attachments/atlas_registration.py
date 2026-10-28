@@ -35,7 +35,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import Field, ValidationInfo, field_validator
 
-from mskpipe.config.schema import SEED_MAX, recommended
+from mskpipe.config.schema import BASIC, SEED_MAX, recommended
 from mskpipe.plugins.base import AttachmentsPlugin, PluginParams
 from mskpipe.resources.atlas import ATLAS_ENV, ATLAS_INDEX, resolve_atlas_dir
 
@@ -102,6 +102,7 @@ class AtlasRegistrationParams(PluginParams):
     nonrigid: Literal["coherent_icp", "cpd", "fast_rnrr", "none"] = Field(
         "coherent_icp",
         description="Non-rigid stage after the similarity ICP (cpd: for comparison only).",
+        json_schema_extra=BASIC,
     )
     nonrigid_points: int = Field(
         1500,

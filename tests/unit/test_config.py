@@ -154,3 +154,66 @@ def test_bones_choose_all_bones_and_old_tibia_fibula_key():
     ):
         with pytest.raises(ConfigError, match=r"segmentation\.bones=musclemap"):
             load_config(overrides=mixed)
+
+
+def test_removed_runtime_keys_are_ignored(tmp_path):
+    """``runtime.seed`` and ``runtime.keep_intermediate`` were never read; configs of older
+    runs (``--resume``, ``mskpipe stats``, GUI) still load, whatever the value."""
+    runtime = load_config().model_dump()["runtime"]
+    assert "seed" not in runtime and "keep_intermediate" not in runtime
+    path = tmp_path / "old.yaml"
+    path.write_text("runtime:\n  seed: 7\n  keep_intermediate: false\n", encoding="utf-8")
+    assert load_config(path) == load_config()
+    assert load_config(overrides=["runtime.seed=-1"]) == load_config()
+
+
+def test_pelvis_with_sacrum_removed(tmp_path):
+    """The pelvis body is always hip bones + sacrum: ``true`` of older configs is ignored,
+    ``false`` is an error."""
+    assert "pelvis_with_sacrum" not in load_config().model_dump()["export"]
+    path = tmp_path / "old.yaml"
+    path.write_text("export:\n  pelvis_with_sacrum: true\n", encoding="utf-8")
+    assert load_config(path) == load_config()
+    with pytest.raises(ConfigError, match="pelvis_with_sacrum was removed"):
+        load_config(overrides=["export.pelvis_with_sacrum=false"])
+
+
+BASIC_SETTINGS = {
+    "runtime.threads",
+    "runtime.cache",
+    "segmentation.bones",
+    "skeleton.side",
+    "skeleton.body_mass",
+    "export.exclude",
+    "export.num_of_lines",
+    "export.line_res",
+    "export.muscle_analysis",
+    "export.fibre_export",
+    "export.motion.coordinate",
+    "export.motion.end_deg",
+    "export.motion.step_deg",
+}
+
+
+def _basic_paths(node, defs, prefix=()):
+    while "$ref" in node:
+        node = {
+            **defs[node["$ref"].rsplit("/", 1)[-1]],
+            **{k: v for k, v in node.items() if k != "$ref"},
+        }
+    out = {".".join(prefix)} if node.get("basic") else set()
+    for name, child in (node.get("properties") or {}).items():
+        out |= _basic_paths(child, defs, (*prefix, name))
+    return out
+
+
+def test_basic_settings_are_fixed():
+    """The GUI shows these without "Show advanced settings"; the mark changes no value."""
+    from mskpipe.config import json_schema
+    from mskpipe.plugins.attachments.atlas_registration import AtlasRegistrationParams
+
+    schema = json_schema()
+    assert _basic_paths(schema, schema["$defs"]) == BASIC_SETTINGS
+    params = AtlasRegistrationParams.model_json_schema()
+    assert _basic_paths(params, params.get("$defs", {})) == {"nonrigid"}
+    assert "basic" not in str(PipelineConfig().model_dump())

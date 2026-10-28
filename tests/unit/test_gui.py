@@ -214,6 +214,7 @@ def test_form_plugin_params_follow_method(qapp):
 
 def test_form_shows_only_params_of_the_nonrigid_stage(qapp):
     form = ConfigForm()
+    form.set_show_advanced(True)
     nonrigid = form.field("attachments", "params", "nonrigid")
 
     def shown(name):
@@ -235,6 +236,85 @@ def test_form_shows_only_params_of_the_nonrigid_stage(qapp):
     assert form.values()["attachments"]["params"]["cpd_beta"] == 3.0
     form.set_values({"attachments": {"params": {"nonrigid": "cpd"}}})
     assert shown("cpd_beta") and not shown("fast_rnrr_exe")
+
+
+def test_form_hides_advanced_settings_by_default(qapp):
+    form = ConfigForm()
+    assert not form.show_advanced
+    assert form.is_shown("skeleton", "side") and form.is_shown("attachments", "params", "nonrigid")
+    assert not form.is_shown("skeleton", "geometry_format")
+    assert not form.is_shown("attachments", "method")
+    assert not form.is_shown("attachments", "params", "n_points")
+    assert form.visible_tab_names() == [
+        "Runtime",
+        "Segmentation",
+        "Skeleton",
+        "Attachments",
+        "Export",
+    ]
+    parent, box = form._boxes[("segmentation", "totalsegmentator")]
+    assert not parent.isRowVisible(box)  # group box without a basic setting
+    shown = {p for p in form._fields if form.is_shown(*p)}
+    assert shown == {p for p in form._fields if form.is_basic(*p)}
+    assert len(shown) == 14
+    form.set_show_advanced(True)
+    assert form.visible_tab_names() == form.tab_names()
+    assert form.is_shown("labelmap", "bones", "topology", "max_hole_mm")
+    assert form.is_shown("attachments", "params", "n_points")
+    form.set_show_advanced(False)
+    assert not form.is_shown("mesh", "bones", "passband")
+    assert form.overrides() == []  # visibility changes no value
+
+
+def test_form_advanced_with_show_if(qapp):
+    """A row is shown only if its choice is selected AND (basic OR advanced shown)."""
+    form = ConfigForm()
+    nonrigid = form.field("attachments", "params", "nonrigid")
+    nonrigid.set("cpd")
+    assert form.is_shown("attachments", "params", "nonrigid")
+    assert not form.is_shown("attachments", "params", "cpd_beta")  # advanced
+    form.set_show_advanced(True)
+    assert form.is_shown("attachments", "params", "cpd_beta")
+    nonrigid.set("coherent_icp")
+    assert not form.is_shown("attachments", "params", "cpd_beta")  # other stage
+
+
+def test_form_counts_hidden_changed_settings(qapp):
+    form = ConfigForm()
+    assert form.hidden_changes() == [] and form.advanced_note.isHidden()
+    form.field("skeleton", "side").set("l")  # basic: visible, not counted
+    assert form.hidden_changes() == [] and form.advanced_note.isHidden()
+    form.set_values(
+        {"mesh": {"bones": {"passband": 0.05}}, "attachments": {"params": {"trim": 0.95}}}
+    )
+    assert form.hidden_changes() == [
+        ("mesh", "bones", "passband"),
+        ("attachments", "params", "trim"),
+    ]
+    assert not form.advanced_note.isHidden()
+    assert form.advanced_note.text().startswith("2 hidden advanced settings differ")
+    assert "mesh.bones.passband" in form.advanced_note.toolTip()
+    form.advanced_note.linkActivated.emit("show")
+    assert form.show_advanced and form.hidden_changes() == [] and form.advanced_note.isHidden()
+    form.set_show_advanced(False)
+    form.reset()
+    assert form.advanced_note.isHidden()
+
+
+def test_form_shows_invalid_advanced_setting(qapp):
+    form = ConfigForm()
+    chunk = form.field("segmentation", "musclemap", "chunk_size")
+    assert not form.is_shown("segmentation", "musclemap", "chunk_size")
+    chunk.editor.setText("big")
+    assert form.validate() is not None
+    assert form.show_advanced and form.is_shown("segmentation", "musclemap", "chunk_size")
+    assert form.tabs.tabText(form.tabs.currentIndex()) == "Segmentation"
+    assert "c0392b" in chunk.editor.styleSheet()
+    # an error on a basic setting does not turn the advanced settings on
+    form.set_show_advanced(False)
+    chunk.editor.setText("auto")
+    form.field("export", "motion", "coordinate").set("Hip Flexion")
+    assert form.validate() is not None and not form.show_advanced
 
 
 def test_form_load_save_roundtrip(qapp, tmp_path):
@@ -466,6 +546,7 @@ def test_window_settings_persist(qapp, tmp_path):
     )
     first.form.field("skeleton", "side").set("l")
     first.form.field("attachments", "params", "atlas_dir").set("D:/atlas")
+    first.form.set_show_advanced(True)
     gui_app._select(first.modality_combo, "mri")
     first.runs_edit.setText(str(tmp_path / "out"))
     first._store()
@@ -474,6 +555,7 @@ def test_window_settings_persist(qapp, tmp_path):
     )
     assert second.form.field("skeleton", "side").get() == "l"
     assert second.form.field("attachments", "params", "atlas_dir").get() == "D:/atlas"
+    assert second.form.show_advanced
     assert second.modality_combo.currentData() == "mri"
     assert second.runs_edit.text() == str(tmp_path / "out")
 

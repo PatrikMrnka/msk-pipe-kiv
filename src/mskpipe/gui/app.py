@@ -331,6 +331,7 @@ class MainWindow(QMainWindow):
         self.runs_edit.setText(str(s.value("runs_dir", str(Path.cwd() / "runs"))))
         _select(self.until_combo, s.value("until", api.PIPELINE_STEPS[-1]))
         self.verbose_check.setChecked(str(s.value("verbose", "false")).lower() == "true")
+        self.form.set_show_advanced(str(s.value("show_advanced", "false")).lower() == "true")
         overrides = s.value("overrides", []) or []
         if isinstance(overrides, str):
             overrides = [overrides]
@@ -351,6 +352,7 @@ class MainWindow(QMainWindow):
         s.setValue("runs_dir", self.runs_edit.text())
         s.setValue("until", self.until_combo.currentData())
         s.setValue("verbose", "true" if self.verbose_check.isChecked() else "false")
+        s.setValue("show_advanced", "true" if self.form.show_advanced else "false")
         s.setValue("overrides", self.form.overrides())
         s.sync()
 

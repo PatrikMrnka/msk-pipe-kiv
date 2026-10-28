@@ -282,14 +282,14 @@ class ExportMw2Step(Step):
     def _bodies(
         self, ctx: StepContext, model: OsimModel, bones: dict[str, Path], skel_dir: Path
     ) -> tuple[dict[str, TriMesh], dict[str, Any]]:
-        """Bone geometry per model body: full-resolution meshes, merged as configured and
-        rotated to the OpenSim frame."""
+        """Bone geometry per model body: full-resolution meshes (pelvis + sacrum, tibia +
+        fibula when segmented), rotated to the OpenSim frame."""
         import numpy as np
 
         from mskpipe.geometry.frames import RAS_TO_OPENSIM, homogeneous
         from mskpipe.io.mesh_io import TriMesh, read_mesh, write_mesh
 
-        cfg, side = ctx.config.export, ctx.config.skeleton.side
+        side = ctx.config.skeleton.side
         geometry: dict[str, TriMesh] = {}
         info: dict[str, Any] = {}
         for body in model.bodies.values():
@@ -297,7 +297,7 @@ class ExportMw2Step(Step):
                 continue
             stem = Path(PureWindowsPath(body.mesh_files[0]).name).stem
             parts = [stem]
-            if stem == "pelvis_no_sacrum" and cfg.pelvis_with_sacrum and "sacrum" in bones:
+            if stem == "pelvis_no_sacrum" and "sacrum" in bones:
                 parts.append("sacrum")
             if stem == f"tibia_{side}" and f"fibula_{side}" in bones:
                 parts.append(f"fibula_{side}")

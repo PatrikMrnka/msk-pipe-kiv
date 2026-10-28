@@ -29,7 +29,6 @@ from mskpipe.plugins.attachments.atlas_registration import AtlasRegistrationPara
 # Numeric fields without a static recommended range, and why
 NO_RECOMMENDED = {
     "runtime.threads": "depends on the CPU cores (environment check)",
-    "runtime.seed": "any seed is fine",
     "segmentation.musclemap.chunk_size": "MuscleMap clamps it to the volume (2D slices)",
     "export.motion.end_deg": "depends on the coordinate (anatomical ranges in sanity)",
     "seed": "any seed is fine (attachments.params)",
@@ -116,8 +115,6 @@ def test_defaults_raise_no_config_issues():
 @pytest.mark.parametrize(
     "override",
     [
-        "runtime.seed=-1",
-        f"runtime.seed={2**32}",
         "runtime.threads=4096",
         "attachments.params.seed=-1",
         f"attachments.params.seed={2**32}",

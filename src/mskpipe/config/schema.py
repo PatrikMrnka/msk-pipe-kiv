@@ -12,6 +12,10 @@ Two levels of checks: the ``ge``/``le``/``gt``/``lt`` bounds and validators reje
 that are impossible or make a step fail (errors); :func:`recommended` attaches the range
 of sensible values to a numeric field, and values outside it are reported as warnings by
 :mod:`mskpipe.config.sanity` (``mskpipe config check``, pre-run checks, GUI).
+
+:data:`BASIC` (``json_schema_extra``) marks the few settings the GUI shows without "Show
+advanced settings"; all other settings are advanced. The mark is not part of the values,
+so it changes no fingerprint.
 """
 
 from __future__ import annotations
@@ -57,6 +61,10 @@ ANATOMICAL_RANGES_DEG: dict[str, tuple[float, float]] = {
     "hip_rotation": (-45.0, 45.0),
     "knee_angle": (-120.0, 10.0),
 }
+
+
+# json_schema_extra of a setting the GUI shows by default (all others are advanced)
+BASIC: dict[str, Any] = {"basic": True}
 
 
 def recommended(low: float | None, high: float | None, why: str = "") -> dict[str, Any]:
@@ -192,6 +200,9 @@ class InputSpec(StrictModel):
 # --------------------------------------------------------------------------- runtime
 
 
+REMOVED_RUNTIME_KEYS = frozenset({"seed", "keep_intermediate"})
+
+
 class RuntimeConfig(StrictModel):
     device: Device = Field(
         Device.CPU,
@@ -202,17 +213,27 @@ class RuntimeConfig(StrictModel):
         ge=1,
         le=1024,
         description="Max CPU threads; null = all cores (more than the cores = warning).",
-        json_schema_extra={"empty": "all cores"},
+        json_schema_extra={**BASIC, "empty": "all cores"},
     )
-    seed: int = Field(0, ge=0, le=SEED_MAX, description="Random seed for stochastic steps.")
     runs_dir: Path = Field(Path("runs"), description="Directory in which run folders are created.")
     cache: bool = Field(
-        True, description="Reuse step outputs whose inputs and settings are unchanged."
+        True,
+        description="Reuse step outputs whose inputs and settings are unchanged.",
+        json_schema_extra=BASIC,
     )
-    keep_intermediate: bool = Field(True, description="Keep intermediate outputs of all steps.")
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = Field(
         "INFO", description="Log verbosity."
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _removed_keys(cls, data: Any) -> Any:
+        """``seed`` and ``keep_intermediate`` (0.1.0) were never read (the sampling seed is
+        ``attachments.params.seed``, step outputs are always kept). Dropped, so configs of
+        older runs stay valid."""
+        if isinstance(data, dict) and REMOVED_RUNTIME_KEYS & data.keys():
+            data = {k: v for k, v in data.items() if k not in REMOVED_RUNTIME_KEYS}
+        return data
 
 
 # --------------------------------------------------------------------------- segmentation
@@ -337,6 +358,7 @@ class SegmentationConfig(StrictModel):
         description="Source of all bones (pelvis, sacrum, femur, tibia, fibula): "
         "'totalsegmentator' (tibia/fibula from its appendicular_bones task; needs a "
         "free academic licence key) or 'musclemap' (no key).",
+        json_schema_extra=BASIC,
     )
     muscles: Segmenter = Field(
         Segmenter.MUSCLEMAP,
@@ -612,7 +634,7 @@ class MeshConfig(StrictModel):
 
 class SkeletonConfig(StrictModel):
     backend: Literal["pystaple"] = Field("pystaple", description="Skeletal model generator.")
-    side: Literal["r", "l"] = Field("r", description="Leg to model.")
+    side: Literal["r", "l"] = Field("r", description="Leg to model.", json_schema_extra=BASIC)
     pelvis_algorithm: Literal["STAPLE"] = Field("STAPLE", description="Pelvis ACS algorithm.")
     femur_algorithm: Literal["GIBOC-cylinder"] = Field(
         "GIBOC-cylinder", description="Femur ACS algorithm."
@@ -626,7 +648,7 @@ class SkeletonConfig(StrictModel):
         ge=10,
         le=300,
         description="Subject mass in kg; sets segment masses and inertias (gait2392 ratios).",
-        json_schema_extra=recommended(35, 150, "adult subject"),
+        json_schema_extra={**BASIC, **recommended(35, 150, "adult subject")},
     )
     geometry_format: Literal["obj", "stl"] = Field(
         "obj", description="Format of the model's visualization geometries."
@@ -714,7 +736,7 @@ class MotionConfig(StrictModel):
         pattern=_IDENT,
         description="Coordinate swept by the motion and driving the muscle paths; "
         "null = hip_flexion_<side>.",
-        json_schema_extra={"empty": "hip_flexion_<side>"},
+        json_schema_extra={**BASIC, "empty": "hip_flexion_<side>"},
     )
     end_deg: float = Field(
         90.0,
@@ -723,10 +745,11 @@ class MotionConfig(StrictModel):
         description="Last value of the swept coordinate [deg] (the anatomical range of the "
         "coordinate is checked before the run, the range in the model by step export_mw2).",
         json_schema_extra={
+            **BASIC,
             "recommended_text": ", ".join(
                 f"{name.replace('_', ' ')} {lo:g} to {hi:g}"
                 for name, (lo, hi) in ANATOMICAL_RANGES_DEG.items()
-            )
+            ),
         },
     )
     step_deg: float = Field(
@@ -734,9 +757,12 @@ class MotionConfig(StrictModel):
         gt=0,
         le=45,
         description="Step of the swept coordinate [deg].",
-        json_schema_extra=recommended(
-            0.5, 10, "Muscle Wrapping time grows with the frames; coarse steps miss detail"
-        ),
+        json_schema_extra={
+            **BASIC,
+            **recommended(
+                0.5, 10, "Muscle Wrapping time grows with the frames; coarse steps miss detail"
+            ),
+        },
     )
 
 
@@ -755,24 +781,31 @@ class ExportConfig(StrictModel):
         "Default: muscles whose insertion is reached through an unsegmented tendon or "
         "fascia running around a bony pulley or down to the tibia; their insertion cannot be "
         "placed on the segmented belly (reasons in export.json). [] exports all.",
+        json_schema_extra=BASIC,
     )
     num_of_lines: int = Field(
         100,
         ge=1,
         le=2000,
         description="Fibres per muscle.",
-        json_schema_extra=recommended(
-            10, 500, "Muscle Wrapping time grows linearly (E13: 100 fibres x 15 muscles = 25 s)"
-        ),
+        json_schema_extra={
+            **BASIC,
+            **recommended(
+                10, 500, "Muscle Wrapping time grows linearly (E13: 100 fibres x 15 muscles = 25 s)"
+            ),
+        },
     )
     line_res: int = Field(
         15,
         ge=1,
         le=200,
         description="Segments per fibre (points - 1).",
-        json_schema_extra=recommended(
-            5, 50, "fewer segments = coarser fibre paths; more = slower Muscle Wrapping"
-        ),
+        json_schema_extra={
+            **BASIC,
+            **recommended(
+                5, 50, "fewer segments = coarser fibre paths; more = slower Muscle Wrapping"
+            ),
+        },
     )
     decomposition_method: Literal["kukacka", "hoang"] = Field(
         "kukacka", description="Muscle decomposition method of Muscle Wrapping 2.x."
@@ -783,11 +816,6 @@ class ExportConfig(StrictModel):
         "InverseDistance",
         description="Luca2018viaPointsAlgorithm: weights of the two bones moving a fibre point.",
     )
-    pelvis_with_sacrum: bool = Field(
-        True,
-        description="Pelvis body geometry = hip bones + sacrum (when segmented), so that "
-        "sacral fibre ends are assigned to the pelvis.",
-    )
     align_child_frames: bool = Field(
         True,
         description="Rotate the child frame of joints that cannot reach the pose of the "
@@ -796,10 +824,14 @@ class ExportConfig(StrictModel):
     )
     motion: MotionConfig = Field(default_factory=MotionConfig)
     muscle_analysis: bool = Field(
-        True, description="Let Muscle Wrapping write fibre lengths and moment arms (analysis/)."
+        True,
+        description="Let Muscle Wrapping write fibre lengths and moment arms (analysis/).",
+        json_schema_extra=BASIC,
     )
     fibre_export: bool = Field(
-        False, description="Let Muscle Wrapping write fibres and muscle meshes per frame (fibres/)."
+        False,
+        description="Let Muscle Wrapping write fibres and muscle meshes per frame (fibres/).",
+        json_schema_extra=BASIC,
     )
     inflate_radius_mm: float = Field(
         5.0,
@@ -817,6 +849,22 @@ class ExportConfig(StrictModel):
         "from the setup XML or 'keep' (written with a warning). Attachment outline checks "
         "are reported only and never exclude a muscle.",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _removed_pelvis_with_sacrum(cls, data: Any) -> Any:
+        """``pelvis_with_sacrum`` (0.1.0) was removed: the pelvis body is always the hip
+        bones + the sacrum when it is segmented. ``true`` is dropped (configs of older runs
+        stay valid), ``false`` is an error."""
+        if not isinstance(data, dict) or "pelvis_with_sacrum" not in data:
+            return data
+        data = dict(data)
+        if data.pop("pelvis_with_sacrum") not in (True, "true", "True"):
+            raise ValueError(
+                "pelvis_with_sacrum was removed: the pelvis body is always the hip bones + "
+                "the sacrum when it is segmented (sacral fibre ends move with the pelvis)"
+            )
+        return data
 
     @field_validator("muscles")
     @classmethod

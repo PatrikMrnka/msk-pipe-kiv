@@ -5,7 +5,10 @@ from mskpipe.config import json_schema
 from mskpipe.config.help import help_for, load_help, plugin_help
 from mskpipe.core.registry import default_registry
 
-GUI_CONTROLS = {"image", "modality", "subject", "device", "runs_dir", "until", "verbose"}
+GUI_CONTROLS = {
+    *("image", "modality", "subject", "device", "runs_dir", "until", "verbose"),
+    "show_advanced",
+}
 NOT_SHOWN = {"config_version", "runtime.device", "runtime.runs_dir"}  # window controls
 PLUGIN_GROUPS = {"attachments.params"}  # free objects in the schema, groups in the GUI
 
