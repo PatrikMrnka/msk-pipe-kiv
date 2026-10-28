@@ -6,6 +6,7 @@ Typical use::
     from mskpipe import api
 
     request = api.RunRequest(image=Path("ct.nii.gz"), modality="ct", device="gpu")
+    # or a DICOM folder: RunRequest(image=Path("scan_dicom"), modality="auto", series="3")
     prepared = api.prepare_run(request)          # config + input checked, nothing written
     issues = api.preflight(prepared)             # licence key, atlas, plugins, NIfTI header
     summary = api.run(prepared, on_event=print)  # never raises for a failing step
@@ -51,6 +52,7 @@ from mskpipe.core.step import Step
 from mskpipe.core.workspace import STEPS, Workspace, WorkspaceError
 
 if TYPE_CHECKING:
+    from mskpipe.io.dicom import DicomScan, DicomVolume
     from mskpipe.io.modality import ModalityGuess
 
 __all__ = [
@@ -70,11 +72,14 @@ __all__ = [
     "default_steps",
     "describe_image",
     "detect_modality",
+    "dicom_modality",
     "finalize_stale",
+    "input_volume",
     "preflight",
     "prepare_run",
     "resolved_config",
     "run",
+    "scan_dicom",
     "summarize",
 ]
 
@@ -83,6 +88,7 @@ logger = logging.getLogger("mskpipe")
 PIPELINE_STEPS: tuple[str, ...] = STEPS[1:]
 AUTO = "auto"  # modality detected from the image  # "prepare" = run folder set up by the runner
 MW2_SETUP_FILE = "setup_MuscleGeneratorTool.xml"
+DICOM_WARNING = "DICOM conversion: "  # prefix of notes logged as warnings
 
 RunStatus = Literal["running", "completed", "failed", "interrupted"]
 EXIT_CODES: dict[str, int] = {"completed": 0, "failed": 1, "running": 1, "interrupted": 130}
@@ -104,6 +110,9 @@ class SetupError(ValueError):
 class RunRequest:
     """What to run. Either a new input (``image`` + ``modality``) or ``resume``.
 
+    ``image`` is a NIfTI file or a folder of DICOM files (a single DICOM file stands for
+    its folder); ``series`` chooses the series of a DICOM folder that has several.
+
     ``device``, ``runs_dir`` and ``cache`` are shortcuts for ``runtime.*`` overrides and
     take precedence over ``overrides``. A resumed run keeps its stored configuration;
     only the device may be changed.
@@ -112,6 +121,7 @@ class RunRequest:
     image: Path | None = None
     modality: Modality | str | None = None
     subject: str | None = None
+    series: str | None = None
     config: Path | None = None
     overrides: tuple[str, ...] = ()
     device: Device | str | None = None
@@ -152,6 +162,7 @@ class RunRequest:
                     ("image", self.image),
                     ("modality", self.modality),
                     ("subject", self.subject),
+                    ("series", self.series),
                     ("config", self.config),
                     ("overrides", self.overrides),
                     ("runs_dir", self.runs_dir),
@@ -181,10 +192,18 @@ class PreparedRun:
     steps: tuple[str, ...]
     workspace: Workspace | None = None  # set when resuming
     notes: tuple[str, ...] = ()  # logged at the start of the run (e.g. detected modality)
+    volume: Path | None = None  # NIfTI the run reads (a DICOM folder: its conversion)
 
     @property
     def modality(self) -> str:
         return self.spec.modality.value
+
+    @property
+    def image(self) -> Path:
+        """The NIfTI volume of the run (in the run folder when resuming)."""
+        if self.workspace is not None:
+            return self.workspace.input_image
+        return self.volume or self.spec.image
 
 
 def prepare_run(request: RunRequest, registry: Registry | None = None) -> PreparedRun:
@@ -205,20 +224,36 @@ def prepare_run(request: RunRequest, registry: Registry | None = None) -> Prepar
 
     assert request.image is not None
     image = Path(request.image).expanduser()
-    if not image.is_file():
+    notes: list[str] = []
+    if image.is_file() and _is_dicom_file(image):  # one file of a series: its folder
+        image = image.parent
+        notes.append(f"DICOM file given: using its folder {image}")
+    if not image.exists():
         raise SetupError(f"Input image not found: {image}")
-    modality, notes = request.modality, ()
+    series, dicom = request.series, None
+    if image.is_dir():
+        dicom = _dicom_volume(image, request.series)
+        volume, series = dicom.nifti_path, dicom.id
+        notes.append(f"DICOM: {dicom.label()}, converted with dcm2niix")
+        notes += [f"{DICOM_WARNING}{w}" for w in dicom.warnings]
+    else:
+        volume = image
+    errors = [i.message for i in check_image(volume) if i.severity == "error"]
+    if errors:
+        raise SetupError(f"Invalid input image {image.name}: {'; '.join(errors)}")
+    modality = request.modality
     if str(modality) == AUTO:
-        guess = detect_modality(image)
+        guess = dicom_modality(dicom) if dicom is not None else detect_modality(volume)
         if guess.modality is None:
             raise SetupError(
                 f"Cannot detect the modality of {image.name} ({guess.reason}); "
                 "give it explicitly (ct or mri)"
             )
-        modality, notes = guess.modality, (f"Modality: {guess}",)
+        modality = guess.modality
+        notes.append(f"Modality: {guess}")
     try:
         spec = InputSpec.model_validate(
-            {"image": image, "modality": modality, "subject_id": request.subject}
+            {"image": image, "modality": modality, "subject_id": request.subject, "series": series}
         )
     except ValidationError as exc:
         msgs = "; ".join(
@@ -226,7 +261,57 @@ def prepare_run(request: RunRequest, registry: Registry | None = None) -> Prepar
         )
         raise SetupError(f"Invalid input: {msgs}") from None
     config = resolved_config(request.config, request.all_overrides(), registry)
-    return PreparedRun(request, spec, config, steps, notes=notes)
+    return PreparedRun(request, spec, config, steps, notes=tuple(notes), volume=volume)
+
+
+def _is_dicom_file(path: Path) -> bool:
+    from mskpipe.io.dicom import DICOM_SUFFIXES
+
+    return path.suffix.lower() in DICOM_SUFFIXES
+
+
+def scan_dicom(folder: str | Path) -> DicomScan:
+    """Every series of a DICOM folder, converted (cached) and checked.
+
+    Raises :class:`SetupError` if the folder has no DICOM images or cannot be converted.
+    """
+    from mskpipe.io.dicom import DicomError, scan
+
+    try:
+        return scan(folder)
+    except DicomError as exc:
+        raise SetupError(str(exc)) from None
+
+
+def _dicom_volume(folder: Path, series: str | None) -> DicomVolume:
+    from mskpipe.io.dicom import DicomError
+
+    try:
+        return scan_dicom(folder).select(series)
+    except DicomError as exc:
+        raise SetupError(str(exc)) from None
+
+
+def dicom_modality(volume: DicomVolume) -> ModalityGuess:
+    """CT or MRI of a converted DICOM series (DICOM tag Modality)."""
+    from mskpipe.io.modality import ModalityGuess
+
+    if volume.modality is None:
+        return ModalityGuess(None, None, f"DICOM modality {volume.dicom_modality or 'unknown'}")
+    return ModalityGuess(volume.modality, "dicom", f"Modality {volume.dicom_modality}")
+
+
+def input_volume(path: str | Path, series: str | None = None) -> Path:
+    """The NIfTI of an input: the file itself, or the conversion of a DICOM folder (or of
+    the folder of a DICOM file). Raises :class:`SetupError`."""
+    path = Path(path).expanduser()
+    if path.is_file() and _is_dicom_file(path):
+        path = path.parent
+    if path.is_dir():
+        return _dicom_volume(path, series).nifti_path
+    if not path.is_file():
+        raise SetupError(f"Input image not found: {path}")
+    return path
 
 
 def detect_modality(path: str | Path) -> ModalityGuess:
@@ -263,8 +348,7 @@ def preflight(prepared: PreparedRun, registry: Registry | None = None) -> list[I
     reg = registry or default_registry()
     issues: list[Issue] = []
     if "segment" in prepared.steps:
-        image = prepared.workspace.input_image if prepared.workspace else prepared.spec.image
-        issues += check_image(image)
+        issues += check_image(prepared.image)
     for where, kind, name in _plugins(prepared):
         try:
             plugin = reg.get(kind, name)
@@ -296,9 +380,7 @@ def _sanity(prepared: PreparedRun, registry: Registry) -> list[Issue]:
     if prepared.workspace is not None and req.device is not None:  # resume on another device
         runtime = config.runtime.model_copy(update={"device": Device(req.device)})
         config = config.model_copy(update={"runtime": runtime})
-    image = None
-    if "segment" in prepared.steps:
-        image = prepared.workspace.input_image if prepared.workspace else prepared.spec.image
+    image = prepared.image if "segment" in prepared.steps else None
     return sanity.check(
         config,
         image,
@@ -326,7 +408,8 @@ def _plugins(prepared: PreparedRun) -> list[tuple[str, str, str]]:
 
 
 def check_image(path: Path) -> list[Issue]:
-    """Header checks of an input volume (3D, qform/sform, suspicious 1 mm spacing)."""
+    """Header checks of a NIfTI input volume: errors = not usable (unreadable, not 3D,
+    single slice, invalid geometry), warnings = no qform/sform, suspicious 1 mm spacing."""
     import nibabel as nib
     import numpy as np
 
@@ -337,8 +420,14 @@ def check_image(path: Path) -> list[Issue]:
         return [Issue("error", where, f"Cannot read NIfTI header of {path.name}: {exc}")]
     issues: list[Issue] = []
     header = img.header
-    if len(img.shape) < 3 or (len(img.shape) > 3 and any(int(n) > 1 for n in img.shape[3:])):
-        issues.append(Issue("error", where, f"Expected a 3D volume, got shape {img.shape}"))
+    shape = tuple(int(n) for n in img.shape)
+    if len(shape) < 3 or (len(shape) > 3 and any(n > 1 for n in shape[3:])):
+        issues.append(Issue("error", where, f"Expected a 3D volume, got shape {shape}"))
+    elif min(shape[:3]) < 2:
+        issues.append(Issue("error", where, f"Not a 3D volume (single slice), shape {shape}"))
+    affine = np.asarray(img.affine, dtype=float)
+    if not np.all(np.isfinite(affine)) or abs(np.linalg.det(affine[:3, :3])) < 1e-9:
+        issues.append(Issue("error", where, "Invalid geometry in the header (NaN or zero spacing)"))
     codes = (int(header["qform_code"]), int(header["sform_code"]))
     if codes == (0, 0):
         issues.append(
@@ -616,7 +705,7 @@ def run(
     else:
         logger.info("Resuming %s", prepared.workspace.root.name)
     for note in prepared.notes:
-        logger.info("%s", note)
+        logger.log(logging.WARNING if note.startswith(DICOM_WARNING) else logging.INFO, "%s", note)
     try:
         if "segment" in prepared.steps:
             prefetch_weights(prepared, cancel)

@@ -16,6 +16,7 @@ msk-pipe itself is licensed under [Apache-2.0](LICENSE). It relies on the compon
 | PyTorch | BSD-3-Clause | Deep-learning runtime | [pytorch/pytorch](https://github.com/pytorch/pytorch) |
 | VTK | BSD-3-Clause | Surface extraction and mesh processing | [vtk.org](https://vtk.org) |
 | PySide6 | LGPL-3.0 | Graphical user interface (unmodified, shipped as separate libraries) | [qt.io](https://www.qt.io/qt-for-python) |
+| dcm2niix | BSD-2-Clause (bundled parts: public domain, MIT, BSD) | DICOM to NIfTI conversion of DICOM input folders (unmodified executable, conda-forge) | [rordenlab/dcm2niix](https://github.com/rordenlab/dcm2niix) |
 
 The Windows release additionally bundles further Python and conda packages. Their complete list and license texts are generated automatically at release time and shipped in the `licenses/` folder of the release archive.
 
@@ -46,6 +47,7 @@ If you use msk-pipe, please also cite the tools it builds on:
 - **STAPLE** (via pystaple): Modenese L., Renault J.-B. (2021). Automatic generation of personalised skeletal models of the lower limb from three-dimensional bone geometries. *Journal of Biomechanics* 116, 110186. https://doi.org/10.1016/j.jbiomech.2020.110186
 - **TotalSegmentator**: Wasserthal J. et al. (2023). TotalSegmentator: Robust Segmentation of 104 Anatomic Structures in CT Images. *Radiology: Artificial Intelligence*. https://doi.org/10.1148/ryai.230024
 - **Fast-RNRR** (when `nonrigid = fast_rnrr`): Yao Y., Deng B., Xu W., Zhang J. (2020). Quasi-Newton Solver for Robust Non-Rigid Registration. *IEEE/CVF CVPR*. https://arxiv.org/abs/2004.04322
+- **dcm2niix** (DICOM input): Li X., Morgan P.S., Ashburner J., Smith J., Rorden C. (2016). The first step for neuroimaging data analysis: DICOM to NIfTI conversion. *Journal of Neuroscience Methods* 264, 47–56. https://doi.org/10.1016/j.jneumeth.2016.03.001
 - **MuscleMap**: McKay M.J. et al. (2024). MuscleMap: An Open-Source, Community-Supported Consortium for Whole-Body Quantitative MRI of Muscle. *J Imaging* 10(11), 262. https://doi.org/10.3390/jimaging10110262
 
 See the respective repositories for further publications of the specific algorithms and models used.

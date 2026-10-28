@@ -46,7 +46,7 @@ EXIT_CANCELLED = 130
 class ChildRequest:
     """What the GUI asks the child ``mskpipe run`` to do."""
 
-    image: Path
+    image: Path  # NIfTI file or DICOM folder
     modality: str
     runs_dir: Path
     device: str = "cpu"
@@ -54,6 +54,7 @@ class ChildRequest:
     until_step: str | None = None
     overrides: Sequence[str] = field(default_factory=tuple)
     verbose: bool = False
+    series: str | None = None  # DICOM folder: the chosen series
 
 
 def python_executable() -> str:
@@ -81,6 +82,8 @@ def child_command(request: ChildRequest, prefix: Sequence[str] | None = None) ->
     argv += ["--runs-dir", str(request.runs_dir)]
     if request.subject:
         argv += ["--subject", request.subject]
+    if request.series:
+        argv += ["--series", request.series]
     if request.until_step:
         argv += ["--until", request.until_step]
     for item in request.overrides:

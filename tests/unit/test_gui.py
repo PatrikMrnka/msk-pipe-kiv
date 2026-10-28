@@ -728,6 +728,7 @@ def test_window_badges(window):
 
     assert set(window._badges) == {
         "gui.image",
+        "gui.series",
         "gui.modality",
         "gui.subject",
         "gui.device",

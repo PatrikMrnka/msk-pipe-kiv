@@ -162,15 +162,32 @@ def _subject_from_path(path: Path) -> str:
     return cleaned or "subject"
 
 
+NIFTI_SUFFIXES = (".nii", ".nii.gz")
+
+
+def is_nifti_name(path: Path) -> bool:
+    return path.name.lower().endswith(NIFTI_SUFFIXES)
+
+
 class InputSpec(StrictModel):
     """One input volume. Not part of the config file (supplied by CLI/GUI/batch)."""
 
-    image: Path = Field(description="Input volume (.nii or .nii.gz).")
+    image: Path = Field(description="Input volume (.nii or .nii.gz) or a folder of DICOM files.")
     modality: Modality = Field(description="Imaging modality of the input volume.")
     subject_id: str = Field(
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
         description="Identifier used in run names and outputs; defaults to the file name.",
     )
+    series: str | None = Field(
+        None,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+        description="DICOM folder only: the series to process (needed when there are several).",
+    )
+
+    @property
+    def is_dicom(self) -> bool:
+        """The input is a DICOM folder (converted to NIfTI when the run folder is made)."""
+        return not is_nifti_name(self.image)
 
     @model_validator(mode="before")
     @classmethod
@@ -181,9 +198,14 @@ class InputSpec(StrictModel):
 
     @model_validator(mode="after")
     def _check_suffix(self) -> InputSpec:
-        if not self.image.name.lower().endswith((".nii", ".nii.gz")):
+        if is_nifti_name(self.image):
+            if self.series is not None:
+                raise ValueError("series is only used with a DICOM folder")
+            return self
+        if self.series is None and not self.image.is_dir():
             raise ValueError(
-                f"image must be a NIfTI file (.nii or .nii.gz), got '{self.image.name}'"
+                "image must be a NIfTI file (.nii or .nii.gz) or a folder of DICOM files, "
+                f"got '{self.image.name}'"
             )
         return self
 

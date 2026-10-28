@@ -10,19 +10,33 @@
 # ------------------------------------------------------------------ GUI controls
 gui.image:
   help: >-
-    The CT or MRI volume of the subject in NIfTI format. Position, orientation and voxel
-    spacing are taken from its header, so every mesh and the skeletal model are in the
-    patient's world coordinates.
-  example: Cadaver1_LowerLimbsCT.nii.gz exported from the LHDL MAF scene.
+    The CT or MRI volume of the subject: a NIfTI file (.nii, .nii.gz) or a folder of DICOM
+    files (subfolders included), chosen with the switch on the left. A DICOM folder is
+    converted with dcm2niix and checked: only 3D CT and MR series can be used (no
+    localizers, single slices or 4D series); gantry tilt and missing slices are corrected
+    when possible. Position, orientation and voxel spacing come from the header, so every
+    mesh and the skeletal model are in the patient's world coordinates.
+  example: >-
+    A DICOM folder with a scout and two CT series lists the two CT series under Series;
+    the scout is reported as not usable.
 gui.modality:
   help: >-
     CT or MRI decides which segmentation models run (TotalSegmentator total vs total_mr).
-    Auto reads it from the dcm2niix JSON next to the image, from the NIfTI header, or from
-    the intensities (CT is in Hounsfield units with air around -1000; MRI has no negative
+    Auto reads it from the DICOM files, the dcm2niix JSON next to the image, the NIfTI
+    header or the intensities (CT is in Hounsfield units with air around -1000; MRI has no negative
     values).
   example: "Auto on the LHDL CT shows 'detected CT (intensities: ... at or below -500 HU)'."
+gui.series:
+  help: >-
+    The series of the DICOM folder to process, when the folder has more than one usable
+    series (e.g. a bone and a soft-tissue reconstruction, or two MRI echoes). The id is
+    the DICOM series number as dcm2niix names it (e.g. 3, 9_e2); the command line takes
+    the same id (mskpipe run <folder> --series 3, list: mskpipe dicom <folder>).
+  example: "Series 3 'Body': CT, 512 x 512 x 2634 voxels, 0.977 x 0.977 x 0.4 mm."
 gui.subject:
-  help: Identifier used in the run folder name and the output files. Empty = file name.
+  help: >-
+    Identifier used in the run folder name and the output files. Empty = file or DICOM
+    folder name.
   example: LHDL gives runs/20261008-101500_LHDL_1a2b3c4d.
 gui.device:
   help: >-
