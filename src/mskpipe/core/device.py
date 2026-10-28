@@ -32,7 +32,7 @@ except ImportError:  # pragma: no cover - declared dependency, kept optional for
     pynvml = None
 
 MIN_DRIVER = 570  # needed by torch wheels built with CUDA 12.8 (Blackwell, RTX 50xx)
-PROBE_TIMEOUT_S = 120
+PROBE_TIMEOUT_S = 300  # first CUDA start after installing GPU support: minutes
 
 _GPU_HINT = (
     f"Needs an NVIDIA driver {MIN_DRIVER} or newer and a CUDA build of PyTorch: in the "

@@ -5,26 +5,43 @@ is a clean Windows without Python, pixi, Visual C++ redistributables or an NVIDI
 the situation of a new user. Run before every tag.
 
 1. Download `msk-pipe-<version>-win64.zip` (draft release `ci-<run id>` of a manual
-   *Release* run: `gh release download ci-<run id> -D C:\msk-pipe-sandbox`, or the release) and a test volume (e.g. a small CT `.nii.gz`) into `C:\msk-pipe-sandbox`.
+   *Release* run: `gh release download ci-<run id> -p "*.zip" -D C:\msk-pipe-sandbox`, or
+   the release) and test data into `C:\msk-pipe-sandbox`: a CT `.nii.gz` and a DICOM
+   folder (e.g. an MRI series).
 2. Double-click `packaging\sandbox\msk-pipe.wsb`; in the sandbox copy the zip from
    `Desktop\shared` to `C:\` and unzip it there (*Extract all*).
 3. Check:
    - [ ] `msk-pipe.cmd` (double-click): first start unpacks the environment, the GUI opens
          (no message about a missing `VCRUNTIME140.dll` or other DLL)
-   - [ ] the Setup window opens by itself (no licence key); **Use MuscleMap instead** works
-   - [ ] atlas shows `ok (release)`; GPU support shows *not installed* (no NVIDIA here)
-   - [ ] Device *Auto* -> `cpu - auto: no NVIDIA GPU found`
-   - [ ] a run with *Run until: Muscle Wrapping input* completes (CPU, ~20-30 min) and
-         *Open Muscle Wrapping input* shows `setup_MuscleGeneratorTool.xml`, `.osim`, meshes
-   - [ ] `mskpipe.cmd setup status` in a console lists the downloaded weights as `ok`
+   - [ ] the Setup window opens by itself: *A run cannot start yet - missing:
+         TotalSegmentator licence key, model weights*; atlas `ok (release)`
+   - [ ] main window, *Run* disabled; above the buttons *The run cannot start* names the
+         licence key (with *Bones = totalsegmentator*) and the missing weights
+   - [ ] link *take all bones from MuscleMap*: the licence line disappears; *Settings ->
+         Segmentation -> Bones = totalsegmentator* again: it is back, with the reason
+   - [ ] Device offers only *CPU*, next to it *CPU only - GPU not available: ...*
+         (with *install GPU support…* when an NVIDIA GPU is visible)
+   - [ ] *Non-rigid* does not offer `fast_rnrr`
+   - [ ] Setup… -> *Download now*: weights downloaded, the summary turns green and *Run*
+         is enabled (with MuscleMap bones, or after saving a licence key)
+   - [ ] a CT `.nii.gz` with *Run until: Muscle Wrapping input* completes (CPU,
+         ~20-30 min); *Open Muscle Wrapping input* shows `setup_MuscleGeneratorTool.xml`,
+         `.osim`, meshes; *Segmentation…* and *Geometry check…* open
+   - [ ] *Image: DICOM folder*: the series are listed, the modality is detected and a run
+         starts
+   - [ ] `mskpipe.cmd setup status` in a console lists the weights as `ok`
    - [ ] second start of `msk-pipe.cmd` opens the GUI without unpacking
-4. Optional GPU test (host with an NVIDIA driver 570+ and 32 GB RAM): in `msk-pipe.wsb`
-   set `<VGpu>Enable</VGpu>` and `<MemoryInMB>24576</MemoryInMB>`, then
-   - [ ] Setup… -> GPU support -> Install; Device *GPU* -> `cuda:0 (...)`
+4. Optional (needs internet, a few minutes): Setup… -> Fast-RNRR -> *Build…*, confirm
+   research use
+   - [ ] the build finishes; *Non-rigid* now offers `fast_rnrr` and a run with it completes
+5. Optional GPU test (host with an NVIDIA driver 570+ and 32 GB RAM; `msk-pipe.wsb` has
+   `<VGpu>Enable</VGpu>` and `<MemoryInMB>24576</MemoryInMB>`):
+   - [ ] Setup… -> GPU support -> Install; Device now offers *Auto / CPU / GPU* and the
+         label shows `GPU available: cuda:0 (...)`
    - [ ] a run on the GPU completes (slower than on the host: the GPU is paravirtualised)
    With 16 GB the sandbox runs out of commit memory in TotalSegmentator `total`
    (WinError 1455 / OSError 22); a real computer grows its page file instead.
-5. Note the version, date and result in the release notes / CHANGELOG.
+6. Note the version, date and result in the release notes / CHANGELOG.
 
 ## Repeated tests without downloading again
 

@@ -142,6 +142,10 @@ class MainWindow(QMainWindow):
         self._wanted_device = "auto"
         self.gpu_report: DeviceReport | None = None
         self._gpu_probing = False
+        self._probe_started: float | None = None
+        self._probe_timer = QTimer(self)  # elapsed time of the GPU probe in the label
+        self._probe_timer.setInterval(1000)
+        self._probe_timer.timeout.connect(self._show_probe)
         self.blockers: list[str] = []  # why Run is disabled (rich text), see run_blockers
 
         self.setWindowTitle(f"msk-pipe {__version__}")
@@ -226,7 +230,7 @@ class MainWindow(QMainWindow):
         self.device_combo.currentIndexChanged.connect(lambda _=None: self._device_chosen())
         self.device_label = QLabel()
         self.device_label.setWordWrap(True)
-        self.device_label.linkActivated.connect(lambda _link: self.open_setup())
+        self.device_label.linkActivated.connect(self._device_link)
 
         self.runs_edit = QLineEdit()
         browse_runs = QPushButton("Browse…")
@@ -887,9 +891,13 @@ class MainWindow(QMainWindow):
         return missing
 
     def _wait_reason(self) -> str | None:
-        """A short wait before Run is possible (not an error)."""
+        """A wait before Run is possible (not an error; rich text with a way out)."""
         if self._gpu_probing and self._wanted_device != "cpu":
-            return "Detecting whether the GPU can be used…"
+            return (
+                "Detecting whether the GPU can be used… The first start after installing "
+                "GPU support loads CUDA and can take a few minutes. "
+                '<a href="cpu">Run on the CPU instead</a>'
+            )
         return None
 
     def _update_run_state(self) -> None:
@@ -907,10 +915,11 @@ class MainWindow(QMainWindow):
                 f'<ul style="margin:0 0 0 -24px">{items}</ul>'
             )
         if wait:
-            text += _colored(wait, GREY)
+            text += f'<span style="color:{GREY}">{wait}</span>'
         self.block_label.setText(text)
         self.block_label.setVisible(bool(text))
-        self.run_button.setToolTip("\n".join(_plain(b) for b in self.blockers) or (wait or ""))
+        tip = "\n".join(_plain(b) for b in self.blockers) or _plain(wait or "")
+        self.run_button.setToolTip(tip)
 
     def _offer_nonrigid(self) -> None:
         """Offer nonrigid = fast_rnrr only where Fast-RNRR is available (optional)."""
@@ -925,7 +934,9 @@ class MainWindow(QMainWindow):
         self.form.set_unavailable(NONRIGID, {} if path is not None else {"fast_rnrr": reason})
 
     def _block_link(self, link: str) -> None:
-        if link == "musclemap":
+        if link == "cpu":
+            self._use_cpu()
+        elif link == "musclemap":
             self.apply_setting(("segmentation", "bones"), "musclemap")
         elif link == "nonrigid":
             self.apply_setting(NONRIGID, "coherent_icp")
@@ -1048,15 +1059,42 @@ class MainWindow(QMainWindow):
             self._device_proc.kill()
             self._device_proc.waitForFinished(2000)
         self._gpu_probing = True
-        self.device_label.setText(_colored("detecting the GPU…", GREY))
+        self._probe_started = time.monotonic()
+        self._show_probe()
+        self._probe_timer.start()
         argv = [*self.command, "device", "--device", "auto", "--json"]
         self._device_proc.start(argv[0], argv[1:])
+        self._update_run_state()
+
+    def _show_probe(self) -> None:
+        """'detecting the GPU… 12 s' while the probe runs (it can take minutes the first
+        time after GPU support was installed: CUDA libraries are loaded and checked)."""
+        if not self._gpu_probing or self._probe_started is None:
+            return
+        seconds = int(time.monotonic() - self._probe_started)
+        text = f"detecting the GPU… {seconds} s"
+        if seconds >= 10:
+            text += " (the first CUDA start can take a few minutes)"
+        self.device_label.setText(_colored(text, GREY))
+
+    def _device_link(self, link: str) -> None:
+        if link == "detect":
+            self.detect_device()
+        else:
+            self.open_setup()
+
+    def _use_cpu(self) -> None:
+        """Run on the CPU without waiting for the GPU probe (it keeps running)."""
+        self._wanted_device = "cpu"
+        self._fill_devices()
         self._update_run_state()
 
     def _device_detected(self, code: int, _status: QProcess.ExitStatus) -> None:
         out = bytes(self._device_proc.readAllStandardOutput()).decode("utf-8", "replace")
         err = bytes(self._device_proc.readAllStandardError()).decode("utf-8", "replace")
         self._gpu_probing = False
+        self._probe_timer.stop()
+        elapsed = time.monotonic() - self._probe_started if self._probe_started else 0.0
         self.gpu_report = None
         text = None
         if code == 0:
@@ -1072,10 +1110,14 @@ class MainWindow(QMainWindow):
             text = _colored(f"CPU only - GPU not available: {reason}", GREY)
             if "mskpipe setup gpu" in report.reason:
                 text += ' - <a href="setup">install GPU support…</a>'
+            elif report.gpus:  # a GPU is there: e.g. the probe timed out on the first start
+                text += ' - <a href="detect">detect again</a>'
         else:
             message = err.strip().removeprefix("Error: ") or "GPU detection failed"
-            text = _colored(f"CPU only - {message}", RED)
+            text = _colored(f"CPU only - {message}", RED) + ' - <a href="detect">detect again</a>'
         self.device_label.setText(text)
+        if elapsed >= 10:
+            self.statusBar().showMessage(f"GPU detection finished in {elapsed:.0f} s", 10_000)
         self._fill_devices()
         self._update_run_state()
 

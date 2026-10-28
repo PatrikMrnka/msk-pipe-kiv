@@ -522,3 +522,35 @@ def test_gpu_offered_only_when_usable(window, monkeypatch):
     window._device_detected(0, None)
     assert _devices(window) == ["cpu"] and "CPU only" in window.device_label.text()
     assert window._wanted_device == "gpu"  # remembered for when GPU support is installed
+
+
+def test_gpu_probe_shows_progress_and_cpu_way_out(window, tmp_path, weights_ok, monkeypatch):
+    atlas.install_atlas(str(make_atlas(tmp_path / "a")), print)
+    window.apply_setting(("segmentation", "bones"), "musclemap")
+    window._validate()
+    assert window.run_button.isEnabled()
+    # GPU support just installed: the probe runs, a wish for the GPU waits for it
+    window._wanted_device = "auto"
+    window._gpu_probing = True
+    window._probe_started = gui_app.time.monotonic() - 42
+    window._show_probe()
+    assert "42 s" in window.device_label.text() and "few minutes" in window.device_label.text()
+    window._update_run_state()
+    assert not window.run_button.isEnabled() and 'href="cpu"' in window.block_label.text()
+    window.block_label.linkActivated.emit("cpu")
+    assert window.run_button.isEnabled() and window._wanted_device == "cpu"
+    # a GPU is there but the probe did not confirm it: offer to detect again
+    report = DeviceReport(
+        requested="auto",
+        selected="cpu",
+        reason="auto: torch.cuda is not available (probe failed: timed out)",
+        gpus=[GpuInfo(index=0, name="RTX Test")],
+    )
+    monkeypatch.setattr(window, "_device_proc", _Proc(report.model_dump_json()))
+    window._device_detected(0, None)
+    assert 'href="detect"' in window.device_label.text()
+    assert "GPU detection finished in" in window.statusBar().currentMessage()
+    started = []
+    monkeypatch.setattr(window, "detect_device", lambda: started.append(True))
+    window.device_label.linkActivated.emit("detect")
+    assert started
