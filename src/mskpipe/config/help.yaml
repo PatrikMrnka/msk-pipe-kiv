@@ -270,9 +270,10 @@ mesh.repair:
     here; the steps after only read the result.
 mesh.repair.enabled:
   help: >-
-    Repair surfaces that fail the checks: small mesh fixes first, then a new surface from
-    the mask with a decimation that cannot open holes; muscles also with small openings and
-    closings (holes, several parts, handles / genus > 0).
+    Repair surfaces that fail the checks: small mesh fixes first; bones then a local patch
+    (the faces around a non-manifold spot or small hole are replaced, the rest stays), then
+    a new surface from the mask with a decimation that cannot open holes; muscles also with
+    small openings and closings (holes, several parts, handles / genus > 0).
   example: On (default); the LHDL iliacus (genus 2) and the TLEM 2.0 MRI pelvis become usable.
 mesh.repair.max_opening_mm:
   help: >-

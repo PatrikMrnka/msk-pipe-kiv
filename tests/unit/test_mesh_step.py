@@ -153,6 +153,9 @@ def test_open_surfaces_are_repaired_in_the_mesh_step(tmp_path, spec, monkeypatch
         assert e["repair"]["original_problems"] == ["boundary edges: 3"]
         assert e["repair"]["attempts"][0]["method"] == "mesh"  # cannot close a hole
         assert mesh_stats(read_mesh(out / e["file"]))["closed"]
+    # the coarse test femur: the patch closes the hole but changes the volume too much
+    patch = femur["repair"]["attempts"][1]
+    assert patch["method"] == "patch" and not patch["accepted"]
     assert femur["repair"]["used"] == "topology-preserving decimation"
     metrics = result.manifest.steps["mesh"].metrics
     assert metrics["repaired"] == ["femur_r", "gluteus_maximus_r"]

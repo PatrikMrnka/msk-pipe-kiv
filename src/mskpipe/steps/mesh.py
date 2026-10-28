@@ -43,7 +43,8 @@ COORDINATES = {"space": "world_ras", "units": "mm"}
 
 class MeshStep(Step):
     name: ClassVar[str] = "mesh"
-    version: ClassVar[str] = "3"  # 2: genus check; 3: every surface checked and repaired here
+    # 2: genus check; 3: every surface checked and repaired here; 4: local patch of bones
+    version: ClassVar[str] = "4"
     config_sections: ClassVar[tuple[str, ...]] = ("mesh",)
 
     def fingerprint_extra(self, config: PipelineConfig) -> dict[str, Any]:

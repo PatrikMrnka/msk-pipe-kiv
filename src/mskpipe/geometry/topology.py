@@ -179,6 +179,96 @@ def repair_surface(mesh: TriMesh, keep_components: bool = False) -> tuple[TriMes
     return oriented, fixes
 
 
+def _boundary_loops(faces: np.ndarray) -> tuple[list[list[int]], set[int]]:
+    """Boundary loops as vertex lists following the half-edges of their faces, and the
+    vertices where boundaries touch (two outgoing boundary half-edges)."""
+    directed = faces[:, [0, 1, 1, 2, 2, 0]].reshape(-1, 2)
+    undirected = np.sort(directed, axis=1)
+    _, inverse, counts = np.unique(undirected, axis=0, return_inverse=True, return_counts=True)
+    boundary = directed[counts[inverse.reshape(-1)] == 1]
+    nxt: dict[int, int] = {}
+    pinched: set[int] = set()
+    for a, b in boundary.tolist():
+        if a in nxt:
+            pinched.add(a)
+        nxt[a] = b
+    if pinched:
+        return [], pinched
+    loops: list[list[int]] = []
+    seen: set[int] = set()
+    for start in nxt:
+        if start in seen:
+            continue
+        loop, v = [], start
+        while v not in seen:
+            seen.add(v)
+            loop.append(v)
+            v = nxt.get(v, start)
+        loops.append(loop)
+    return loops, pinched
+
+
+def patch_defects(
+    mesh: TriMesh,
+    *,
+    rounds: int = 6,
+    max_loop_edges: int = 200,
+    max_removed_fraction: float = 0.01,
+) -> tuple[TriMesh, list[str]]:
+    """Cut out the faces around non-manifold edges and pinched vertices and close the
+    holes left with a fan around each hole's centroid (one new vertex per hole).
+
+    Smoothing a thin structure (two sheets of bone close together) can pull vertices onto
+    each other; merging them gives a few non-manifold edges and degenerate triangles that
+    a new surface from the same mask reproduces. This repair is local: every other face
+    stays as it was. It gives up (returns the input) when more than
+    ``max_removed_fraction`` of the faces would be removed or a hole has more than
+    ``max_loop_edges`` edges.
+    """
+    start, fixes = repair_surface(mesh, keep_components=True)
+    v, f = start.vertices, start.faces
+    n_faces = len(f)
+    removed = added = holes = 0
+    bad: set[int] = set()
+    for _ in range(rounds):
+        edges, counts, _ = _edges(f)
+        bad |= set(edges[counts > 2].ravel().tolist())
+        loops, pinched = _boundary_loops(f)
+        bad |= pinched
+        if bad:  # cut the one-ring of the bad vertices, then look again
+            ring = np.isin(f, list(bad)).any(axis=1)
+            removed += int(ring.sum())
+            f = f[~ring]
+            bad = set()
+            if removed > max_removed_fraction * n_faces:
+                return mesh, []
+            continue
+        if not loops:
+            break
+        if any(len(loop) < 3 or len(loop) > max_loop_edges for loop in loops):
+            return mesh, []
+        new_faces = [f]
+        for loop in loops:
+            centre = len(v)
+            v = np.vstack([v, v[loop].mean(axis=0)])
+            ring = np.array(loop)
+            # the face of boundary half-edge a->b has a->b: the new face takes b->a
+            new_faces.append(np.column_stack([np.roll(ring, -1), ring, np.full(len(ring), centre)]))
+            added += len(ring)
+            holes += 1
+        f = np.vstack(new_faces)
+    else:
+        return mesh, []
+    out, more = repair_surface(compact(v, f), keep_components=True)
+    edges, counts, directed_counts = _edges(out.faces)
+    if (counts != 2).any() or (directed_counts > 1).any():
+        return mesh, []
+    if removed or holes:
+        fixes = [*fixes, f"cut {removed} faces around defects, closed {holes} holes"
+                 f" with {added} faces", *more]  # fmt: skip
+    return out, fixes
+
+
 def orient(mesh: TriMesh) -> tuple[TriMesh, int]:
     """Consistent winding over manifold edges (BFS), outward for a positive volume.
 
@@ -393,6 +483,7 @@ __all__ = [
     "face_areas",
     "mean_edge_length",
     "orient",
+    "patch_defects",
     "remesh_mask",
     "repair_candidates",
     "repair_mask",
