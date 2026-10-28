@@ -26,7 +26,7 @@ from __future__ import annotations
 import html
 import math
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -209,6 +209,7 @@ class Field:
         self.editor = editor or widget  # widget to mark/focus
         self.label: QLabel | None = None
         self.hint = ""  # default, allowed and recommended values (shown by the '?')
+        self.choices: list[Any] | None = None  # values of a combo box, in schema order
 
 
 def _bool_field(path: Path_, node: dict[str, Any]) -> Field:
@@ -235,13 +236,39 @@ def _choice_field(path: Path_, values: list[Any]) -> Field:
             i = combo.count() - 1
         combo.setCurrentIndex(i)
 
-    return Field(
+    field = Field(
         path,
         combo,
         combo.currentData,
         set_,
         lambda cb: combo.currentIndexChanged.connect(lambda _=None: cb()),
     )
+    field.choices = list(values)
+    return field
+
+
+def _offer(field: Field, unavailable: Mapping[Any, str]) -> None:
+    """Offer the choices of ``field`` without the ``unavailable`` ones; the current value
+    stays offered even if unavailable (e.g. from a config file), so the form shows what
+    is set and the run explains why it cannot start."""
+    combo = field.widget
+    if field.choices is None or not isinstance(combo, QComboBox):
+        return
+    current = combo.currentData()
+    wanted = [v for v in field.choices if v not in unavailable or v == current]
+    if current not in wanted:  # a value not in the schema (validation reports it)
+        wanted.append(current)
+    offered = [combo.itemData(i) for i in range(combo.count())]
+    if offered == wanted:
+        return
+    combo.blockSignals(True)
+    try:
+        combo.clear()
+        for v in wanted:
+            combo.addItem(str(v), v)
+        combo.setCurrentIndex(wanted.index(current))
+    finally:
+        combo.blockSignals(False)
 
 
 def _int_field(path: Path_, node: dict[str, Any]) -> Field:
@@ -379,6 +406,8 @@ class ConfigForm(QWidget):
         self._boxes: dict[Path_, tuple[QFormLayout, QGroupBox]] = {}
         self._tab_index: dict[str, int] = {}
         self._building = False
+        # choices not offered on this computer: field -> {value: reason}
+        self._unavailable: dict[Path_, dict[Any, str]] = {}
 
         self.advanced_check = QCheckBox("Show advanced settings")
         advanced_help = help_for("gui.show_advanced")
@@ -620,6 +649,7 @@ class ConfigForm(QWidget):
             field = self._fields.get((*params_path, key))
             if field is not None:
                 field.set(value)
+        self._apply_unavailable()
         self._apply_visibility()
 
     def _plugin_defaults(self, params_path: Path_, method: str) -> dict[str, Any]:
@@ -629,6 +659,36 @@ class ConfigForm(QWidget):
             return plugin.Params().model_dump(mode="json")
         except (PluginError, ValueError):
             return {}
+
+    # ------------------------------------------------------------------ availability
+
+    def set_unavailable(self, path: Sequence[str], values: Mapping[Any, str]) -> None:
+        """Do not offer ``values`` (value -> reason) of the combo box at ``path``, e.g.
+        ``nonrigid = fast_rnrr`` when Fast-RNRR is not built. Kept when the plugin
+        parameters are rebuilt; an empty mapping offers everything again."""
+        key = tuple(path)
+        if dict(values) == self._unavailable.get(key, {}):
+            field = self._fields.get(key)
+            if field is not None:
+                _offer(field, values)  # the current value may have changed
+            return
+        if values:
+            self._unavailable[key] = dict(values)
+        else:
+            self._unavailable.pop(key, None)
+        field = self._fields.get(key)
+        if field is not None:
+            _offer(field, values)
+
+    def unavailable(self, *path: str) -> dict[Any, str]:
+        """Choices of ``path`` not offered on this computer, with the reason."""
+        return dict(self._unavailable.get(path, {}))
+
+    def _apply_unavailable(self) -> None:
+        for path, values in self._unavailable.items():
+            field = self._fields.get(path)
+            if field is not None:
+                _offer(field, values)
 
     # ------------------------------------------------------------------ values
 
@@ -654,6 +714,7 @@ class ConfigForm(QWidget):
             self._apply_muscle_list(given)
         finally:
             self._building = False
+        self._apply_unavailable()
         self._apply_visibility()
         self._refresh_marks()
         self.changed.emit()

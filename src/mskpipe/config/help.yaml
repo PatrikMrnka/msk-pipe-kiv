@@ -40,9 +40,10 @@ gui.subject:
   example: LHDL gives runs/20261008-101500_LHDL_1a2b3c4d.
 gui.device:
   help: >-
-    Where the neural networks run. GPU needs an NVIDIA card with driver 570 or newer; Auto
-    uses it when it works and falls back to the CPU otherwise. Only the segmentation
-    profits; on the LHDL CT it takes about 4 min on an RTX 5070 Ti and about 15 min on CPU.
+    Where the neural networks run. Auto and GPU are offered only when a GPU run works here:
+    an NVIDIA card with driver 570 or newer and GPU support installed (Setup…); otherwise
+    the run uses the CPU. Only the segmentation profits; on the LHDL CT it takes about
+    4 min on an RTX 5070 Ti and about 15 min on CPU.
   example: Auto on a notebook without an NVIDIA card runs on the CPU.
 gui.runs_dir:
   help: >-
@@ -384,10 +385,10 @@ plugins.attachments.atlas_registration.trim:
 plugins.attachments.atlas_registration.nonrigid:
   help: >-
     Non-rigid stage after the rigid alignment, adapting the atlas bone to the subject's
-    shape: coherent_icp (default), fast_rnrr (Fast-RNRR, research use only: built on this
-    computer with Setup… -> Fast-RNRR), none (rigid only; best when the atlas is the
-    subject itself) or cpd (Coherent Point Drift, for comparison only: the attachment areas
-    drift along the bone and were the least accurate in the validation).
+    shape: coherent_icp (default), fast_rnrr (Fast-RNRR, research use only: offered once
+    it is built on this computer with Setup… -> Fast-RNRR), none (rigid only; best when the
+    atlas is the subject itself) or cpd (Coherent Point Drift, for comparison only: the
+    attachment areas drift along the bone and were the least accurate in the validation).
   example: none, to compare with the rigid transfer only.
 plugins.attachments.atlas_registration.nonrigid_points:
   help: Atlas points driving the non-rigid stage (coherent_icp and cpd); at most N points.

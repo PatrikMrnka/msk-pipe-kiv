@@ -79,14 +79,17 @@ def weights_args(modalities: Sequence[str], overrides: Sequence[str]) -> list[st
 
 
 def needs_attention(status: SetupStatus) -> list[str]:
-    """What stops a run with the current settings (licence key, atlas); missing weights
-    are not listed, they are downloaded on the first run."""
+    """What stops a run with the current settings: the licence key (bones from
+    TotalSegmentator), the attachment atlas, the model weights and Fast-RNRR when
+    nonrigid = fast_rnrr. GPU support is optional (without it runs use the CPU)."""
     out = []
     lic = status.licence
     if lic.needed and (not lic.present or lic.problem):
         out.append("TotalSegmentator licence key")
     if status.atlas.needed and not status.atlas.ok:
         out.append("attachment atlas")
+    if any(w.status != "ok" for w in status.weights):
+        out.append("model weights")
     rnrr = status.fast_rnrr
     if rnrr is not None and rnrr.needed and not rnrr.ok:
         out.append("Fast-RNRR")
@@ -151,6 +154,8 @@ class SetupDialog(QDialog):
     # ------------------------------------------------------------------ layout
 
     def _build(self, show_at_start: bool | None) -> None:
+        self.ready_label = QLabel()  # can a run start with the current settings?
+        self.ready_label.setWordWrap(True)
         self.home_label = QLabel()
         self.home_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         open_home = QPushButton("Open")
@@ -186,7 +191,7 @@ class SetupDialog(QDialog):
         self.weights_label.setWordWrap(True)
         self.weights_button = QPushButton("Download now")
         self.weights_button.setToolTip(
-            "Download the model weights in advance (otherwise on the first run; needs internet)"
+            "Download the model weights the current settings need (required before a run)"
         )
         self.weights_button.clicked.connect(self.download_weights)
 
@@ -252,6 +257,7 @@ class SetupDialog(QDialog):
         bottom.addWidget(close)
         layout = QVBoxLayout(self)
         layout.addWidget(self.blocked_label)
+        layout.addWidget(self.ready_label)
         layout.addWidget(box)
         layout.addWidget(log_box, 1)
         layout.addLayout(bottom)
@@ -290,8 +296,22 @@ class SetupDialog(QDialog):
         if s is None:
             for button in self._actions():
                 button.setEnabled(False)
+            self.ready_label.setText(
+                _colored("Cannot read the setup status (see Output).", MISSING)
+            )
             return
         self.home_label.setText(s.home)
+        missing = needs_attention(s)
+        if missing:
+            self.ready_label.setText(
+                _colored(f"A run cannot start yet - missing: {', '.join(missing)}.", MISSING)
+                + _colored(" GPU support and Fast-RNRR are optional.", NOTE)
+            )
+        else:
+            self.ready_label.setText(
+                _colored("Everything a run needs is set up.", OK)
+                + _colored(" GPU support and Fast-RNRR are optional.", NOTE)
+            )
 
         lic = s.licence
         if lic.present and not lic.problem:
@@ -326,7 +346,7 @@ class SetupDialog(QDialog):
             text = _colored(f"all {total} present", OK)
         else:
             text = _colored(f"{ok} of {total} present", MISSING) + _colored(
-                " - the rest is downloaded on the first run (needs internet)", NOTE
+                " - required: download them now (needs internet)", NOTE
             )
         self.weights_label.setText(text)
         self.weights_label.setToolTip(
@@ -356,7 +376,11 @@ class SetupDialog(QDialog):
             self.gpu_remove.setEnabled(False)
         else:
             self.gpu_label.setText(
-                _colored(f"not installed - optional, NVIDIA driver 570+ ({gpu.tag})", NOTE)
+                _colored(
+                    f"not installed - optional, runs use the CPU; for NVIDIA driver 570+ "
+                    f"({gpu.tag})",
+                    NOTE,
+                )
             )
             self.gpu_install.setEnabled(not busy)
             self.gpu_remove.setEnabled(False)
@@ -378,7 +402,11 @@ class SetupDialog(QDialog):
                 " - needed by nonrigid = fast_rnrr; research use only", NOTE
             )
         else:
-            text = _colored("not built - optional, research use only", NOTE)
+            text = _colored(
+                "not built - optional, research use only; nonrigid = fast_rnrr is offered "
+                "once it is built",
+                NOTE,
+            )
         if not build.supported:
             text += _colored(" (building is not supported on this system)", NOTE)
         self.rnrr_label.setText(text)
@@ -409,7 +437,7 @@ class SetupDialog(QDialog):
 
     def _use_musclemap(self) -> None:
         self.use_musclemap.emit()
-        self.log("Tibia and fibula will be taken from MuscleMap (no licence key needed).")
+        self.log("All bones will be taken from MuscleMap (no licence key needed).")
         self.refresh()
 
     def _pick_atlas(self) -> None:

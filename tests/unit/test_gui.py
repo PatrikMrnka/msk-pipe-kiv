@@ -219,6 +219,30 @@ def test_form_plugin_params_follow_method(qapp):
     assert form.overrides() == []
 
 
+def test_form_unavailable_choice_is_not_offered(qapp):
+    form = ConfigForm()
+    path = ("attachments", "params", "nonrigid")
+
+    def offered():
+        combo = form.field(*path).widget
+        return [combo.itemData(i) for i in range(combo.count())]
+
+    assert "fast_rnrr" in offered()
+    form.set_unavailable(path, {"fast_rnrr": "not built"})
+    assert "fast_rnrr" not in offered() and form.unavailable(*path) == {"fast_rnrr": "not built"}
+    # kept when the plugin parameters are rebuilt
+    form.reset()
+    assert "fast_rnrr" not in offered()
+    # a configuration that sets it still shows it (the run explains why it cannot start)
+    form.set_values({"attachments": {"params": {"nonrigid": "fast_rnrr"}}})
+    assert form.field(*path).get() == "fast_rnrr" and "fast_rnrr" in offered()
+    form.field(*path).set("coherent_icp")
+    form.set_unavailable(path, {"fast_rnrr": "not built"})
+    assert "fast_rnrr" not in offered()
+    form.set_unavailable(path, {})
+    assert offered() == ["coherent_icp", "cpd", "fast_rnrr", "none"]
+
+
 def test_form_shows_only_params_of_the_nonrigid_stage(qapp):
     form = ConfigForm()
     form.set_show_advanced(True)
@@ -431,6 +455,9 @@ def window(qapp, tmp_path, monkeypatch):
         monkeypatch.delenv(var, raising=False)
     settings = QSettings(str(tmp_path / "gui.ini"), QSettings.Format.IniFormat)
     win = gui_app.MainWindow(settings, command=FAKE_CLI, probe_device=False)
+    # licence key, atlas and weights are tested in test_gui_setup.py
+    monkeypatch.setattr(win, "run_blockers", lambda modalities=None: [])
+    win._update_run_state()
     image = write_nifti(tmp_path / "data" / "s01.nii.gz")
     win.image_edit.setText(str(image))
     win._image_changed()
@@ -675,10 +702,15 @@ def test_window_device_detection(qapp, tmp_path):
         command=FAKE_CLI,
         probe_device=False,
     )
-    gui_app._select(win.device_combo, "cpu")
+    assert [win.device_combo.itemData(i) for i in range(win.device_combo.count())] == ["cpu"]
     win.detect_device()
-    wait_until(lambda: win.device_label.text() not in ("", "detecting…"))
-    assert win.device_label.text().startswith("cpu - requested")
+    assert win._gpu_probing and "detecting" in win.device_label.text()
+    wait_until(lambda: not win._gpu_probing)
+    offered = [win.device_combo.itemData(i) for i in range(win.device_combo.count())]
+    if win.gpu_usable:
+        assert offered == ["auto", "cpu", "gpu"] and "GPU available" in win.device_label.text()
+    else:
+        assert offered == ["cpu"] and "CPU only" in win.device_label.text()
 
 
 def test_gui_does_not_change_registry_default():

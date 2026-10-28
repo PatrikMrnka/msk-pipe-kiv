@@ -9,6 +9,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 - `mskpipe dicom FOLDER [--series ID -o out.nii.gz] [--json]`: lists the series of a DICOM folder with their checks and writes one as NIfTI.
 
 ### Changed
+- GUI: *Run* is enabled only when everything the current settings need is set up: the TotalSegmentator licence key (only with *Bones = totalsegmentator*; *Bones = musclemap* needs none), the attachment atlas, the model weights (downloaded in *Setup…*; a GUI run no longer starts without them) and Fast-RNRR when *Non-rigid = fast_rnrr*. Above the buttons the window says what is missing and why, with links to *Setup…*, to taking all bones from MuscleMap and to `coherent_icp`; the setup window shows the same summary and opens at start also for missing weights.
+- GUI: *Auto* and *GPU (NVIDIA)* are offered only when a GPU run works here (NVIDIA driver 570+ and GPU support installed, probed at start and after installing or removing GPU support); otherwise only *CPU*. *Non-rigid = fast_rnrr* is offered only when Fast-RNRR is available. GPU support and Fast-RNRR stay optional.
 - An input that cannot be processed stops before the run folder is made (GUI: *Cannot start*), also for NIfTI: unreadable file, not 3D (single slice, 4D) or invalid geometry. The GUI checks the input as soon as it is chosen: a folder chosen as NIfTI, a DICOM file instead of its folder or a NIfTI file chosen as DICOM are named as such.
 
 ## [0.2.0] - 2026-10-28

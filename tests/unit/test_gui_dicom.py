@@ -56,6 +56,9 @@ def window(qapp, tmp_path, monkeypatch):
     monkeypatch.setattr(api, "preflight", lambda prepared, registry=None: [])
     settings = QSettings(str(tmp_path / "gui.ini"), QSettings.Format.IniFormat)
     win = gui_app.MainWindow(settings, command=FAKE_CLI, probe_device=False)
+    # licence key, atlas and weights are tested in test_gui_setup.py
+    monkeypatch.setattr(win, "run_blockers", lambda modalities=None: [])
+    win._update_run_state()
     win.runs_edit.setText(str(tmp_path / "runs"))
     gui_app._select(win.device_combo, "cpu")
     gui_app._select(win.modality_combo, "auto")
