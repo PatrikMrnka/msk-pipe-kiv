@@ -5,6 +5,10 @@
 lists defects it shows a warning (red = not fixed, the output needs attention) with a
 "Show in 3D" button. :class:`DefectDialog` lists the defects; selecting one points the
 camera at it (rotate/pan/zoom with the mouse, n/p = next/previous).
+
+The dialog owns an OpenGL context. It is released once when the dialog is closed (window
+button, Esc, Close) and the dialog is deleted with it: a closed but living dialog that is
+repainted later makes VTK draw into the released context ("wglMakeCurrent failed").
 """
 
 from __future__ import annotations
@@ -35,11 +39,11 @@ UNFIXED_COLOR = "#c0392b"
 __all__ = ["DefectDialog", "warn_defects"]
 
 
-def warn_defects(parent: QWidget, run_dir: Path) -> DefectDialog | None:
-    """Warning box after a run with defects; opens the 3D view on request."""
+def warn_defects(parent: QWidget, run_dir: Path) -> bool:
+    """Warning box after a run with defects; True if the 3D view was requested."""
     report = collect(run_dir)
     if not report.defects:
-        return None
+        return False
     unfixed = report.unfixed
     box = QMessageBox(parent)
     box.setIcon(QMessageBox.Icon.Critical if unfixed else QMessageBox.Icon.Warning)
@@ -61,11 +65,7 @@ def warn_defects(parent: QWidget, run_dir: Path) -> DefectDialog | None:
     show = box.addButton("Show in 3D", QMessageBox.ButtonRole.AcceptRole)
     box.addButton(QMessageBox.StandardButton.Close)
     box.exec()
-    if box.clickedButton() is show:
-        dialog = DefectDialog(run_dir, parent)
-        dialog.show()
-        return dialog
-    return None
+    return box.clickedButton() is show
 
 
 class DefectDialog(QDialog):
@@ -76,6 +76,8 @@ class DefectDialog(QDialog):
         from mskpipe.qc.viewer import load_scene
 
         self.run_dir = run_dir
+        self.released = False  # OpenGL context of the 3D view given back
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setWindowTitle(f"Geometry check - {run_dir.name}")
         self.resize(1300, 820)
         self.scene = load_scene(run_dir)
@@ -172,8 +174,19 @@ class DefectDialog(QDialog):
             self.list.setCurrentRow((row - 1) % n)
 
     def _render(self) -> None:
-        self.vtk_widget.GetRenderWindow().Render()
+        if not self.released:
+            self.vtk_widget.GetRenderWindow().Render()
 
-    def closeEvent(self, event) -> None:  # release the OpenGL context with the dialog
-        self.vtk_widget.Finalize()
+    def release(self) -> None:
+        """Give back the OpenGL context of the 3D view (once; the dialog is closing)."""
+        if not self.released:
+            self.released = True
+            self.vtk_widget.Finalize()
+
+    def done(self, result: int) -> None:  # Esc and reject(): Qt eats their close event
+        self.release()
+        super().done(result)
+
+    def closeEvent(self, event) -> None:  # window button, close()
+        self.release()
         super().closeEvent(event)

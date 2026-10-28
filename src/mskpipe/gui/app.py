@@ -13,7 +13,7 @@ import sys
 import time
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import (
     QObject,
@@ -58,6 +58,9 @@ from mskpipe.gui.config_form import ConfigForm
 from mskpipe.gui.help_badge import HelpBadge, help_html, label_with_badge
 from mskpipe.gui.process import ChildRequest, PipelineProcess, child_command, mskpipe_command
 from mskpipe.gui.setup_dialog import SetupDialog, needs_attention
+
+if TYPE_CHECKING:
+    from mskpipe.gui.qc_dialog import DefectDialog
 
 __all__ = ["STEP_LABELS", "MainWindow", "main"]
 
@@ -273,7 +276,7 @@ class MainWindow(QMainWindow):
             "Bone holes, gaps and unusable muscle meshes found in the run, in a 3D view"
         )
         self.qc_button.clicked.connect(self.open_qc)
-        self.qc_dialog: QWidget | None = None
+        self.qc_dialog: DefectDialog | None = None  # 3D view of the defects, deleted on close
         self.seg_button = QPushButton("Segmentation…")
         self.seg_button.setToolTip(
             "Input image with the label maps of the run in axial, coronal and sagittal slices"
@@ -884,21 +887,37 @@ class MainWindow(QMainWindow):
         """Message box with the defects of the finished run; 'Show in 3D' opens the view."""
         from mskpipe.gui.qc_dialog import warn_defects
 
-        dialog = warn_defects(self, Path(self.process.run_dir))
-        if dialog is not None:
-            self.qc_dialog = dialog
+        if warn_defects(self, Path(self.process.run_dir)):
+            self.open_qc()
 
     def open_qc(self) -> None:
+        """3D view of the defects of the last run: one window, brought to the front if it
+        is open; a window of an earlier run is closed (it frees its OpenGL context)."""
         from mskpipe.gui.qc_dialog import DefectDialog
 
         if self.process.run_dir is None:
             return
-        try:
-            self.qc_dialog = DefectDialog(Path(self.process.run_dir), self)
-        except ImportError as exc:  # VTK Qt support missing
-            QMessageBox.warning(self, "Geometry check", f"3D view not available: {exc}")
-            return
-        self.qc_dialog.show()
+        run_dir = Path(self.process.run_dir)
+        dialog = self.qc_dialog
+        if dialog is not None and dialog.run_dir != run_dir:
+            self.qc_dialog = None
+            dialog.close()  # deleted on close
+            dialog = None
+        if dialog is None:
+            try:
+                dialog = DefectDialog(run_dir, self)
+            except ImportError as exc:  # VTK Qt support missing
+                QMessageBox.warning(self, "Geometry check", f"3D view not available: {exc}")
+                return
+            dialog.destroyed.connect(lambda _=None, d=dialog: self._qc_dialog_gone(d))
+            self.qc_dialog = dialog
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    def _qc_dialog_gone(self, dialog: QWidget) -> None:
+        if self.qc_dialog is dialog:
+            self.qc_dialog = None
 
     # ------------------------------------------------------------------ steps
 
@@ -1031,6 +1050,8 @@ class MainWindow(QMainWindow):
             self.setup_dialog.shutdown()  # a download must not outlive the window
         if self.slice_viewer is not None:
             self.slice_viewer.close()  # drops a read in progress and frees the volume
+        if self.qc_dialog is not None:
+            self.qc_dialog.close()  # frees its OpenGL context
         self._pool.waitForDone(30_000)  # a modality detection still reading the volume
         self._store()
         event.accept()

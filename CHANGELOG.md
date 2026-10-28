@@ -47,6 +47,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 - The genus check of step `mesh` skipped bones with an open component; open components are now a `surface` defect too, centred on the affected part for `mskpipe qc --show`.
 - `orient` made a mesh of several parts outward as a whole; every part is now oriented outward on its own.
 - `--set segmentation.musclemap.model_version=1.4` failed (YAML reads 1.4 as a number).
+- GUI geometry check: VTK reported `wglMakeCurrent failed` after the 3D view had been closed. A closed window was only hidden and kept its released OpenGL context (repainting it drew into a context that no longer existed), Esc closed it without releasing the context, and every *Geometry check…* opened another window. The window is now deleted when closed (window button, Esc, Close), releases its context once, there is one window per run (brought to the front when open), and quitting the GUI closes it.
 
 ## [0.1.0] - 2026-10-21
 

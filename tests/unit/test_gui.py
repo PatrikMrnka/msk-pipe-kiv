@@ -18,7 +18,14 @@ pytest.importorskip("PySide6.QtWidgets")
 import yaml
 from fake_pipeline import write_nifti
 from PySide6.QtCore import QEventLoop, QSettings
-from PySide6.QtWidgets import QApplication, QDoubleSpinBox, QLabel, QMessageBox, QSpinBox
+from PySide6.QtWidgets import (
+    QApplication,
+    QDoubleSpinBox,
+    QLabel,
+    QMessageBox,
+    QSpinBox,
+    QWidget,
+)
 
 from mskpipe import api
 from mskpipe.config import load_config
@@ -483,6 +490,108 @@ def test_window_geometry_check(window, monkeypatch):
     DefectReport([hole]).write(window.summary.run_dir / "02_labelmap")
     window._show_result(0, False)
     assert warned == [True] and window.qc_button.isEnabled()
+
+
+class _FakeVtkWidget(QWidget):
+    """QVTKRenderWindowInteractor without OpenGL: counts renders and released contexts."""
+
+    finalized = 0
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        widget = self
+        self.renders = 0
+
+        class Interactor:
+            def SetInteractorStyle(self, style): ...
+            def AddObserver(self, event, callback): ...
+
+        class Window:
+            def AddRenderer(self, renderer): ...
+            def GetInteractor(self):
+                return Interactor()
+
+            def Render(self):
+                widget.renders += 1
+
+        self._window = Window()
+
+    def GetRenderWindow(self):
+        return self._window
+
+    def Initialize(self): ...
+
+    def Finalize(self):
+        type(self).finalized += 1
+
+
+@pytest.fixture
+def fake_vtk(monkeypatch):
+    """DefectDialog with a fake 3D widget and an empty scene."""
+    import types
+
+    from mskpipe.qc import viewer
+    from mskpipe.qc.defects import DefectReport
+
+    _FakeVtkWidget.finalized = 0
+    module = types.ModuleType("vtkmodules.qt.QVTKRenderWindowInteractor")
+    module.QVTKRenderWindowInteractor = _FakeVtkWidget
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    scene = types.SimpleNamespace(
+        report=DefectReport([]), renderer=None, overview=lambda: None, focus=lambda i: None
+    )
+    monkeypatch.setattr(viewer, "load_scene", lambda run_dir: scene)
+    return _FakeVtkWidget
+
+
+def _deleted(widget) -> bool:
+    from PySide6.QtCore import QCoreApplication, QEvent
+
+    gone = []
+    widget.destroyed.connect(lambda: gone.append(True))
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    return gone == [True]
+
+
+@pytest.mark.parametrize("how", ["reject", "close", "accept"])
+def test_qc_dialog_releases_context_once_and_is_deleted(qapp, tmp_path, fake_vtk, how):
+    """Esc (reject), the window button (close) and Close free the OpenGL context once and
+    delete the dialog, so nothing renders into the released context later."""
+    from mskpipe.gui.qc_dialog import DefectDialog
+
+    dialog = DefectDialog(tmp_path)
+    dialog.show()
+    dialog._render()
+    assert dialog.vtk_widget.renders >= 1 and fake_vtk.finalized == 0
+    getattr(dialog, how)()
+    assert fake_vtk.finalized == 1 and dialog.released
+    renders = dialog.vtk_widget.renders
+    dialog._render()
+    assert dialog.vtk_widget.renders == renders  # no rendering after the release
+    dialog.close()
+    assert fake_vtk.finalized == 1
+    assert _deleted(dialog)
+
+
+def test_window_has_one_geometry_check_window(window, tmp_path, fake_vtk):
+    window.process.run_dir = tmp_path / "run1"
+    window.open_qc()
+    first = window.qc_dialog
+    assert first is not None and first.isVisible()
+    window.open_qc()  # open: brought to the front, not a second window
+    assert window.qc_dialog is first and fake_vtk.finalized == 0
+    window.process.run_dir = tmp_path / "run2"
+    window.open_qc()  # another run: the old window is closed
+    second = window.qc_dialog
+    assert second is not first and second.run_dir == tmp_path / "run2"
+    assert fake_vtk.finalized == 1
+    assert _deleted(first) and window.qc_dialog is second  # late destroyed() keeps the new one
+    second.reject()  # Esc
+    assert _deleted(second) and window.qc_dialog is None
+    window.open_qc()
+    assert window.qc_dialog is not None
+    window.qc_dialog.close()
+    assert fake_vtk.finalized == 3
 
 
 def test_window_until_and_failure(window, monkeypatch):
