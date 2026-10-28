@@ -128,15 +128,18 @@ py packaging/build_release.py assemble --version $version --pack build/environme
 ## Configuration and experiments
 
 Every setting has a default and an explanation (`?` in the GUI). Priority: defaults < YAML <
-`--set key=value`.
+`--set key=value`. `mskpipe` below is `mskpipe.cmd` in the release and `pixi run -e cpu mskpipe`
+from source.
 
 ```powershell
-mskpipe config init my.yaml                    # commented template
-mskpipe run scan.nii.gz -c my.yaml --set skeleton.side=l --no-cache
-mskpipe batch paper/experiments/e13_timing.yaml # repeated runs, parameter matrices
-mskpipe stats runs -o stats                     # CSV tables: times, RAM, metrics per step
-mskpipe qc runs/<run> --show                    # bone holes / gaps / bad meshes in 3D
+mskpipe config init my.yaml                       # commented template
+mskpipe run scan.nii.gz -m ct -c my.yaml --set skeleton.side=l
+mskpipe batch experiment.yaml                     # repeated runs, parameter matrices
+mskpipe stats <runs folder> -o stats              # CSV tables: times, RAM, metrics per step
+mskpipe qc <run folder> --show                    # bone holes / gaps / bad meshes in 3D
 ```
+
+Experiment files of the article: [`paper/experiments`](paper/experiments).
 
 ## Troubleshooting
 

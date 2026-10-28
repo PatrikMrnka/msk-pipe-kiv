@@ -3,7 +3,7 @@ message: "If you use msk-pipe, please cite it as below, together with the tools 
 title: "msk-pipe: automatic generation of Muscle Wrapping inputs from CT and MRI"
 type: software
 version: "0.2.0"
-date-released: "2026-10-27"
+date-released: "2026-10-28"
 authors:
   - family-names: Mrnka
     given-names: Patrik
@@ -25,6 +25,20 @@ keywords:
   - CT
   - MRI
 references:
+  - type: article
+    title: "Automated Generation of Three-Dimensional Complex Muscle Geometries for Use in Personalised Musculoskeletal Models"
+    authors:
+      - family-names: Modenese
+        given-names: Luca
+      - family-names: Kohout
+        given-names: Josef
+    journal: "Annals of Biomedical Engineering"
+    volume: 48
+    issue: 6
+    start: 1793
+    end: 1804
+    year: 2020
+    doi: "10.1007/s10439-020-02490-4"
   - type: article
     title: "Automatic generation of personalised skeletal models of the lower limb from three-dimensional bone geometries"
     authors:

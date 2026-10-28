@@ -4,7 +4,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-10-27
+## [0.2.0] - 2026-10-28
 
 ### Added
 - Geometry check of the bones in step `labelmap` (`labelmap.bones.topology`): through-holes in thin bone (genus above the anatomy, e.g. iliac wing holes in MRI; the obturator foramen is kept) are filled from the other tool's segmentation of the same bone (MuscleMap hip bone), else by plate patches; gaps in long bones are bridged before the opening so the component filter keeps the whole bone; fibula shorter than 85 % of the tibia is reported. `02_labelmap/defects.json` + `patches.nii.gz`, per-structure `topology` in `labelmap.json`, `defects` metrics; `on_unfixed: fail` stops the run.
