@@ -490,9 +490,23 @@ def test_window_image_info(window):
 
 def test_window_run_completed(window):
     window.form.field("mesh", "bones", "smooth_iterations").set(12)
+    assert window.view_image_button.isEnabled()
     assert window.start_run()
     assert not window.run_button.isEnabled() and window.cancel_button.isEnabled()
+    locked = (
+        window.browse_image_button,
+        window.view_image_button,
+        window.browse_runs_button,
+        window.load_button,
+        window.save_button,
+        window.defaults_button,
+        window.setup_button,
+    )
+    assert not any(b.isEnabled() for b in locked)
+    window.device_label.linkActivated.emit("setup")  # links are locked too
+    assert window.setup_dialog is None
     wait_until(lambda: not window.process.is_running() and window.summary is not None)
+    assert all(b.isEnabled() for b in locked)
     s = window.summary
     assert s.status == "completed", window.log_view.toPlainText()
     assert set(statuses(window).values()) == {"completed"}

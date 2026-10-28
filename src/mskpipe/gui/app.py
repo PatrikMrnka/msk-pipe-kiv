@@ -199,8 +199,8 @@ class MainWindow(QMainWindow):
         self.image_edit = QLineEdit()
         self.image_edit.setPlaceholderText(PLACEHOLDERS["nifti"])
         self.image_edit.editingFinished.connect(self._image_changed)
-        browse_image = QPushButton("Browse…")
-        browse_image.clicked.connect(self._browse_image)
+        self.browse_image_button = QPushButton("Browse…")
+        self.browse_image_button.clicked.connect(self._browse_image)
         self.view_image_button = QPushButton("View…")
         self.view_image_button.setToolTip("Show the volume in axial, coronal and sagittal slices")
         self.view_image_button.setEnabled(False)
@@ -233,8 +233,8 @@ class MainWindow(QMainWindow):
         self.device_label.linkActivated.connect(self._device_link)
 
         self.runs_edit = QLineEdit()
-        browse_runs = QPushButton("Browse…")
-        browse_runs.clicked.connect(self._browse_runs)
+        self.browse_runs_button = QPushButton("Browse…")
+        self.browse_runs_button.clicked.connect(self._browse_runs)
         self.until_combo = QComboBox()
         for step in api.PIPELINE_STEPS:
             self.until_combo.addItem(STEP_LABELS[step], step)
@@ -248,7 +248,7 @@ class MainWindow(QMainWindow):
         formats = _row(*self.format_buttons.values(), stretch=None)
         formats.layout().addStretch(1)
         grid.addRow(self._label("Image", "gui.image"), formats)
-        grid.addRow("", _row(self.image_edit, browse_image, self.view_image_button))
+        grid.addRow("", _row(self.image_edit, self.browse_image_button, self.view_image_button))
         grid.addRow("", self.image_info)
         self.series_row = _row(self.series_combo, stretch=None)
         self.series_row.layout().addStretch(1)
@@ -263,7 +263,10 @@ class MainWindow(QMainWindow):
             self._label("Device", "gui.device"),
             _row(self.device_combo, self.device_label, stretch=1),
         )
-        grid.addRow(self._label("Output folder", "gui.runs_dir"), _row(self.runs_edit, browse_runs))
+        grid.addRow(
+            self._label("Output folder", "gui.runs_dir"),
+            _row(self.runs_edit, self.browse_runs_button),
+        )
         grid.addRow(
             self._label("Run until", "gui.until"),
             _row(self.until_combo, self.verbose_check, stretch=1),
@@ -273,17 +276,19 @@ class MainWindow(QMainWindow):
             self.verbose_check.setToolTip(help_html(verbose_help))
 
         # configuration -----------------------------------------------------
-        load = QPushButton("Load…")
-        load.clicked.connect(self._load_config)
-        save = QPushButton("Save…")
-        save.clicked.connect(self._save_config)
-        reset = QPushButton("Defaults")
-        reset.setToolTip("Reset every setting to its default")
-        reset.clicked.connect(self.form.reset)
+        self.load_button = QPushButton("Load…")
+        self.load_button.clicked.connect(self._load_config)
+        self.save_button = QPushButton("Save…")
+        self.save_button.clicked.connect(self._save_config)
+        self.defaults_button = QPushButton("Defaults")
+        self.defaults_button.setToolTip("Reset every setting to its default")
+        self.defaults_button.clicked.connect(self.form.reset)
         config_box = QGroupBox("Settings (bold = changed)")
         config_layout = QVBoxLayout(config_box)
         config_layout.addWidget(self.form, 1)
-        config_layout.addLayout(_hbox(load, save, reset, stretch_first=True))
+        config_layout.addLayout(
+            _hbox(self.load_button, self.save_button, self.defaults_button, stretch_first=True)
+        )
 
         left = QWidget()
         left_layout = QVBoxLayout(left)
@@ -527,7 +532,7 @@ class MainWindow(QMainWindow):
         self.subject_edit.setPlaceholderText(_stem(path))
 
     def _update_view_button(self) -> None:
-        self.view_image_button.setEnabled(self._view_path() is not None)
+        self.view_image_button.setEnabled(not self._run_active and self._view_path() is not None)
 
     def _view_path(self) -> Path | None:
         """NIfTI shown by View…: the file, or the converted DICOM series."""
@@ -1078,6 +1083,8 @@ class MainWindow(QMainWindow):
         self.device_label.setText(_colored(text, GREY))
 
     def _device_link(self, link: str) -> None:
+        if self._run_active:  # the label keeps its links, Setup… is locked during a run
+            return
         if link == "detect":
             self.detect_device()
         else:
@@ -1512,10 +1519,18 @@ class MainWindow(QMainWindow):
         )
 
     def _set_running(self, running: bool) -> None:
+        """While a run is active only *Cancel* and the log are usable: the input, the
+        settings (also Load/Save/Defaults) and Setup… are locked."""
         self._run_active = running
         for widget in (
             *self.format_buttons.values(),
             self.image_edit,
+            self.browse_image_button,
+            self.browse_runs_button,
+            self.load_button,
+            self.save_button,
+            self.defaults_button,
+            self.setup_button,
             self.modality_combo,
             self.subject_edit,
             self.device_combo,
@@ -1526,6 +1541,7 @@ class MainWindow(QMainWindow):
         ):
             widget.setEnabled(not running)
         self.series_combo.setEnabled(not running and self.series_combo.count() > 1)
+        self._update_view_button()
         self.cancel_button.setEnabled(running)
         self._update_run_state()
         if self.setup_dialog is not None and not self.setup_running():
