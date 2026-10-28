@@ -12,14 +12,14 @@
 
 </div>
 
-msk-pipe turns a lower-limb volume (`.nii` / `.nii.gz`) into a personalised hip model: bone and
+msk-pipe turns a lower-limb volume (NIfTI `.nii` / `.nii.gz` or a DICOM folder) into a personalised hip model: bone and
 muscle surfaces, an OpenSim skeletal model and muscle attachment areas, written exactly as
 [Muscle Wrapping 2.x](https://doi.org/10.1007/s10439-020-02490-4) reads them. It replaces the
 manual front end of the image-to-simulation workflow. GUI and command line, CPU or NVIDIA GPU.
 
 ```mermaid
 flowchart LR
-    A[CT / MRI<br/>NIfTI] --> B[segment<br/>TotalSegmentator · MuscleMap]
+    A[CT / MRI<br/>NIfTI · DICOM] --> B[segment<br/>TotalSegmentator · MuscleMap]
     B --> C[labelmap<br/>unified labels, cleaning]
     C --> D[mesh<br/>bones .stl · muscles .obj]
     D --> E[skeleton<br/>pystaple = STAPLE]
@@ -56,9 +56,10 @@ No Python, MATLAB or OpenSim needed.
    - TotalSegmentator licence key (free for non-commercial use, for its bones) —
      or *Use MuscleMap instead*;
    - *GPU support* (optional, NVIDIA driver ≥ 570, ~3.5 GB).
-5. Choose the volume, *Run*. Results: `Documents\msk-pipe\runs\<run>\06_mw2_input`.
+5. Choose the volume (*NIfTI file* or *DICOM folder*), *Run*. Results: `Documents\msk-pipe\runs\<run>\06_mw2_input`.
 
-Command line: `mskpipe.cmd run scan.nii.gz -m ct` · `mskpipe.cmd --help`.
+Command line: `mskpipe.cmd run scan.nii.gz -m ct` · `mskpipe.cmd run <DICOM folder> -m auto` ·
+`mskpipe.cmd --help`.
 
 | Where | What |
 |---|---|
@@ -134,6 +135,7 @@ from source.
 ```powershell
 mskpipe config init my.yaml                       # commented template
 mskpipe run scan.nii.gz -m ct -c my.yaml --set skeleton.side=l
+mskpipe dicom <DICOM folder>                      # series of a DICOM folder (--series for run)
 mskpipe batch experiment.yaml                     # repeated runs, parameter matrices
 mskpipe stats <runs folder> -o stats              # CSV tables: times, RAM, metrics per step
 mskpipe qc <run folder> --show                    # bone holes / gaps / bad meshes in 3D

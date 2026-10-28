@@ -12,6 +12,7 @@ python = "3.11.*"
 pydantic = ">=2.7,<3"
 pyyaml = ">=6"
 psutil = ">=5.9,<7"
+dcm2niix = ">=1.0.20260724,<2"  # DICOM input (BSD-2-Clause)
 
 [pypi-dependencies]
 mskpipe = { path = ".", editable = true }
@@ -72,6 +73,7 @@ ruff = ">=0.16"
 pytest = ">=8"
 pytest-cov = "*"
 pre-commit = "*"
+pydicom = ">=2.4"  # synthetic DICOM series in the tests
 
 [feature.dev.tasks]
 lint = "ruff check . && ruff format --check ."

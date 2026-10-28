@@ -4,6 +4,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 
 ## [Unreleased]
 
+### Added
+- DICOM input: a folder of DICOM files (subfolders included) instead of a NIfTI file, in the GUI (*Image*: *NIfTI file* / *DICOM folder*, then *Series* when the folder has several usable series), `mskpipe run <folder> [--series ID]`, batch files (`image: <folder>`, `series:`) and `mskpipe view`. The folder is converted with dcm2niix (`-ba y`: no patient name, ID or birth date in the sidecar; cached in `<MSKPIPE_HOME>/cache/dicom`, the 3 most recent folders) and checked: only 3D CT and MR series are usable (localizers, single slices, 4D series and other modalities are listed with the reason), gantry tilt and missing slices are used only as corrected by dcm2niix. The run folder keeps the converted volume (`00_input/input.nii.gz` + `input.json` sidecar) and records folder, series, number of files, converter version and its warnings (`input.json` → `source`); the run key hashes the converted volume, so results are reused as for NIfTI. Auto modality is taken from the DICOM tag.
+- `mskpipe dicom FOLDER [--series ID -o out.nii.gz] [--json]`: lists the series of a DICOM folder with their checks and writes one as NIfTI.
+
+### Changed
+- An input that cannot be processed stops before the run folder is made (GUI: *Cannot start*), also for NIfTI: unreadable file, not 3D (single slice, 4D) or invalid geometry. The GUI checks the input as soon as it is chosen: a folder chosen as NIfTI, a DICOM file instead of its folder or a NIfTI file chosen as DICOM are named as such.
+
 ## [0.2.0] - 2026-10-28
 
 ### Added

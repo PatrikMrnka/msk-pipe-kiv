@@ -16,10 +16,14 @@ Batch file (YAML; paths relative to the file)::
         modality: ct
         subject: LHDL
         set: [skeleton.side=r]
+      - image: data/patient01_dicom   # a folder of DICOM files
+        series: "3"                   # only if the folder has several series
+        modality: ct
         matrix:                     # one run per combination (cartesian product)
           attachments.params.nonrigid: [coherent_icp, cpd, none]
 
-CSV alternative, one run per row: ``name,image,modality,subject,config,device,set,until,repeat``
+CSV alternative, one run per row:
+``name,image,modality,subject,series,config,device,set,until,repeat``
 (``set`` separated by ``;``).
 
 Precedence of settings: ``defaults.set`` < job ``set`` < ``matrix`` < command-line ``--set``;
@@ -102,13 +106,19 @@ class JobDefaults(_Model):
 
 class JobSpec(JobDefaults):
     name: str | None = Field(None, pattern=_NAME, description="Job name (default: subject).")
-    image: Path
+    image: Path = Field(description="NIfTI file or DICOM folder (relative to the batch file).")
     modality: Modality
     subject: str | None = None
+    series: str | None = Field(None, description="DICOM folder: the series to process.")
     matrix: dict[str, list[Any]] = Field(
         default_factory=dict, description="key.path -> values; one run per combination."
     )
     repeat: int | None = Field(None, ge=1, le=100)
+
+    @field_validator("series", mode="before")
+    @classmethod
+    def _series_text(cls, value: Any) -> Any:
+        return str(value) if isinstance(value, int) else value  # YAML: series: 3
 
     @field_validator("matrix")
     @classmethod
@@ -164,7 +174,8 @@ def _read_csv(text: str) -> dict[str, Any]:
         if not any(row.values()):
             continue
         unknown = set(row) - {
-            "name", "image", "modality", "subject", "config", "device", "set", "until", "repeat",
+            "name", "image", "modality", "subject", "series", "config", "device", "set", "until",
+            "repeat",
         }  # fmt: skip
         if unknown:
             raise ValueError(f"unknown CSV columns {sorted(unknown)}")
@@ -228,6 +239,7 @@ def expand(
                 image=_abs(job.image, base),
                 modality=job.modality,
                 subject=job.subject,
+                series=job.series,
                 config=_abs(config, base) if config else None,
                 overrides=tuple(sets),
                 device=device or job.device or batch.defaults.device,
@@ -245,7 +257,7 @@ def _stem(path: Path) -> str:
     for suffix in (".nii.gz", ".nii"):
         if name.lower().endswith(suffix):
             return name[: -len(suffix)]
-    return path.stem
+    return name  # a DICOM folder (its name may contain dots)
 
 
 def _abs(path: Path, base: Path) -> Path:

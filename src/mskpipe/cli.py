@@ -100,7 +100,8 @@ def run(
     image: Annotated[
         Path | None,
         typer.Argument(
-            help="Input volume (.nii/.nii.gz). Not used with --resume.", show_default=False
+            help="Input volume (.nii/.nii.gz) or a folder of DICOM files. Not used with --resume.",
+            show_default=False,
         ),
     ] = None,
     modality: Annotated[
@@ -108,11 +109,19 @@ def run(
         typer.Option(
             "--modality",
             "-m",
-            help="Modality of the input; auto = from the dcm2niix JSON, header or intensities.",
+            help="Modality of the input; auto = from DICOM, the dcm2niix JSON, header or "
+            "intensities.",
         ),
     ] = None,
     subject: Annotated[
         str | None, typer.Option("--subject", "-s", help="Subject id (default: file name).")
+    ] = None,
+    series: Annotated[
+        str | None,
+        typer.Option(
+            "--series",
+            help="DICOM folder with several series: the one to process (see `mskpipe dicom`).",
+        ),
     ] = None,
     config: Annotated[
         Path | None, typer.Option("--config", "-c", help="YAML config (see `mskpipe config init`).")
@@ -174,6 +183,7 @@ def run(
     Examples:
       mskpipe run ct.nii.gz -m ct -d gpu
       mskpipe run scan.nii.gz -m auto
+      mskpipe run D:/data/patient01_dicom -m auto --series 3
       mskpipe run ct.nii.gz -m ct -c lhdl.yaml --set attachments.params.nonrigid=cpd
       mskpipe run --resume runs/<run> --from export_mw2
     """
@@ -183,6 +193,7 @@ def run(
         image=image,
         modality=modality.value if modality else None,
         subject=subject,
+        series=series,
         config=config,
         overrides=tuple(overrides or ()),
         device=device,
@@ -592,11 +603,16 @@ def qc(
 def view(
     target: Annotated[
         Path | None,
-        typer.Argument(help="Volume (.nii/.nii.gz) or run folder.", show_default=False),
+        typer.Argument(
+            help="Volume (.nii/.nii.gz), DICOM folder or run folder.", show_default=False
+        ),
     ] = None,
     labels: Annotated[
         list[Path] | None,
         typer.Option("--labels", "-l", help="Label map over the image (repeatable)."),
+    ] = None,
+    series: Annotated[
+        str | None, typer.Option("--series", help="DICOM folder: the series to show.")
     ] = None,
 ) -> None:
     """Show a volume in axial, coronal and sagittal slices, with label maps.
@@ -608,17 +624,107 @@ def view(
     Examples:
       mskpipe view runs/20261021-162806_MRI_97094935
       mskpipe view CT.nii.gz -l runs/<run>/02_labelmap/labelmap.nii.gz
+      mskpipe view D:/data/patient01_dicom --series 3
     """
     for path in [target, *(labels or [])]:
         if path is not None and not path.exists():
             typer.echo(f"Error: not found: {path}", err=True)
             raise typer.Exit(1)
+    if target is not None and _is_dicom_input(target):
+        from mskpipe import api
+
+        try:
+            target = api.input_volume(target, series)
+        except api.SetupError as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(1) from None
     try:
         from mskpipe.gui.slice_viewer import main as view_main
     except ImportError as exc:
         typer.echo(f"Error: the viewer needs PySide6 ({exc}).", err=True)
         raise typer.Exit(1) from None
     raise typer.Exit(view_main(target, labels or []))
+
+
+def _is_dicom_input(path: Path) -> bool:
+    """A DICOM folder (not a run folder) or one DICOM file."""
+    from mskpipe.core.workspace import INPUT_FILE
+    from mskpipe.io.dicom import DICOM_SUFFIXES
+
+    if path.is_dir():
+        return not (path / INPUT_FILE).is_file()
+    return path.suffix.lower() in DICOM_SUFFIXES
+
+
+# ---------------------------------------------------------------------------- dicom
+
+
+@app.command()
+def dicom(
+    folder: Annotated[Path, typer.Argument(help="Folder with DICOM files (subfolders included).")],
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help="Write the chosen series as NIfTI (.nii.gz)."),
+    ] = None,
+    series: Annotated[
+        str | None, typer.Option("--series", help="Series to write (see the list).")
+    ] = None,
+    as_json: Annotated[bool, typer.Option("--json", help="Print the series as JSON.")] = False,
+) -> None:
+    """List the series of a DICOM folder and check them (converted with dcm2niix).
+
+    \b
+    The id in the first column is what --series takes (also for `mskpipe run`).
+    Examples:
+      mskpipe dicom D:/data/patient01_dicom
+      mskpipe dicom D:/data/patient01_dicom --series 3 -o ct.nii.gz
+    """
+    import dataclasses
+    import shutil
+
+    from mskpipe import api
+
+    try:
+        result = api.scan_dicom(folder)
+    except api.SetupError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(EXIT_SETUP) from None
+    if as_json:
+        data = dataclasses.asdict(result)
+        data.pop("log", None)
+        for item in data["volumes"]:
+            item.pop("nifti", None)
+            item.pop("sidecar", None)
+        typer.echo(json.dumps(data, indent=2))
+    else:
+        typer.echo(f"{folder} (dcm2niix {result.version})")
+        for vol in result.volumes:
+            mark = "ok " if vol.usable else "-- "
+            typer.echo(f"{mark} {vol.label()}")
+            if not vol.usable:
+                typer.echo(f"      not usable: {vol.status()}")
+            for warning in vol.warnings:
+                typer.echo(f"      warning: {warning}")
+    if output is None:
+        raise typer.Exit(0 if result.usable else EXIT_SETUP)
+    try:
+        chosen = result.select(series)
+    except ValueError as exc:  # the series are listed above
+        typer.echo(f"Error: {str(exc).splitlines()[0]}", err=True)
+        raise typer.Exit(EXIT_SETUP) from None
+    if not output.name.lower().endswith((".nii", ".nii.gz")):
+        output = output.with_name(output.name + ".nii.gz")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if output.name.lower().endswith(".nii.gz"):
+        shutil.copyfile(chosen.nifti_path, output)
+    else:
+        import nibabel as nib
+
+        nib.save(nib.load(str(chosen.nifti_path)), str(output))
+    if chosen.sidecar:
+        name = output.name[: -len(".nii.gz")] if output.name.endswith(".gz") else output.stem
+        shutil.copyfile(chosen.sidecar, output.with_name(f"{name}.json"))
+    typer.echo(f"Series {chosen.id} written to {output}", err=as_json)
 
 
 # ---------------------------------------------------------------------------- gui
@@ -1028,7 +1134,11 @@ def config_check(
     ] = None,
     image: Annotated[
         Path | None,
-        typer.Option("--image", "-i", help="Also check this input volume (spacing, modality)."),
+        typer.Option(
+            "--image",
+            "-i",
+            help="Also check this input volume or DICOM folder (spacing, modality).",
+        ),
     ] = None,
     modality: Annotated[
         ModalityChoice | None,
@@ -1047,9 +1157,11 @@ def config_check(
         raise typer.Exit(EXIT_SETUP) from None
     issues: list[sanity.Issue] = []
     if image is not None:
-        if not image.is_file():
-            typer.echo(f"Error: input image not found: {image}", err=True)
-            raise typer.Exit(EXIT_SETUP)
+        try:
+            image = api.input_volume(image)
+        except api.SetupError as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(EXIT_SETUP) from None
         issues += api.check_image(image)
     given = modality.value if modality is not None and modality.value != "auto" else None
     issues += sanity.check(resolved, image, given)

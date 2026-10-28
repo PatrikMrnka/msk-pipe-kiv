@@ -35,7 +35,7 @@ MAX_SAMPLES = 4_000_000  # voxels read for the statistics (subsampled grid)
 @dataclass(frozen=True)
 class ModalityGuess:
     modality: Literal["ct", "mri"] | None  # None = undecided
-    source: Literal["sidecar", "header", "intensities"] | None
+    source: Literal["dicom", "sidecar", "header", "intensities"] | None
     reason: str
 
     def __str__(self) -> str:

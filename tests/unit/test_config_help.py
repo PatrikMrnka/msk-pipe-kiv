@@ -6,7 +6,7 @@ from mskpipe.config.help import help_for, load_help, plugin_help
 from mskpipe.core.registry import default_registry
 
 GUI_CONTROLS = {
-    *("image", "modality", "subject", "device", "runs_dir", "until", "verbose"),
+    *("image", "series", "modality", "subject", "device", "runs_dir", "until", "verbose"),
     "show_advanced",
 }
 NOT_SHOWN = {"config_version", "runtime.device", "runtime.runs_dir"}  # window controls

@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Main window of the msk-pipe GUI (``mskpipe gui`` / ``mskpipe-gui``).
 
-Input volume, modality, device and output folder at the top, the configuration (built
-from the config schema) on the left, progress of the steps, the log and the result on
-the right. The pipeline runs as a child process (:mod:`mskpipe.gui.process`).
+Input (NIfTI file or DICOM folder), modality, device and output folder at the top, the
+configuration (built from the config schema) on the left, progress of the steps, the log
+and the result on the right. The pipeline runs as a child process (:mod:`mskpipe.gui.process`).
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QCloseEvent, QColor, QDesktopServices, QFont, QFontDatabase
 from PySide6.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QFileDialog,
@@ -43,6 +44,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QRadioButton,
     QSplitter,
     QTreeWidget,
     QTreeWidgetItem,
@@ -58,9 +60,11 @@ from mskpipe.gui.config_form import ConfigForm
 from mskpipe.gui.help_badge import HelpBadge, help_html, label_with_badge
 from mskpipe.gui.process import ChildRequest, PipelineProcess, child_command, mskpipe_command
 from mskpipe.gui.setup_dialog import SetupDialog, needs_attention
+from mskpipe.io.dicom import DICOM_SUFFIXES
 
 if TYPE_CHECKING:
     from mskpipe.gui.qc_dialog import DefectDialog
+    from mskpipe.io.dicom import DicomScan, DicomVolume
 
 __all__ = ["STEP_LABELS", "MainWindow", "main"]
 
@@ -83,6 +87,17 @@ STATUS_COLORS: dict[str, str] = {
 }
 LOG_COLORS = {"WARNING": "#ca6f1e", "ERROR": "#c0392b", "CRITICAL": "#c0392b"}
 NIFTI_FILTER = "NIfTI volumes (*.nii *.nii.gz);;All files (*)"
+INPUT_FORMATS = {"nifti": "NIfTI file", "dicom": "DICOM folder"}
+FORMAT_TIPS = {
+    "nifti": "One volume: .nii or .nii.gz",
+    "dicom": "A folder with the DICOM files of a CT or MRI (subfolders included)",
+}
+PLACEHOLDERS = {
+    "nifti": "CT or MRI volume (.nii / .nii.gz)",
+    "dicom": "folder with the DICOM files of the CT or MRI",
+}
+RED, AMBER, GREEN, GREY = "#c0392b", "#ca6f1e", "#1e8449", "#7f8c8d"
+MAX_LISTED = 6  # unusable DICOM series listed under the image
 CONFIG_FILTER = "YAML config (*.yaml *.yml);;All files (*)"
 LOG_LINES = 20_000
 AUTO = api.AUTO
@@ -127,11 +142,18 @@ class MainWindow(QMainWindow):
         self._clock.timeout.connect(self._tick)
         self._device_proc = QProcess(self)
         self._device_proc.finished.connect(self._device_detected)
-        self._modalities: dict[str, Any] = {}  # resolved image path -> ModalityGuess | error
+        self._modalities: dict[str, Any] = {}  # input key -> ModalityGuess | error
         self._detecting: set[str] = set()
         self._pool = QThreadPool(self)
         self._modality_signals = _ModalitySignals(self)
         self._modality_signals.done.connect(self._modality_detected)
+        self._scans: dict[str, Any] = {}  # resolved DICOM folder -> DicomScan | error message
+        self._scanning: set[str] = set()
+        self._dicom_signals = _ModalitySignals(self)
+        self._dicom_signals.done.connect(self._dicom_scanned)
+        self._paths = dict.fromkeys(INPUT_FORMATS, "")  # last path per input format
+        self._format = "nifti"
+        self._wanted_series: str | None = None  # series to select once the folder is read
 
         self._build_ui()
         self._restore()
@@ -144,8 +166,19 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self) -> None:
         # input -------------------------------------------------------------
+        self.format_group = QButtonGroup(self)
+        self.format_buttons: dict[str, QRadioButton] = {}
+        for value, label in INPUT_FORMATS.items():
+            button = QRadioButton(label)
+            button.setToolTip(FORMAT_TIPS[value])
+            self.format_group.addButton(button)
+            self.format_buttons[value] = button
+        self.format_buttons["nifti"].setChecked(True)
+        self.format_group.buttonToggled.connect(
+            lambda _button, checked: checked and self._format_changed()
+        )
         self.image_edit = QLineEdit()
-        self.image_edit.setPlaceholderText("CT or MRI volume (.nii / .nii.gz)")
+        self.image_edit.setPlaceholderText(PLACEHOLDERS["nifti"])
         self.image_edit.editingFinished.connect(self._image_changed)
         browse_image = QPushButton("Browse…")
         browse_image.clicked.connect(self._browse_image)
@@ -153,11 +186,14 @@ class MainWindow(QMainWindow):
         self.view_image_button.setToolTip("Show the volume in axial, coronal and sagittal slices")
         self.view_image_button.setEnabled(False)
         self.view_image_button.clicked.connect(self.view_image)
-        self.image_edit.textChanged.connect(self._update_view_button)
+        self.image_edit.textChanged.connect(lambda _=None: self._update_view_button())
         self.slice_viewer = None  # SliceViewer window, created on first use
         self.image_info = QLabel()
         self.image_info.setWordWrap(True)
         self.image_info.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.series_combo = QComboBox()
+        self.series_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.series_combo.currentIndexChanged.connect(lambda _=None: self._series_changed())
 
         self.modality_combo = QComboBox()
         self.modality_combo.addItem("Auto (from image)", AUTO)
@@ -191,11 +227,15 @@ class MainWindow(QMainWindow):
 
         inputs = QGroupBox("Input")
         grid = QFormLayout(inputs)
-        grid.addRow(
-            self._label("Image", "gui.image"),
-            _row(self.image_edit, browse_image, self.view_image_button),
-        )
+        formats = _row(*self.format_buttons.values(), stretch=None)
+        formats.layout().addStretch(1)
+        grid.addRow(self._label("Image", "gui.image"), formats)
+        grid.addRow("", _row(self.image_edit, browse_image, self.view_image_button))
         grid.addRow("", self.image_info)
+        self.series_row = _row(self.series_combo, stretch=None)
+        self.series_row.layout().addStretch(1)
+        grid.addRow(self._label("Series", "gui.series"), self.series_row)
+        self._input_grid = grid
         grid.addRow(
             self._label("Modality", "gui.modality"),
             _row(self.modality_combo, self.modality_label, stretch=1),
@@ -328,7 +368,16 @@ class MainWindow(QMainWindow):
 
     def _restore(self) -> None:
         s = self.settings
-        self.image_edit.setText(str(s.value("image", "")))
+        self._paths["nifti"] = str(s.value("image", ""))
+        self._paths["dicom"] = str(s.value("dicom_folder", ""))
+        self._wanted_series = str(s.value("series", "")) or None
+        fmt = str(s.value("input_format", "nifti"))
+        self._format = fmt if fmt in INPUT_FORMATS else "nifti"
+        self.format_group.blockSignals(True)
+        self.format_buttons[self._format].setChecked(True)
+        self.format_group.blockSignals(False)
+        self.image_edit.setPlaceholderText(PLACEHOLDERS[self._format])
+        self.image_edit.setText(self._paths[self._format])
         _select(self.modality_combo, s.value("modality", AUTO))
         _select(self.device_combo, s.value("device", "auto"))
         self.runs_edit.setText(str(s.value("runs_dir", str(Path.cwd() / "runs"))))
@@ -349,7 +398,12 @@ class MainWindow(QMainWindow):
 
     def _store(self) -> None:
         s = self.settings
-        s.setValue("image", self.image_edit.text())
+        self._paths[self._format] = self.image_edit.text()
+        s.setValue("input_format", self._format)
+        s.setValue("image", self._paths["nifti"])
+        s.setValue("dicom_folder", self._paths["dicom"])
+        vol = self.current_dicom()
+        s.setValue("series", vol.id if vol is not None else (self._wanted_series or ""))
         s.setValue("modality", self.modality_combo.currentData())
         s.setValue("device", self.device_combo.currentData())
         s.setValue("runs_dir", self.runs_edit.text())
@@ -361,9 +415,38 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ input
 
+    def input_format(self) -> str:
+        """``nifti`` (a file) or ``dicom`` (a folder of DICOM files)."""
+        return self._format
+
+    def set_input(self, path: str | Path, fmt: str | None = None) -> None:
+        """Choose the input (format switch, path) and check it, as the user would."""
+        if fmt is not None and fmt != self._format:
+            self.set_format(fmt)
+        self.image_edit.setText(str(path))
+        self._image_changed()
+
+    def set_format(self, fmt: str) -> None:
+        """Switch between ``nifti`` and ``dicom`` (each keeps its own last path)."""
+        self.format_buttons[fmt].setChecked(True)  # toggled -> _format_changed
+
+    def _format_changed(self) -> None:
+        fmt = next(k for k, b in self.format_buttons.items() if b.isChecked())
+        if fmt == self._format:
+            return
+        self._paths[self._format] = self.image_edit.text()
+        self._format = fmt
+        self.image_edit.setPlaceholderText(PLACEHOLDERS[fmt])
+        self.image_edit.setText(self._paths[fmt])
+        self._image_changed()
+
     def _browse_image(self) -> None:
-        start = self.image_edit.text() or str(Path.cwd())
-        path, _ = QFileDialog.getOpenFileName(self, "Input volume", start, NIFTI_FILTER)
+        text = self.image_edit.text().strip()
+        start = text or str(Path.cwd())
+        if self._format == "dicom":
+            path = QFileDialog.getExistingDirectory(self, "DICOM folder", start)
+        else:
+            path, _ = QFileDialog.getOpenFileName(self, "Input volume", start, NIFTI_FILTER)
         if path:
             self.image_edit.setText(path)
             self._image_changed()
@@ -375,16 +458,35 @@ class MainWindow(QMainWindow):
             self.runs_edit.setText(path)
 
     def _image_changed(self) -> None:
+        """Check the input when the path or the format changed (DICOM: in the background)."""
         text = self.image_edit.text().strip()
         self.image_info.setVisible(bool(text))
+        self._show_series_row()
         if not text:
             self.image_info.setText("")
-            self.subject_edit.setPlaceholderText("from the file name")
+            self.subject_edit.setPlaceholderText("from the file or folder name")
             self._show_modality()
+            self._update_view_button()
             return
         path = Path(text)
-        if not path.is_file():
-            self.image_info.setText(_colored("File not found", "#c0392b"))
+        if self._format == "dicom":
+            self._dicom_changed(path)
+        else:
+            self._nifti_changed(path)
+        self._update_view_button()
+
+    def _nifti_changed(self, path: Path) -> None:
+        error = None
+        if path.is_dir():
+            error = "This is a folder; for DICOM images switch to 'DICOM folder'"
+        elif not path.is_file():
+            error = "File not found"
+        elif path.suffix.lower() in DICOM_SUFFIXES:
+            error = "This is a DICOM file; switch to 'DICOM folder' and choose its folder"
+        elif not path.name.lower().endswith((".nii", ".nii.gz")):
+            error = "Not a NIfTI file (.nii or .nii.gz)"
+        if error is not None:
+            self.image_info.setText(_colored(error, RED))
             self._show_modality()
             return
         self._detect_modality(path)
@@ -392,31 +494,162 @@ class MainWindow(QMainWindow):
         try:
             lines.append(html.escape(api.describe_image(path)))
         except Exception as exc:  # any unreadable header
-            lines.append(_colored(f"Cannot read the header: {exc}", "#c0392b"))
+            lines.append(_colored(f"Cannot read the header: {exc}", RED))
         for issue in api.check_image(path):
-            color = "#c0392b" if issue.severity == "error" else "#ca6f1e"
-            lines.append(_colored(issue.message, color))
+            lines.append(_colored(issue.message, RED if issue.severity == "error" else AMBER))
         self.image_info.setText("<br>".join(lines))
-        name = path.name
-        for suffix in (".nii.gz", ".nii"):
-            if name.lower().endswith(suffix):
-                name = name[: -len(suffix)]
-        self.subject_edit.setPlaceholderText(name)
+        self.subject_edit.setPlaceholderText(_stem(path))
 
-    def _update_view_button(self, text: str) -> None:
-        text = text.strip()
-        self.view_image_button.setEnabled(bool(text) and Path(text).is_file())
+    def _update_view_button(self) -> None:
+        self.view_image_button.setEnabled(self._view_path() is not None)
+
+    def _view_path(self) -> Path | None:
+        """NIfTI shown by View…: the file, or the converted DICOM series."""
+        if self._format == "dicom":
+            vol = self.current_dicom()
+            return vol.nifti_path if vol is not None and vol.nifti_path.is_file() else None
+        text = self.image_edit.text().strip()
+        path = Path(text) if text else None
+        return path if path is not None and path.is_file() and _is_nifti(path) else None
 
     def view_image(self) -> QWidget | None:
         """Show the input volume in axial, coronal and sagittal slices (own window)."""
-        text = self.image_edit.text().strip()
-        path = Path(text) if text else None
-        if path is None or not path.is_file():
+        path = self._view_path()
+        if path is None:
             QMessageBox.warning(self, "View image", "Choose an existing input volume first.")
             return None
         viewer = self._viewer()
         viewer.open(path)
         return viewer
+
+    # ------------------------------------------------------------------ DICOM
+
+    def _dicom_changed(self, path: Path) -> None:
+        error = None
+        if path.is_file():
+            error = (
+                "This is a file; choose the folder with the DICOM files"
+                if path.suffix.lower() in DICOM_SUFFIXES or not _is_nifti(path)
+                else "This is a NIfTI file; switch to 'NIfTI file'"
+            )
+        elif not path.is_dir():
+            error = "Folder not found"
+        self.subject_edit.setPlaceholderText(path.name or "from the folder name")
+        if error is not None:
+            self._fill_series(None)
+            self.image_info.setText(_colored(error, RED))
+            self._show_modality()
+            return
+        key = str(path.resolve())
+        if key in self._scans:
+            self._show_dicom()
+            return
+        self._fill_series(None)
+        self.image_info.setText(_colored("Reading the DICOM folder (dcm2niix)…", GREY))
+        self._show_modality()
+        if key not in self._scanning:
+            self._scanning.add(key)
+            self._pool.start(_DicomTask(key, self._dicom_signals))
+
+    def _dicom_scanned(self, key: str, result: Any) -> None:
+        self._scanning.discard(key)
+        self._scans[key] = result
+        if self._format == "dicom" and self._folder_key() == key:
+            self._show_dicom()
+
+    def _folder_key(self) -> str | None:
+        text = self.image_edit.text().strip()
+        if self._format != "dicom" or not text or not Path(text).is_dir():
+            return None
+        return str(Path(text).resolve())
+
+    def dicom_scan(self, *, wait: bool = False) -> DicomScan | str | None:
+        """Result of reading the current DICOM folder (an error message if it failed);
+        None while it is read, unless ``wait`` (then it is read here)."""
+        key = self._folder_key()
+        if key is None:
+            return None
+        if key not in self._scans and wait:
+            try:
+                self._scans[key] = api.scan_dicom(key)
+            except api.SetupError as exc:
+                self._scans[key] = str(exc)
+            self._scanning.discard(key)
+            self._show_dicom()
+        return self._scans.get(key)
+
+    def current_dicom(self) -> DicomVolume | None:
+        """The DICOM series chosen under Series (None: no usable one, or not read yet)."""
+        result = self.dicom_scan()
+        if result is None or isinstance(result, str):
+            return None
+        return result.get(self.series_combo.currentData() or "")
+
+    def _fill_series(self, result: DicomScan | None) -> None:
+        wanted = self.series_combo.currentData() or self._wanted_series
+        self.series_combo.blockSignals(True)
+        self.series_combo.clear()
+        for vol in result.usable if result is not None else []:
+            self.series_combo.addItem(_series_text(vol), vol.id)
+        if wanted is not None:
+            _select(self.series_combo, wanted)
+        self.series_combo.setEnabled(self.series_combo.count() > 1 and not self._run_active)
+        self.series_combo.blockSignals(False)
+        self._show_series_row()
+
+    def _show_series_row(self) -> None:
+        visible = self._format == "dicom" and self.series_combo.count() > 0
+        self._input_grid.setRowVisible(self.series_row, visible)
+
+    def _show_dicom(self) -> None:
+        """Info under the image: chosen series, conversion warnings, unusable series."""
+        result = self.dicom_scan()
+        if result is None:
+            return
+        if isinstance(result, str):
+            self._fill_series(None)
+            self.image_info.setText(_colored(result.splitlines()[0], RED))
+            self._show_modality()
+            self._update_view_button()
+            return
+        if self.series_combo.count() == 0 or self.series_combo.currentData() is None:
+            self._fill_series(result)
+        self._series_changed()
+
+    def _series_changed(self) -> None:
+        result = self.dicom_scan()
+        if result is None or isinstance(result, str):
+            return
+        if self.series_combo.currentData():
+            self._wanted_series = self.series_combo.currentData()
+        usable = result.usable
+        vol = self.current_dicom()
+        lines = []
+        if not usable:
+            lines.append(_colored("No usable 3D CT or MR series in this folder", RED))
+        elif len(usable) > 1:
+            lines.append(_colored(f"{len(usable)} usable series: choose one under Series", AMBER))
+        if vol is not None:
+            self._modalities[self._current_key() or ""] = api.dicom_modality(vol)
+            text = f"Series {vol.id}: "
+            try:
+                text += api.describe_image(vol.nifti_path)
+            except Exception as exc:  # converted file removed from the cache
+                text += f"cannot read the converted volume ({exc})"
+            lines.append(html.escape(f"{text}, {vol.files} DICOM files"))
+            for warning in vol.warnings:
+                lines.append(_colored(f"dcm2niix: {warning}", AMBER))
+            for issue in api.check_image(vol.nifti_path):
+                lines.append(_colored(issue.message, RED if issue.severity == "error" else AMBER))
+        unusable = [v for v in result.volumes if not v.usable and not v.replaced_by]
+        for v in unusable[:MAX_LISTED]:
+            desc = f" '{v.description}'" if v.description else ""
+            lines.append(_colored(f"Not usable: series {v.id}{desc}: {v.status()}", GREY))
+        if len(unusable) > MAX_LISTED:
+            lines.append(_colored(f"… and {len(unusable) - MAX_LISTED} more", GREY))
+        self.image_info.setText("<br>".join(lines))
+        self._show_modality()
+        self._update_view_button()
 
     def view_segmentation(self) -> QWidget | None:
         """Input image of the last run with its label maps (unified label map shown)."""
@@ -466,6 +699,11 @@ class MainWindow(QMainWindow):
         self._show_modality()
 
     def _current_key(self) -> str | None:
+        """Key of the current input in the modality cache (DICOM: folder and series)."""
+        if self._format == "dicom":
+            folder = self._folder_key()
+            series = self.series_combo.currentData()
+            return f"{folder}|{series}" if folder and series else None
         text = self.image_edit.text().strip()
         if not text or not Path(text).is_file():
             return None
@@ -498,11 +736,23 @@ class MainWindow(QMainWindow):
             text = f"detected {guess.modality.upper()} ({guess.source}: {guess.reason})"
         self.modality_label.setText(_colored(text, color))
 
-    def effective_modality(self, image: Path) -> str:
-        """CT/MRI chosen by the user, or detected for Auto (synchronously if not done yet)."""
+    def effective_modality(self, image: Path | None = None) -> str:
+        """CT/MRI chosen by the user, or detected for Auto (synchronously if not done yet).
+
+        ``image``: a NIfTI file; a DICOM input uses the modality of its chosen series."""
         chosen = self.modality_combo.currentData()
         if chosen != AUTO:
             return chosen
+        if self._format == "dicom":
+            vol = self.current_dicom()
+            guess = api.dicom_modality(vol) if vol is not None else None
+            if guess is None or guess.modality is None:
+                raise ValueError(
+                    "Cannot detect the modality of the DICOM series. Choose CT or MRI."
+                )
+            return guess.modality
+        if image is None:
+            image = Path(self.image_edit.text().strip())
         key = str(image.resolve())
         guess = self._modalities.get(key)
         if guess is None or isinstance(guess, str):
@@ -532,8 +782,8 @@ class MainWindow(QMainWindow):
         chosen = self.modality_combo.currentData()
         if chosen in ("ct", "mri"):
             return (chosen,)
-        image = self.image_edit.text().strip()
-        guess = self._modalities.get(str(Path(image).resolve())) if image else None
+        key = self._current_key()
+        guess = self._modalities.get(key) if key else None
         modality = getattr(guess, "modality", None)
         return (modality,) if modality in ("ct", "mri") else ("ct", "mri")
 
@@ -702,7 +952,20 @@ class MainWindow(QMainWindow):
     def child_request(self) -> ChildRequest:
         """The run described by the window; raises ValueError for missing input."""
         image = self.image_edit.text().strip()
-        if not image:
+        series = None
+        if self._format == "dicom":
+            if not image:
+                raise ValueError("Choose the folder with the DICOM files.")
+            if not Path(image).is_dir():
+                raise ValueError(f"DICOM folder not found: {image}")
+            result = self.dicom_scan(wait=True)
+            if isinstance(result, str):
+                raise ValueError(result)
+            vol = self.current_dicom()
+            if vol is None:
+                raise ValueError(f"No usable 3D CT or MR series in {Path(image).name}.")
+            series = vol.id
+        elif not image:
             raise ValueError("Choose an input volume (.nii or .nii.gz).")
         runs = self.runs_edit.text().strip()
         if not runs:
@@ -710,7 +973,8 @@ class MainWindow(QMainWindow):
         until = self.until_combo.currentData()
         return ChildRequest(
             image=Path(image),
-            modality=self.effective_modality(Path(image)),
+            series=series,
+            modality=self.effective_modality(None if series else Path(image)),
             runs_dir=Path(runs),
             device=self.device_combo.currentData(),
             subject=self.subject_edit.text().strip() or None,
@@ -742,6 +1006,7 @@ class MainWindow(QMainWindow):
                     image=child.image,
                     modality=child.modality,
                     subject=child.subject,
+                    series=child.series,
                     overrides=child.overrides,
                     device=child.device,
                     runs_dir=child.runs_dir,
@@ -992,6 +1257,7 @@ class MainWindow(QMainWindow):
     def _set_running(self, running: bool) -> None:
         self._run_active = running
         for widget in (
+            *self.format_buttons.values(),
             self.image_edit,
             self.modality_combo,
             self.subject_edit,
@@ -1002,6 +1268,7 @@ class MainWindow(QMainWindow):
             self.form,
         ):
             widget.setEnabled(not running)
+        self.series_combo.setEnabled(not running and self.series_combo.count() > 1)
         self.cancel_button.setEnabled(running)
         self.run_button.setEnabled(
             not running and not self.setup_running() and self.form.error_label.isHidden()
@@ -1075,7 +1342,43 @@ class _ModalityTask(QRunnable):
         self.signals.done.emit(self.key, result)
 
 
+class _DicomTask(QRunnable):
+    """Read (convert and check) a DICOM folder; emits the DicomScan or an error message."""
+
+    def __init__(self, key: str, signals: _ModalitySignals) -> None:
+        super().__init__()
+        self.key = key
+        self.signals = signals
+
+    def run(self) -> None:
+        try:
+            result: Any = api.scan_dicom(self.key)
+        except Exception as exc:  # SetupError, or anything unexpected while converting
+            result = str(exc) or type(exc).__name__
+        self.signals.done.emit(self.key, result)
+
+
 # ---------------------------------------------------------------------------- utilities
+
+
+def _is_nifti(path: Path) -> bool:
+    return path.name.lower().endswith((".nii", ".nii.gz"))
+
+
+def _stem(path: Path) -> str:
+    name = path.name
+    for suffix in (".nii.gz", ".nii"):
+        if name.lower().endswith(suffix):
+            return name[: -len(suffix)]
+    return name
+
+
+def _series_text(vol: DicomVolume) -> str:
+    """Series in the combo box: id, description, modality, voxels, spacing."""
+    desc = f" '{vol.description}'" if vol.description else ""
+    shape = " x ".join(str(n) for n in vol.shape[:3])
+    spacing = " x ".join(f"{z:.3g}" for z in vol.spacing[:3])
+    return f"{vol.id}{desc} - {vol.dicom_modality or '?'}, {shape}, {spacing} mm"
 
 
 def _row(*widgets: QWidget, stretch: int | None = 0) -> QWidget:

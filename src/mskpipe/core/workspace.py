@@ -4,10 +4,14 @@
 Layout::
 
     runs/<YYYYMMDD-HHMMSS>_<subject>_<key8>/
-        input.json              original path, modality, subject_id, sha256
+        input.json              original path, modality, subject_id, sha256 (DICOM: source)
         config.resolved.yaml    fully resolved PipelineConfig
-        00_input/ ... 06_mw2_input/
+        00_input/               input.nii[.gz] (DICOM: converted, + input.json sidecar)
+        01_segment/ ... 06_mw2_input/
         logs/
+
+A DICOM folder is converted with dcm2niix (:mod:`mskpipe.io.dicom`); the converted volume
+is the run input (its content is hashed), the folder, series and converter are recorded.
 
 ``run_key`` hashes the input content and all result-affecting config
 sections (everything except ``runtime``); identical input + settings give
@@ -38,6 +42,7 @@ STEP_DIRS: dict[str, str] = {
 STEPS: tuple[str, ...] = tuple(STEP_DIRS)
 
 INPUT_FILE = "input.json"
+SIDECAR_FILE = "input.json"  # in 00_input/, next to the converted DICOM volume (BIDS name)
 CONFIG_FILE = "config.resolved.yaml"
 MANIFEST_FILE = "manifest.json"
 LOGS_DIR = "logs"
@@ -81,12 +86,18 @@ class Workspace:
     def create(
         cls, spec: InputSpec, config: PipelineConfig, *, now: datetime | None = None
     ) -> Workspace:
-        """Create a new run folder, copy the input and write the resolved config."""
+        """Create a new run folder, copy (DICOM: convert) the input, write the config."""
         image = spec.image.expanduser().resolve()
-        if not image.is_file():
+        source: dict[str, Any] | None = None
+        sidecar: Path | None = None
+        if spec.is_dicom:
+            volume, sidecar, source = _dicom_input(image, spec.series)
+        elif image.is_file():
+            volume = image
+        else:
             raise WorkspaceError(f"Input image not found: {image}")
 
-        sha = file_sha256(image)
+        sha = file_sha256(volume)
         run_key = compute_run_key(sha, config)
         stamp = (now or datetime.now()).strftime("%Y%m%d-%H%M%S")
         base = f"{stamp}_{spec.subject_id[:32]}_{run_key[:8]}"
@@ -98,15 +109,20 @@ class Workspace:
         try:
             for name in (*STEP_DIRS.values(), LOGS_DIR):
                 (root / name).mkdir()
-            shutil.copy2(image, ws.input_image_path(image))
+            target = ws.input_image_path(volume)
+            shutil.copy2(volume, target)
+            if sidecar is not None:  # dcm2niix JSON: modality, scanner (no patient data)
+                shutil.copy2(sidecar, target.parent / SIDECAR_FILE)
             record = {
                 "image": str(image),
                 "modality": spec.modality.value,
                 "subject_id": spec.subject_id,
                 "sha256": sha,
-                "size_bytes": image.stat().st_size,
+                "size_bytes": volume.stat().st_size,
                 "run_key": run_key,
             }
+            if source is not None:
+                record["source"] = source
             _write_json(root / INPUT_FILE, record)
             dump_config(config, root / CONFIG_FILE)
         except BaseException:
@@ -132,10 +148,12 @@ class Workspace:
 
     def load_input(self) -> InputSpec:
         record = _read_json(self.root / INPUT_FILE)
+        source = record.get("source") or {}
         return InputSpec(
             image=Path(record["image"]),
             modality=record["modality"],
             subject_id=record["subject_id"],
+            series=source.get("series") if source.get("format") == "dicom" else None,
         )
 
     def load_input_record(self) -> dict[str, Any]:
@@ -174,6 +192,30 @@ class Workspace:
             return self.root / STEP_DIRS[step]
         except KeyError:
             raise WorkspaceError(f"Unknown step '{step}'; expected one of {STEPS}") from None
+
+
+def _dicom_input(folder: Path, series: str | None) -> tuple[Path, Path | None, dict[str, Any]]:
+    """Converted volume of a DICOM folder, its JSON sidecar and the ``source`` record."""
+    from mskpipe.io.dicom import DicomError, scan
+
+    try:
+        result = scan(folder)
+        volume = result.select(series)
+    except DicomError as exc:
+        raise WorkspaceError(str(exc)) from None
+    source: dict[str, Any] = {
+        "format": "dicom",
+        "folder": str(folder),
+        "series": volume.id,
+        "series_number": volume.series_number,
+        "description": volume.description,
+        "dicom_modality": volume.dicom_modality,
+        "files": volume.files,
+        "converter": f"dcm2niix {result.version}",
+        "warnings": list(volume.warnings),
+    }
+    sidecar = Path(volume.sidecar) if volume.sidecar else None
+    return volume.nifti_path, sidecar, source
 
 
 def _unique_dir(parent: Path, base: str) -> Path:
