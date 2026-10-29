@@ -14,6 +14,8 @@ The surface is first built with the BP filter chain (quadric decimation; meshes 
 stay identical to BP). If it fails, the repair tries, in order (first accepted wins):
 
 1. mesh-level fixes (:func:`~mskpipe.geometry.topology.repair_surface`),
+   bones also a local patch of the defects
+   (:func:`~mskpipe.geometry.topology.patch_defects`),
 2. a new surface from the mask with topology-preserving decimation (cannot open holes or
    create non-manifold edges); muscles also with openings and closings
    (:func:`~mskpipe.geometry.topology.repair_mask`).
@@ -115,7 +117,12 @@ def _repair(build, mask, affine, kind, params, cfg, offset, full_shape, check_ca
     from mskpipe.geometry.compare import surface_distance
     from mskpipe.geometry.metrics import signed_volume
     from mskpipe.geometry.surface import SurfaceError, mask_to_surface
-    from mskpipe.geometry.topology import check_surface, repair_mask, repair_surface
+    from mskpipe.geometry.topology import (
+        check_surface,
+        patch_defects,
+        repair_mask,
+        repair_surface,
+    )
 
     original = build.mesh
     reference = abs(signed_volume(original))
@@ -147,6 +154,11 @@ def _repair(build, mask, affine, kind, params, cfg, offset, full_shape, check_ca
     fixed, fixes = repair_surface(original, keep_components=keep_parts)
     done = judge(fixed, {"method": "mesh", "fixes": fixes}, build.decimation)
     if not done and kind == "bone":
+        # local patch of the BP surface: only the faces around the defect change
+        patched, fixes = patch_defects(original)
+        if fixes:
+            done = judge(patched, {"method": "patch", "fixes": fixes}, build.decimation)
+    if not done and kind == "bone":
         rec: dict[str, Any] = {"method": "remesh", "closing_mm": 0.0, "opening_mm": 0.0}
         try:
             topo = mask_to_surface(
@@ -157,6 +169,11 @@ def _repair(build, mask, affine, kind, params, cfg, offset, full_shape, check_ca
         else:
             topo, fixes = repair_surface(topo, keep_components=True)
             done = judge(topo, {**rec, "fixes": fixes}, "topology")
+            if not done:
+                patched, fixes = patch_defects(topo)
+                if fixes:
+                    rec = {**rec, "method": "remesh+patch"}
+                    done = judge(patched, {**rec, "fixes": fixes}, "topology")
     elif not done:
         from mskpipe.labelmap.clean import element_radius
 
@@ -212,8 +229,10 @@ def _repair(build, mask, affine, kind, params, cfg, offset, full_shape, check_ca
 
 
 def _label(attempt: dict[str, Any]) -> str:
-    if attempt["method"] == "mesh":
-        return "mesh"
+    if attempt["method"] in ("mesh", "patch"):
+        return {"mesh": "mesh", "patch": "local patch"}[attempt["method"]]
+    if attempt["method"] == "remesh+patch":
+        return "topology-preserving decimation + local patch"
     closing, opening = attempt.get("closing_mm", 0.0), attempt.get("opening_mm", 0.0)
     if not closing and not opening:
         return "topology-preserving decimation"

@@ -607,9 +607,9 @@ class BoneMeshParams(MeshParams):
 class MeshRepairConfig(StrictModel):
     enabled: bool = Field(
         True,
-        description="Repair surfaces that fail the checks: mesh-level fixes, then remeshing "
-        "of the mask with topology-preserving decimation (muscles also with openings and "
-        "closings).",
+        description="Repair surfaces that fail the checks: mesh-level fixes, a local patch "
+        "(bones), then remeshing of the mask with topology-preserving decimation (muscles "
+        "also with openings and closings).",
     )
     max_opening_mm: float = Field(
         3.0,

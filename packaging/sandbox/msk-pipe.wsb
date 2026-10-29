@@ -1,8 +1,8 @@
 <!-- Windows Sandbox: a clean Windows without Python, pixi or an NVIDIA driver.
      Put the release zip into C:\msk-pipe-sandbox (see CHECKLIST.md), then double-click.
-     CPU test as is. GPU test: VGpu Enable and MemoryInMB 24576 (needs a host with 32 GB);
-     the GPU is paravirtualised in the sandbox (several times slower), so do not take
-     timings from it. -->
+     As is: vGPU on and 24 GB RAM, i.e. a host with 32 GB RAM (with 16 GB the sandbox runs
+     out of memory in TotalSegmentator, see CHECKLIST.md). The GPU is paravirtualised in
+     the sandbox (several times slower), so do not take timings from it. -->
 <Configuration>
   <VGpu>Enable</VGpu>
   <Networking>Enable</Networking>
