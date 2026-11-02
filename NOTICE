@@ -27,6 +27,11 @@ msk-pipe-atlas-lhdl-v1.zip) derived from the Living Human Digital Library (LHDL)
 is NOT licensed under Apache-2.0 but under CC BY-NC-SA 2.0 BE, see its LICENSE and
 README.md.
 
+The Muscle Wrapping 2.x demo (msk-pipe-mw2-demo-v1-win64.zip, a separate release asset,
+not part of the pipeline) bundles binaries of Muscle Wrapping 2.x (Apache-2.0, Copyright
+2018 University of West Bohemia), OpenSim and further libraries under their own licences
+(its NOTICE and THIRD_PARTY_LICENSES.md) and an example derived from LHDL (CC BY-NC-SA 2.0 BE).
+
 Fast-RNRR (optional, Yao et al. 2020; patented, research use only) is not distributed
 with msk-pipe. `mskpipe setup fast-rnrr --accept-research-licence` downloads its source
 from the authors' repository and builds it on the user's computer.

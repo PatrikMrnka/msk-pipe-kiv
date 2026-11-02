@@ -27,7 +27,7 @@ flowchart LR
     E --> G[export_mw2]
     F --> G
     G --> H[(.osim · .xml · .obj · .vtk)]
-    H -.-> I[Muscle Wrapping 2.x<br/><i>not included</i>]
+    H -.-> I[Muscle Wrapping 2.x<br/><i>separate demo</i>]
 ```
 
 | Output (`<run>/06_mw2_input/`) | |
@@ -124,6 +124,23 @@ py packaging/build_release.py assemble --version $version --pack build/environme
 
 </details>
 
+## Muscle Wrapping demo
+
+Not part of the pipeline — a prebuilt [Muscle Wrapping 2.x](https://doi.org/10.1007/s10439-020-02490-4)
+(OpenSim 4.5 plugin) to try the output. Nothing to install.
+
+1. Download `msk-pipe-mw2-demo-v1-win64.zip` from
+   [**Releases → mw2-demo-v1**](https://github.com/kivzcu/msk-pipe/releases/tag/mw2-demo-v1) (~55 MB)
+   and extract it.
+2. Double-click `run_demo.cmd` (bundled LHDL example), or for your own result:
+
+```powershell
+.\run_demo.cmd "$env:USERPROFILE\Documents\msk-pipe\runs\<run>"
+```
+
+Results in `output\<run>\`: `bone_model_mw2.osim` (every muscle as its fibres, open it in the
+OpenSim GUI), `analysis\*_Lengths.sto`, `*_MomentArms_*.sto`, `mw2.log`.
+
 ---
 
 ## Configuration and experiments
@@ -179,6 +196,7 @@ mskpipe run scan.nii.gz -m ct --set attachments.method=manual --set attachments.
 | [pystaple](https://github.com/PatrikMrnka/pystaple) (bundled) | CC BY-NC 4.0 → **the pipeline and release are for non-commercial use only** ([NOTICE](NOTICE)) |
 | Attachment atlas (`atlas/lhdl`, release asset) | CC BY-NC-SA 2.0 BE, derived from the LHDL dataset |
 | Fast-RNRR (optional, *Setup… → Fast-RNRR*) | research use only, patented — not distributed, built on your PC on request |
+| Muscle Wrapping demo (release asset) | Apache-2.0 (Muscle Wrapping 2.x, OpenSim), libraries in its `THIRD_PARTY_LICENSES.md`; example CC BY-NC-SA 2.0 BE |
 | Other components, model weights | see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) |
 
 ## Citation

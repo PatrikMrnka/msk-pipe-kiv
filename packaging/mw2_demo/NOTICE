@@ -1,0 +1,17 @@
+Muscle Wrapping 2.x demo for msk-pipe
+
+Muscle Wrapping 2.x (OsimMuscleGeneratorTool)
+Copyright 2018 University of West Bohemia
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The files in bin\ are the Release build of Muscle Wrapping 2.x and of the libraries it
+links to, unmodified, except that the LLVM OpenMP runtime of conda-forge (libomp.dll) is
+installed as libomp140.x86_64.dll, the name under which the binaries import it.
+Their licences: THIRD_PARTY_LICENSES.md and licenses\.
+
+The example in example\ is derived from the Living Human Digital Library (LHDL) dataset
+and is licensed under CC BY-NC-SA 2.0 BE, not under Apache-2.0 (see example\LICENSE).
+
+Packaged for msk-pipe (https://github.com/kivzcu/msk-pipe) by Patrik Mrnka and
+Josef Kohout, University of West Bohemia in Pilsen. demo.json lists the versions and
+the SHA-256 of every file.

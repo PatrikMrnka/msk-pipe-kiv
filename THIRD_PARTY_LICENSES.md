@@ -27,6 +27,8 @@ The Windows release additionally bundles further Python and conda packages. Thei
 | OpenSim | Apache-2.0 | Musculoskeletal simulation |
 | Muscle Wrapping 2.x | Apache-2.0 | Muscle fibre generation |
 
+Both are only in the separate **Muscle Wrapping demo** (release asset `msk-pipe-mw2-demo-v1-win64.zip`, not part of the pipeline or of the release): the Release build of Muscle Wrapping 2.x, OpenSim 4.5, Simbody, VTK, Discregrid, BLAS/LAPACK with the MinGW GCC runtime (GPL-3.0 with GCC Runtime Library Exception; libquadmath LGPL-2.1), the LLVM OpenMP runtime (Apache-2.0 WITH LLVM-exception) and the Visual C++ runtime, with an example input derived from LHDL (CC BY-NC-SA 2.0 BE). Its `THIRD_PARTY_LICENSES.md` and `licenses/` hold the licence texts ([`packaging/mw2_demo`](packaging/mw2_demo)).
+
 ## Data in the release
 
 | Component | License | Role |

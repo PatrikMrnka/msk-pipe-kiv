@@ -1,0 +1,20 @@
+Muscle Wrapping 2.x demo - example input - licence
+==================================================
+
+The example (all files in this folder) is a derivative work of the Living Human Digital
+Library (LHDL) dataset Cadaver #1 and is licensed under the
+
+    Creative Commons Attribution-NonCommercial-ShareAlike 2.0 Belgium licence
+    (CC BY-NC-SA 2.0 BE)
+    https://creativecommons.org/licenses/by-nc-sa/2.0/be/
+    Legal code: https://creativecommons.org/licenses/by-nc-sa/2.0/be/legalcode
+
+the licence of the original data, as required by its share-alike condition.
+
+Attribution
+  Original work: Living Human Digital Library (LHDL), Cadaver #1, Istituto Ortopedico
+  Rizzoli (IOR), Bologna, and Universite Libre de Bruxelles (ULB), Brussels; project
+  LHDL, EU FP6 IST-2004-026932 (www.livinghuman.org); distributed through Physiome Space
+  (B3C). Derived by Patrik Mrnka and Josef Kohout, University of West Bohemia in Pilsen,
+  with msk-pipe (https://github.com/kivzcu/msk-pipe). The changes are listed in
+  README.txt.
