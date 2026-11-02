@@ -386,6 +386,11 @@ def test_run_demo_matches_export():
     ):
         assert needle in text, needle
     assert "MW2_DEMO_NO_PAUSE" in text
+    # MW2 occasionally crashes (access violation): run again, keep the crash logs
+    assert "OMP_NUM_THREADS" not in text
+    assert '"%RC%"=="-1073741819"' in text and "goto attempt" in text
+    assert 'set "MW2_DEMO_ATTEMPTS=3"' in text and "mw2_crash%ATTEMPT%.log" in text
+    assert text.index(":attempt") < text.index("opensim-cmd.exe") < text.index("goto attempt")
     # licence texts that come neither from the MW2 sources nor from the conda packages
     for name in ("gcc-runtime", "lapack"):
         assert name in demo.REQUIRED_LICENCES

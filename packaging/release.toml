@@ -44,7 +44,7 @@ licence_file = "info/licenses/LICENSE.TXT"
 [[mw2_demo.conda]]
 name = "llvm-openmp"
 url = "https://conda.anaconda.org/conda-forge/win-64/llvm-openmp-22.1.8-h4fa8253_3.conda"
-sha256 = "36951e53e6e6f75d390d04bdd460ecd055ef7c4e2167bfdc12e310efe936378a"
+sha256 = "a7b6a1b8d24e495c649380305ae63031e1d22051a30b4b87aef01e61609c798f"
 dlls = "Library/bin"
 licence_file = "info/licenses/openmp/LICENSE.TXT"
 rename = { "libomp.dll" = "libomp140.x86_64.dll" }

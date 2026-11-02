@@ -4,6 +4,9 @@ rem   run_demo.cmd              the bundled example (example\)
 rem   run_demo.cmd RUN          a msk-pipe run folder or its 06_mw2_input folder
 rem   run_demo.cmd RUN WORK     work folder (default: output\<run name> next to this file)
 rem The input is copied to the work folder; Muscle Wrapping writes its results there.
+rem Muscle Wrapping 2.x occasionally crashes with an access violation (about 1 run in 10,
+rem independent of the input and the number of threads); it is then run again, at most
+rem MW2_DEMO_ATTEMPTS times (default 3). The log of a crashed attempt is kept as mw2_crash<n>.log.
 setlocal EnableExtensions DisableDelayedExpansion
 set "DEMO=%~dp0"
 set "DEMO=%DEMO:~0,-1%"
@@ -48,23 +51,38 @@ if errorlevel 8 (
     goto end
 )
 
-rem results of an earlier run in the work folder are removed first
 set "OSIM="
 for /f "tokens=1-3 delims=<>" %%A in ('findstr /c:"<output_model_file>" "%WORK%\setup_MuscleGeneratorTool.xml"') do (
     if "%%A"=="output_model_file" (set "OSIM=%%B") else set "OSIM=%%C"
 )
 if defined OSIM set "OSIM=%OSIM:/=\%"
+if not defined MW2_DEMO_ATTEMPTS set "MW2_DEMO_ATTEMPTS=3"
+del /q "%WORK%\mw2_crash*.log" 2>nul
+set "PATH=%DEMO%\bin;%PATH%"
+set "ATTEMPT=0"
+
+:attempt
+set /a ATTEMPT+=1
+rem results of an earlier run (or attempt) in the work folder are removed first
 if defined OSIM if exist "%WORK%\%OSIM%" del /q "%WORK%\%OSIM%"
 if exist "%WORK%\analysis" rd /s /q "%WORK%\analysis"
 if exist "%WORK%\fibres" rd /s /q "%WORK%\fibres"
 mkdir "%WORK%\analysis"
-
 echo Running Muscle Wrapping (a few minutes; log: mw2.log) ...
-set "PATH=%DEMO%\bin;%PATH%"
 pushd "%WORK%"
 "%DEMO%\bin\opensim-cmd.exe" -L "%DEMO%\bin\OsimMuscleGeneratorTool.dll" run-tool setup_MuscleGeneratorTool.xml > mw2.log 2>&1
 set "RC=%ERRORLEVEL%"
 popd
+if not "%RC%"=="-1073741819" goto finished
+move /y "%WORK%\mw2.log" "%WORK%\mw2_crash%ATTEMPT%.log" >nul
+if %ATTEMPT% LSS %MW2_DEMO_ATTEMPTS% (
+    echo Muscle Wrapping crashed ^(access violation^), attempt %ATTEMPT% of %MW2_DEMO_ATTEMPTS%; running again ...
+    goto attempt
+)
+echo error: Muscle Wrapping crashed ^(access violation^) %ATTEMPT% times, see "%WORK%\mw2_crash*.log"
+goto end
+
+:finished
 if not "%RC%"=="0" (
     echo error: Muscle Wrapping failed with exit code %RC%, see "%WORK%\mw2.log"
     goto end

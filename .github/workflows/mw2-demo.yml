@@ -1,4 +1,4 @@
-name: Muscle Wrapping demo
+﻿name: Muscle Wrapping demo
 
 # The Muscle Wrapping 2.x demo (release asset pinned in packaging/release.toml [mw2_demo]) on
 # a clean Windows runner: download it, check bin/ and the licences, run the bundled example
@@ -94,6 +94,6 @@ jobs:
         if: failure() && steps.fetch.outputs.found == 'true'
         shell: pwsh
         run: |
-          Get-ChildItem C:\d -Recurse -Filter mw2.log | ForEach-Object {
+          Get-ChildItem C:\d -Recurse -Filter mw2*.log | ForEach-Object {
             "== $($_.FullName)"; Get-Content $_.FullName -Tail 80
           }

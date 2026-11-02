@@ -20,6 +20,10 @@ The input is copied to output\<run name>\ (or <work>) and Muscle Wrapping runs t
 
 Open bone_model_mw2.osim in the OpenSim GUI (4.5) to view the fibres.
 
+Muscle Wrapping 2.x occasionally crashes (access violation, about 1 run in 10). The demo then
+runs it again, at most 3 times (set MW2_DEMO_ATTEMPTS=5 for more); the log of a crashed
+attempt is kept as mw2_crash<n>.log. A successful run gives the same result.
+
 Licences
   Muscle Wrapping 2.x: Apache-2.0, Copyright 2018 University of West Bohemia (LICENSE).
   OpenSim, Simbody, VTK and the other libraries in bin\: THIRD_PARTY_LICENSES.md, licenses\.
