@@ -4,6 +4,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 
 ## [Unreleased]
 
+### Added
+- Attachment method `manual`: outlines supplied by the user (e.g. drawn in NMSBuilder on the bone meshes of a run). Files in `attachments.params.areas_dir` are assigned to muscles and areas by `areas.csv`, by the layout `<muscle>/<Stem>_Ori.vtk`, or by their name (`adductor_longus_r_Ins.txt`, LHDL codes such as `M102` through the installed atlas). VTK (ASCII, binary, polyline order), VTP and text files with x y z per line are read; each outline goes to the nearest body (pelvis with sacrum, femur, tibia with fibula), is optionally ordered around its centre (`order: angular`, clockwise seen from outside) and is snapped onto the bone (`max_projection_mm`). Files in another frame are converted (`frame: lps`). If the median outline lies farther than `max_distance_mm` from the bones, the step fails. Unrecognised files, duplicates and muscles with only one area are reported before the run. The folder contents are part of the step fingerprint.
+- GUI: *Attachments…* after a run opens the attachment editor (`mskpipe.gui.attachment_editor`). It starts from the run's outlines and shows the bones (the current body solid), the muscle (transparent) and the outline with numbered points. You can add points by clicking on the bone, insert them between two points, drag them along the bone, remove them (right click / Delete), undo changes (Ctrl+Z), reorder points, reset an area to the run's outline or clear it. The Muscle Wrapping checks of `export_mw2` (collapsed, crossing, patch too large, touching the other area) run live. *Import…* assigns files from another program in a table and saves `areas.csv`. *Save* writes the complete set for method `manual` (+ `manual.json` with the source of every area). *Save and run* switches the settings to it and runs again; earlier steps come from the cache.
+
 ## [0.2.0] - 2026-10-28
 
 ### Added

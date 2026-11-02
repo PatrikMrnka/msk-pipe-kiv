@@ -23,7 +23,7 @@ flowchart LR
     B --> C[labelmap<br/>unified labels, cleaning]
     C --> D[mesh<br/>bones .stl · muscles .obj]
     D --> E[skeleton<br/>pystaple = STAPLE]
-    D --> F[attachments<br/>atlas registration]
+    D --> F[attachments<br/>atlas registration · manual]
     E --> G[export_mw2]
     F --> G
     G --> H[(.osim · .xml · .obj · .vtk)]
@@ -142,6 +142,23 @@ mskpipe qc <run folder> --show                    # bone holes / gaps / bad mesh
 ```
 
 Experiment files of the article: [`paper/experiments`](paper/experiments).
+
+### Own attachment areas
+
+The atlas registration can be replaced or corrected by hand (method `manual`):
+
+- **GUI:** after a run, *Attachments…* shows each origin and insertion on the bone in 3D,
+  starting from the run's outlines. Click on the bone to add points, drag to move, right
+  click to remove; *Import…* reads outlines from other programs.
+  *Save and run* computes the Muscle Wrapping input again (earlier steps come from the cache).
+- **Other tools** (e.g. [NMSBuilder](https://www.nmsbuilder.org)): draw the outlines on the
+  bone meshes of a run (`03_mesh`, RAS in mm). Save each one as
+  `<folder>/<muscle>/<Stem>_Ori.vtk` / `_Ins.vtk`, name the file after the muscle and the area
+  (`adductor_longus_r_Ins.txt`), or list the files in `areas.csv` (`file,muscle,kind`). Then:
+
+```powershell
+mskpipe run scan.nii.gz -m ct --set attachments.method=manual --set attachments.params.areas_dir=<folder>
+```
 
 ## Troubleshooting
 

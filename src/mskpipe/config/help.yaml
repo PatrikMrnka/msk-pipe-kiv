@@ -343,11 +343,14 @@ skeleton.model_name:
 # ------------------------------------------------------------------ attachments
 attachments:
   help: >-
-    Attachment areas (origin and insertion outlines) of the muscles, transferred from an
-    atlas onto the subject's bones (05_attachments/).
+    Attachment areas (origin and insertion outlines) of the muscles on the subject's bones
+    (05_attachments/): transferred from an atlas, or supplied by the user.
 attachments.method:
-  help: Method computing the attachment areas (see `mskpipe plugins`).
-  example: atlas_registration
+  help: >-
+    Method computing the attachment areas: atlas_registration transfers the atlas by bone
+    registration; manual takes outlines you drew (GUI Attachments…, or NMSBuilder on the
+    bone meshes of a run).
+  example: atlas_registration (default) or manual
 attachments.params:
   help: Parameters of the selected method.
 
@@ -442,6 +445,36 @@ plugins.attachments.atlas_registration.max_projection_mm:
 plugins.attachments.atlas_registration.seed:
   help: Seed of the random surface sampling (same seed = same result).
   example: "0"
+plugins.attachments.manual.areas_dir:
+  help: >-
+    Folder with the outlines. Layout <muscle>/<Stem>_Ori.vtk and _Ins.vtk (as written by
+    the GUI editor), or files named after the muscle and the area
+    (adductor_longus_r_Ins.txt), or any names listed in areas.csv (file,muscle,kind).
+    Files: VTK, VTP or text with x y z per line, in mm.
+  example: runs/<run>/attachments_manual
+plugins.attachments.manual.frame:
+  help: >-
+    Coordinate frame of the files. The meshes of a run (03_mesh) are RAS in mm, so outlines
+    drawn on them need ras; lps flips x and y (DICOM patient coordinates); voxel = voxel
+    index times voxel size of the input image without its origin and orientation (meshes
+    made from the voxel array alone, e.g. a raw volume in NMSBuilder),
+    converted with the header of the run's input image.
+  example: ras (default); voxel for outlines drawn on such meshes.
+plugins.attachments.manual.order:
+  help: >-
+    keep = the points form the outline in the order of the file (drawn outlines); angular =
+    put them in order around their centre (unordered landmark clouds).
+  example: keep (default).
+plugins.attachments.manual.max_projection_mm:
+  help: >-
+    Outline points closer to the bone than this are snapped onto its surface. 0 = no
+    snapping.
+  example: 10 (default).
+plugins.attachments.manual.max_distance_mm:
+  help: >-
+    Outlines whose points lie farther from every bone are reported. When the median outline
+    is that far, the step fails: the files are probably in another coordinate frame.
+  example: 20 (default).
 
 # ------------------------------------------------------------------ export
 export:

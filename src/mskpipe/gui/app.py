@@ -67,6 +67,7 @@ from mskpipe.io.dicom import DICOM_SUFFIXES
 
 if TYPE_CHECKING:
     from mskpipe.core.device import DeviceReport
+    from mskpipe.gui.attachment_editor import AttachmentEditor
     from mskpipe.gui.qc_dialog import DefectDialog
     from mskpipe.io.dicom import DicomScan, DicomVolume
     from mskpipe.resources.status import SetupStatus
@@ -345,6 +346,13 @@ class MainWindow(QMainWindow):
         )
         self.qc_button.clicked.connect(self.open_qc)
         self.qc_dialog: DefectDialog | None = None  # 3D view of the defects, deleted on close
+        self.attachments_button = QPushButton("Attachments…")
+        self.attachments_button.setToolTip(
+            "Draw or correct the muscle attachment areas of the run in 3D and run again "
+            "with them (method manual)"
+        )
+        self.attachments_button.clicked.connect(self.open_attachments)
+        self.attachment_editor: AttachmentEditor | None = None  # deleted on close
         self.seg_button = QPushButton("Segmentation…")
         self.seg_button.setToolTip(
             "Input image with the label maps of the run in axial, coronal and sagittal slices"
@@ -375,10 +383,11 @@ class MainWindow(QMainWindow):
                 self.open_mw2_button,
                 self.qc_button,
                 self.seg_button,
+                self.attachments_button,
                 self.cancel_button,
                 self.run_button,
                 stretch_first=False,
-                stretch_at=5,
+                stretch_at=6,
             )
         )
 
@@ -1401,6 +1410,7 @@ class MainWindow(QMainWindow):
         self.open_mw2_button.setEnabled(s.mw2_dir is not None)
         self.qc_button.setEnabled(self._has_defects())
         self.seg_button.setEnabled(self._has_segmentation())
+        self.attachments_button.setEnabled(self._has_meshes())
         if self._has_defects():
             self.warn_defects()
 
@@ -1447,6 +1457,61 @@ class MainWindow(QMainWindow):
     def _qc_dialog_gone(self, dialog: QWidget) -> None:
         if self.qc_dialog is dialog:
             self.qc_dialog = None
+
+    # ------------------------------------------------------------------ attachment editor
+
+    def _has_meshes(self) -> bool:
+        run_dir = self.process.run_dir
+        return run_dir is not None and (Path(run_dir) / "03_mesh" / "meshes.json").is_file()
+
+    def open_attachments(self) -> None:
+        """Attachment editor of the last run (one window, as the geometry check)."""
+        from mskpipe.gui.attachment_editor import AttachmentEditor
+        from mskpipe.gui.attachment_model import SessionError
+
+        if self.process.run_dir is None:
+            return
+        run_dir = Path(self.process.run_dir)
+        editor = self.attachment_editor
+        if editor is not None and editor.run_dir != run_dir:
+            if not editor.close():  # unsaved changes, the user cancelled
+                editor.raise_()
+                return
+            self.attachment_editor = None  # deleted later
+        editor = self.attachment_editor
+        if editor is None:
+            try:
+                editor = AttachmentEditor(run_dir, self)
+            except (ImportError, SessionError) as exc:
+                QMessageBox.warning(self, "Attachment areas", str(exc))
+                return
+            editor.applied.connect(self._attachments_applied)
+            editor.destroyed.connect(lambda _=None, e=editor: self._attachment_editor_gone(e))
+            self.attachment_editor = editor
+        editor.show()
+        editor.raise_()
+        editor.activateWindow()
+
+    def _attachment_editor_gone(self, editor: QWidget) -> None:
+        if self.attachment_editor is editor:
+            self.attachment_editor = None
+
+    def use_manual_attachments(self, folder: str | Path) -> None:
+        """Settings: attachment method ``manual`` with the outlines in ``folder``."""
+        values = self.form.values()
+        values["attachments"] = {
+            "method": "manual",
+            "params": {"areas_dir": Path(folder).as_posix()},
+        }
+        self.form.set_values(values)
+
+    def _attachments_applied(self, folder: str, run: bool) -> None:
+        self.use_manual_attachments(folder)
+        self.status_label.setText(
+            f"Attachment outlines saved to {html.escape(folder)}; settings: method manual."
+        )
+        if run:
+            self.start_run()
 
     # ------------------------------------------------------------------ steps
 
@@ -1552,6 +1617,7 @@ class MainWindow(QMainWindow):
         )
         self.qc_button.setEnabled(not running and self._has_defects())
         self.seg_button.setEnabled(not running and self._has_segmentation())
+        self.attachments_button.setEnabled(not running and self._has_meshes())
 
     def _open(self, path: Path | None) -> None:
         if path is not None and Path(path).exists():

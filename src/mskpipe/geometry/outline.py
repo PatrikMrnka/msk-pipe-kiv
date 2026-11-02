@@ -139,13 +139,49 @@ def outline_report(
     return rep
 
 
+def angular_order(points: np.ndarray, outward: np.ndarray | None = None) -> np.ndarray:
+    """Indices ordering an unordered point cloud around its centroid (in its best-fit
+    plane), starting at the first point.
+
+    With ``outward`` (the bone's outer normal at the area) the order runs clockwise seen
+    from outside, as the atlas outlines; without it the direction is arbitrary.
+    """
+    pts = np.asarray(points, dtype=float).reshape(-1, 3)
+    if len(pts) < 3:
+        return np.arange(len(pts))
+    q = pts - pts.mean(axis=0)
+    _, _, vt = np.linalg.svd(q, full_matrices=False)
+    u, v = vt[0], vt[1]
+    n = np.cross(u, v)
+    if outward is not None and float(np.dot(n, outward)) < 0:
+        v, n = -v, -n
+    order = np.argsort(np.arctan2(q @ v, q @ u), kind="stable")  # counter-clockwise about n
+    if outward is not None:
+        order = order[::-1]  # clockwise seen from outside (from +n)
+    start = int(np.flatnonzero(order == 0)[0])
+    return np.roll(order, -start)
+
+
+def signed_turn(points: np.ndarray, outward: np.ndarray) -> float:
+    """Sign of the outline's turning seen from ``outward``: > 0 counter-clockwise,
+    < 0 clockwise (Newell normal projected on ``outward``)."""
+    p = np.asarray(points, dtype=float)
+    if len(p) < 3:
+        return 0.0
+    c = p - p.mean(axis=0)
+    newell = np.cross(c, np.roll(c, -1, axis=0)).sum(axis=0)
+    return float(np.dot(newell, outward))
+
+
 __all__ = [
     "MAX_PATCH_FRACTION",
     "MERGE_FRACTION",
     "MIN_SPAN_EDGES",
+    "angular_order",
     "contour_distance",
     "merge_close",
     "outline_report",
     "polygon_area",
     "self_crossing",
+    "signed_turn",
 ]
