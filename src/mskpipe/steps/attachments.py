@@ -13,6 +13,9 @@ Output (``05_attachments/``)::
     bodies/tibia_<s>.stl                      tibia + fibula given to the method
     bodies/pelvis_with_sacrum.stl             pelvis + sacrum given to the method
     attachments.json                          index: method, atlas, registration, areas
+
+Methods: ``atlas_registration`` (atlas transferred by bone registration, default) and
+``manual`` (outlines supplied by the user, e.g. from NMSBuilder or the GUI editor).
 """
 
 from __future__ import annotations
@@ -127,6 +130,7 @@ class AttachmentsStep(Step):
                 "areas_failed": failed,
                 "not_in_atlas": transfer.get("not_in_atlas", []),
                 "not_meshed": transfer.get("not_meshed", []),
+                "not_provided": transfer.get("not_provided", []),
                 "registration": {
                     b: {k: v for k, v in r.items() if k in ("scale", "rigid", "nonrigid", "status")}
                     for b, r in transfer.get("bones", {}).items()

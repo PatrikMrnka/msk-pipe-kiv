@@ -42,6 +42,7 @@ BUILTINS: tuple[tuple[PluginKind, str, str], ...] = (
     ("segmenter", "musclemap", f"{_P}.segmenters.musclemap:MuscleMap"),
     ("skeleton", "pystaple", f"{_P}.skeleton.pystaple_backend:PyStaple"),
     ("attachments", "atlas_registration", f"{_P}.attachments.atlas_registration:AtlasRegistration"),
+    ("attachments", "manual", f"{_P}.attachments.manual:Manual"),
 )
 
 
