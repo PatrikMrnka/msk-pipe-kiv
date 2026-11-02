@@ -19,5 +19,32 @@ platform = "win-64"
 [atlas]
 tag = "atlas-lhdl-v1"
 file = "msk-pipe-atlas-lhdl-v1.zip"
-sha256 = "04e9f1afc481cc870bc1b570742bffcf2c71fb8d79289df21450af49b8dd7ec4"           # fill in after uploading (printed by make_atlas_zip.py)
+sha256 = "04e9f1afc481cc870bc1b570742bffcf2c71fb8d79289df21450af49b8dd7ec4"
 folder = "lhdl"       # unpacked into <release>/atlas/<folder>
+
+# Muscle Wrapping 2.x demo (not part of the pipeline): prebuilt OsimMuscleGeneratorTool with
+# OpenSim and an example input, a separately licensed asset of the GitHub release with this
+# tag; made with packaging/make_mw2_demo_zip.py from a local MW2 build and uploaded once:
+#   gh release create mw2-demo-v1 dist\msk-pipe-mw2-demo-v1-win64.zip --latest=false ...
+[mw2_demo]
+tag = "mw2-demo-v1"
+file = "msk-pipe-mw2-demo-v1-win64.zip"
+sha256 = "c1448d546ec9f4f9575f02a1c2a24b14d4901505bb9e4380f19f8fc2fbb989f3"
+
+# Runtime DLLs of the demo from conda-forge (licence text in the package); they replace the
+# copies of the MW2 build. MW2 is built with /openmp:llvm and imports libomp140.x86_64.dll,
+# which Microsoft ships only as non-redistributable: the LLVM OpenMP runtime takes its name.
+[[mw2_demo.conda]]
+name = "vc14_runtime"
+url = "https://conda.anaconda.org/conda-forge/win-64/vc14_runtime-14.51.36247-habf1de7_41.conda"
+sha256 = "4e4cb599cdc41bf2109d1464c127b5bcbddf548ce3e322e612afb691338b48f8"
+dlls = "Library/bin"
+licence_file = "info/licenses/LICENSE.TXT"
+
+[[mw2_demo.conda]]
+name = "llvm-openmp"
+url = "https://conda.anaconda.org/conda-forge/win-64/llvm-openmp-22.1.8-h4fa8253_3.conda"
+sha256 = "36951e53e6e6f75d390d04bdd460ecd055ef7c4e2167bfdc12e310efe936378a"
+dlls = "Library/bin"
+licence_file = "info/licenses/openmp/LICENSE.TXT"
+rename = { "libomp.dll" = "libomp140.x86_64.dll" }
