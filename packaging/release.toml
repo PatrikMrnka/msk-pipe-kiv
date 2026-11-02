@@ -29,7 +29,7 @@ folder = "lhdl"       # unpacked into <release>/atlas/<folder>
 [mw2_demo]
 tag = "mw2-demo-v1"
 file = "msk-pipe-mw2-demo-v1-win64.zip"
-sha256 = "c1448d546ec9f4f9575f02a1c2a24b14d4901505bb9e4380f19f8fc2fbb989f3"
+sha256 = "a7b6a1b8d24e495c649380305ae63031e1d22051a30b4b87aef01e61609c798f"
 
 # Runtime DLLs of the demo from conda-forge (licence text in the package); they replace the
 # copies of the MW2 build. MW2 is built with /openmp:llvm and imports libomp140.x86_64.dll,
@@ -44,7 +44,7 @@ licence_file = "info/licenses/LICENSE.TXT"
 [[mw2_demo.conda]]
 name = "llvm-openmp"
 url = "https://conda.anaconda.org/conda-forge/win-64/llvm-openmp-22.1.8-h4fa8253_3.conda"
-sha256 = "a7b6a1b8d24e495c649380305ae63031e1d22051a30b4b87aef01e61609c798f"
+sha256 = "36951e53e6e6f75d390d04bdd460ecd055ef7c4e2167bfdc12e310efe936378a"
 dlls = "Library/bin"
 licence_file = "info/licenses/openmp/LICENSE.TXT"
 rename = { "libomp.dll" = "libomp140.x86_64.dll" }
