@@ -104,6 +104,7 @@ PLACEHOLDERS = {
 }
 _TOOLS = {"totalsegmentator": "TotalSegmentator", "musclemap": "MuscleMap"}
 RED, AMBER, GREEN, GREY = "#c0392b", "#ca6f1e", "#1e8449", "#7f8c8d"
+FRAME_PATH = ("attachments", "params", "frame")  # detected from the outline folder
 MAX_LISTED = 6  # unusable DICOM series listed under the image
 CONFIG_FILTER = "YAML config (*.yaml *.yml);;All files (*)"
 LOG_LINES = 20_000
@@ -174,6 +175,10 @@ class MainWindow(QMainWindow):
         self._paths = dict.fromkeys(INPUT_FORMATS, "")  # last path per input format
         self._format = "nifti"
         self._wanted_series: str | None = None  # series to select once the folder is read
+        # outline folder (method manual) + input the frame was last detected for
+        self._frame_key: tuple[str, ...] | None = None
+        self._frame_guess: Any = None  # FrameGuess of those
+        self._frame_run: Path | None = None  # run whose bones it was compared with
 
         self._build_ui()
         self._restore()
@@ -1165,6 +1170,8 @@ class MainWindow(QMainWindow):
         self._validate_timer.start()
 
     def _validate(self) -> bool:
+        if not self.process.is_running():
+            self._prefill_frame()
         ok = self.form.validate() is None
         if not self.process.is_running():
             self._update_run_state()
@@ -1293,6 +1300,15 @@ class MainWindow(QMainWindow):
         errors = [i for i in issues if i.severity == "error"]
         if errors and not self._confirm_errors(errors):
             return False
+        mismatch = self.frame_mismatch() if "attachments" in prepared.steps else None
+        if mismatch is not None:
+            answer = QMessageBox.question(
+                self,
+                "Attachment coordinates",
+                f"{mismatch}\n\nStep attachments will fail with this frame. Run anyway?",
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return False
         self._store()
         self.log_view.clear()
         for issue in issues:
@@ -1504,6 +1520,115 @@ class MainWindow(QMainWindow):
             "params": {"areas_dir": Path(folder).as_posix()},
         }
         self.form.set_values(values)
+
+    # ------------------------------------------------------------------ outline frame
+
+    def _frame_inputs(self) -> tuple[str, ...] | None:
+        """What the frame of the outline folder depends on (None: method not manual)."""
+        att = self.form.values().get("attachments") or {}
+        if att.get("method") != "manual":
+            return None
+        params = att.get("params") or {}
+        view = self._view_path()
+        return (
+            str(params.get("areas_dir") or ""),
+            self.image_edit.text().strip(),
+            str(view or ""),
+            self.runs_edit.text().strip(),
+            str(params.get("max_distance_mm")),
+        )
+
+    def _frame_value(self) -> str:
+        params = (self.form.values().get("attachments") or {}).get("params") or {}
+        return str(params.get("frame") or "ras")
+
+    def detect_frame(self) -> tuple[Any, Path | None]:
+        """:class:`~mskpipe.io.manual_areas.FrameGuess` of the outline folder (method
+        manual) and the run whose bones it was compared with: the latest run of the
+        input in the output folder whose meshes exist, else the input image (header
+        only). (None, None) without readable outlines."""
+        from mskpipe.gui.attachment_model import bone_vertices, run_with_bones
+        from mskpipe.io.manual_areas import folder_outlines, guess_frame
+
+        params = (self.form.values().get("attachments") or {}).get("params") or {}
+        folder = params.get("areas_dir")
+        outlines = folder_outlines(folder) if folder else []
+        if not outlines:
+            return None, None
+        image = self.image_edit.text().strip()
+        runs = self.runs_edit.text().strip()
+        run = run_with_bones(runs, image) if image and runs else None
+        source = run / "00_input" / "input.nii.gz" if run is not None else self._view_path()
+        affine = shape = None
+        if source is not None and Path(source).is_file():
+            try:
+                import nibabel as nib
+
+                img = nib.load(str(source))  # header only
+                affine, shape = img.affine, img.shape
+            except Exception:  # unreadable: voxel is not tried, no image box
+                pass
+        try:
+            max_mm = float(params.get("max_distance_mm") or 20.0)
+        except (TypeError, ValueError):
+            max_mm = 20.0
+        guess = guess_frame(
+            outlines,
+            affine=affine,
+            shape=shape,
+            bones=bone_vertices(run) if run is not None else None,
+            max_distance_mm=max_mm,
+        )
+        return guess, run if guess is not None and guess.basis == "bones" else None
+
+    def _prefill_frame(self) -> None:
+        """Detect attachments.params.frame when the outline folder, the input or the
+        output folder changed (also at start and after loading a config) and fill it in;
+        a frame chosen by hand afterwards is kept, the note below the field says whether
+        it fits."""
+        key = self._frame_inputs()
+        if key != self._frame_key:
+            self._frame_key = key
+            self._frame_guess = None
+            self._frame_run = None
+            if key is not None and key[0]:
+                self._frame_guess, self._frame_run = self.detect_frame()
+            guess = self._frame_guess
+            current = self._frame_value()
+            if guess is not None and guess.frame is not None and current not in guess.equivalent:
+                data = self.form.values()
+                data.setdefault("attachments", {}).setdefault("params", {})["frame"] = guess.frame
+                self.form.set_values(data)
+                self.statusBar().showMessage(
+                    f"attachments.params.frame = {guess.frame} (detected; was {current})", 15_000
+                )
+        self._show_frame_note()
+
+    def _show_frame_note(self) -> None:
+        from mskpipe.io.manual_areas import FRAME_LABELS
+
+        guess = self._frame_guess
+        text = ""
+        if guess is not None:
+            where = f" {html.escape(self._frame_run.name)}" if self._frame_run else ""
+            note = html.escape(guess.note).replace("bones of the run", f"bones of the run{where}")
+            current = self._frame_value()
+            if guess.frame is None:
+                text = _colored(f"Coordinates {note}", AMBER)
+            elif current in guess.equivalent:
+                text = _colored(f"detected {note}", GREEN)
+            else:
+                text = _colored(
+                    f"{FRAME_LABELS.get(current, current)} does not fit: detected {note}", AMBER
+                )
+        self.form.set_note(FRAME_PATH, text)
+
+    def frame_mismatch(self) -> str | None:
+        """Why the chosen frame does not fit the outlines (None if it fits or is unknown)."""
+        guess = self._frame_guess
+        if guess is None or guess.frame is None or self._frame_value() in guess.equivalent:
+            return None
+        return f"The outlines fit {guess.note}; attachments.params.frame is {self._frame_value()}."
 
     def _attachments_applied(self, folder: str, run: bool) -> None:
         self.use_manual_attachments(folder)

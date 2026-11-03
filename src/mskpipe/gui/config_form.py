@@ -408,6 +408,9 @@ class ConfigForm(QWidget):
         self._building = False
         # choices not offered on this computer: field -> {value: reason}
         self._unavailable: dict[Path_, dict[Any, str]] = {}
+        # status line below a field (e.g. what the GUI detected) and its label
+        self._notes: dict[Path_, str] = {}
+        self._note_labels: dict[Path_, QLabel] = {}
 
         self.advanced_check = QCheckBox("Show advanced settings")
         advanced_help = help_for("gui.show_advanced")
@@ -626,6 +629,8 @@ class ConfigForm(QWidget):
                 del self._boxes[path]
         for path in [p for p in self._badges if p[: len(params_path)] == params_path]:
             del self._badges[path]
+        for path in [p for p in self._note_labels if p[: len(params_path)] == params_path]:
+            del self._note_labels[path]  # deleted with its row
         while form.rowCount():
             form.removeRow(0)
         method_path, plugin_kind = PLUGIN_PARAMS[params_path]
@@ -650,7 +655,44 @@ class ConfigForm(QWidget):
             if field is not None:
                 field.set(value)
         self._apply_unavailable()
+        for path in [p for p in self._notes if p[: len(params_path)] == params_path]:
+            self._show_note(path)
         self._apply_visibility()
+
+    # ------------------------------------------------------------------ notes
+
+    def set_note(self, path: Sequence[str], text: str) -> None:
+        """Rich-text line below a field (e.g. a value the GUI detected); '' removes it.
+        Kept when the field is rebuilt (plugin parameters)."""
+        path = tuple(path)
+        if text:
+            self._notes[path] = text
+        else:
+            self._notes.pop(path, None)
+        self._show_note(path)
+        self._apply_visibility()
+
+    def note(self, *path: str) -> str:
+        """Text of the line below a field ('' if none)."""
+        return self._notes.get(tuple(path), "")
+
+    def _show_note(self, path: Path_) -> None:
+        form, field = self._rows.get(path), self._fields.get(path)
+        text = self._notes.get(path, "")
+        label = self._note_labels.get(path)
+        if form is None or field is None:
+            return
+        if label is None:
+            if not text:
+                return
+            label = QLabel()
+            label.setWordWrap(True)
+            label.setTextFormat(Qt.TextFormat.RichText)
+            label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            row, _role = form.getWidgetPosition(field.widget)
+            form.insertRow(row + 1, "", label)
+            self._note_labels[path] = label
+        label.setText(text)
 
     def _plugin_defaults(self, params_path: Path_, method: str) -> dict[str, Any]:
         _, plugin_kind = PLUGIN_PARAMS[params_path]
@@ -914,6 +956,9 @@ class ConfigForm(QWidget):
                 other = self._fields.get(rule[0])
                 shown = other is None or other.get() in rule[1]
             form.setRowVisible(field.widget, shown)
+            note = self._note_labels.get(path)
+            if note is not None:
+                form.setRowVisible(note, shown and bool(self._notes.get(path)))
             if shown:
                 visible.add(path)
         for path, (form, box) in self._boxes.items():

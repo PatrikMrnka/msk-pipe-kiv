@@ -55,6 +55,7 @@ class ManualParams(PluginParams):
         "ras",
         description="Coordinate frame of the files: ras = the run's meshes; lps = DICOM; "
         "voxel = voxel index x voxel size of the input image, without its origin.",
+        json_schema_extra=BASIC,
     )
     order: Literal["keep", "angular"] = Field(
         "keep",

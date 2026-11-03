@@ -450,6 +450,145 @@ def image_affine(path: str | Path) -> np.ndarray:
     return nib.load(str(path)).affine
 
 
+# --------------------------------------------------------------------------- frame guess
+
+FRAME_LABELS = {"ras": "RAS", "lps": "LPS", "voxel": "voxel"}
+SAME_MM = 1.0  # frames whose converted outlines differ less than this are the same choice
+INSIDE_MARGIN_MM = 10.0  # outlines may reach a little beyond the image (bone surface)
+INSIDE_SHARE = 0.95  # share of the points inside the image for a frame to fit
+MAX_GUESS_FILES = 200
+
+
+@dataclass(frozen=True)
+class FrameGuess:
+    """Coordinate frame of an outline folder, guessed from where its points lie.
+
+    ``basis`` ``bones``: ``scores`` = median distance of the outlines to the bone meshes
+    of a run [mm] per frame; ``image``: share of the points inside the input image.
+    ``frame`` is None when no frame fits or several fit (e.g. RAS and LPS of an image
+    centred on the scanner axis). ``equivalent``: the frames giving the same points as
+    ``frame`` (``frame`` included), e.g. voxel and RAS of an image at the origin."""
+
+    frame: str | None
+    basis: str
+    scores: dict[str, float]
+    fits: tuple[str, ...]
+    equivalent: tuple[str, ...] = ()
+
+    @property
+    def note(self) -> str:
+        def score(f: str) -> str:
+            v = self.scores[f]
+            return f"{v:.1f} mm" if self.basis == "bones" else f"{v:.0%}"
+
+        what = (
+            "median distance to the bones of the run"
+            if self.basis == "bones"
+            else "points inside the input image"
+        )
+        listed = ", ".join(f"{FRAME_LABELS[f]} {score(f)}" for f in self.scores)
+        if self.frame is not None:
+            return f"{FRAME_LABELS[self.frame]} ({what}: {listed})"
+        if len(self.fits) > 1:
+            names = " and ".join(FRAME_LABELS[f] for f in self.fits)
+            hint = (
+                "; run up to step mesh once to tell them apart by the bones"
+                if self.basis == "image"
+                else ""
+            )
+            return f"not detected: {names} fit equally ({what}: {listed}){hint}"
+        return f"not detected: no frame fits ({what}: {listed})"
+
+
+def image_box(affine: np.ndarray, shape: Sequence[int]) -> tuple[np.ndarray, np.ndarray]:
+    """Lower and upper RAS corner [mm] of the axis-aligned box around an image grid."""
+    import itertools
+
+    import numpy as np
+
+    n = [int(v) for v in shape[:3]]
+    corners = np.array(list(itertools.product(*[(-0.5, k - 0.5) for k in n])), dtype=float)
+    a = np.asarray(affine, dtype=np.float64)
+    world = corners @ a[:3, :3].T + a[:3, 3]
+    return world.min(axis=0), world.max(axis=0)
+
+
+def guess_frame(
+    outlines: Sequence[np.ndarray],
+    *,
+    affine: np.ndarray | None = None,
+    shape: Sequence[int] | None = None,
+    bones: Sequence[np.ndarray] | None = None,
+    max_distance_mm: float = 20.0,
+) -> FrameGuess | None:
+    """Which ``frame`` puts ``outlines`` where they belong.
+
+    With ``bones`` (vertex arrays of the bone meshes of a run of the same image): the
+    frame whose outlines lie closest to the bones, within ``max_distance_mm``. Without:
+    the frame that puts (nearly) all points inside the input image (``affine``,
+    ``shape``). Frame ``voxel`` is tried only with ``affine``. Frames giving the same
+    points (e.g. voxel and RAS of an image at the origin without rotation) count once,
+    RAS first. None when there is nothing to compare with."""
+    import numpy as np
+
+    outlines = [np.asarray(p, dtype=np.float64).reshape(-1, 3) for p in outlines]
+    outlines = [p for p in outlines if len(p)]
+    has_bones = bones is not None and any(len(b) for b in bones)
+    if not outlines or (not has_bones and (affine is None or shape is None)):
+        return None
+    frames = [f for f in FRAMES if f != "voxel" or affine is not None]
+    converted = {f: [to_ras(p, f, affine) for p in outlines] for f in frames}
+    if has_bones:
+        from scipy.spatial import cKDTree
+
+        tree = cKDTree(np.vstack([np.asarray(b, dtype=np.float64).reshape(-1, 3) for b in bones]))
+        scores = {
+            f: float(np.median([np.median(tree.query(p)[0]) for p in pts]))
+            for f, pts in converted.items()
+        }
+        fits = [f for f in frames if scores[f] <= max_distance_mm]
+        basis = "bones"
+    else:
+        lo, hi = image_box(affine, shape)  # type: ignore[arg-type]
+        lo, hi = lo - INSIDE_MARGIN_MM, hi + INSIDE_MARGIN_MM
+        scores = {}
+        for f, pts in converted.items():
+            allpts = np.vstack(pts)
+            scores[f] = float(np.mean(np.all((allpts >= lo) & (allpts <= hi), axis=1)))
+        fits = [f for f in frames if scores[f] >= INSIDE_SHARE]
+        basis = "image"
+    stacked = {f: np.vstack(pts) for f, pts in converted.items()}
+
+    def same(f: str, g: str) -> bool:
+        return bool(np.abs(stacked[f] - stacked[g]).max() < SAME_MM)
+
+    distinct: list[str] = []
+    for f in fits:
+        if not any(same(f, g) for g in distinct):
+            distinct.append(f)
+    frame = distinct[0] if len(distinct) == 1 else None
+    if frame is None and basis == "bones" and len(distinct) > 1:
+        ranked = sorted(distinct, key=scores.__getitem__)
+        if scores[ranked[0]] * 3.0 < scores[ranked[1]]:  # clearly closer
+            frame = ranked[0]
+    equivalent = tuple(f for f in frames if frame is not None and same(f, frame))
+    return FrameGuess(frame, basis, scores, tuple(distinct), equivalent)
+
+
+def folder_outlines(folder: str | Path, limit: int = MAX_GUESS_FILES) -> list[np.ndarray]:
+    """Points of the readable outline files of a folder (for :func:`guess_frame`)."""
+    out = []
+    folder = Path(folder)
+    if not folder.is_dir():
+        return out
+    for path in area_files(folder)[:limit]:
+        try:
+            out.append(read_outline(path))
+        except (ManualAreasError, OSError, ValueError):
+            continue
+    return out
+
+
 def read_index(folder: Path) -> dict[str, Any]:
     """``manual.json`` of the GUI editor, or an empty dict."""
     try:
@@ -461,19 +600,24 @@ def read_index(folder: Path) -> dict[str, Any]:
 
 __all__ = [
     "FRAMES",
+    "FRAME_LABELS",
     "INDEX_FILE",
     "KINDS",
     "MAPPING_FILE",
     "POINT_SUFFIXES",
     "AreaFile",
+    "FrameGuess",
     "ManualAreasError",
     "Matching",
     "area_files",
     "atlas_codes",
     "default_stem",
     "folder_fingerprint",
+    "folder_outlines",
     "guess_area",
+    "guess_frame",
     "image_affine",
+    "image_box",
     "known_muscles",
     "layout_path",
     "match_folder",

@@ -17,7 +17,9 @@ The dialog owns an OpenGL context, released once when it closes (as the geometry
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QKeySequence, QShortcut
@@ -81,9 +83,17 @@ class ImportDialog(QDialog):
     """Assign the files of a folder (e.g. exported from NMSBuilder) to muscles and areas."""
 
     def __init__(
-        self, side: str, muscles: list[str], parent: QWidget | None = None, folder: str = ""
+        self,
+        side: str,
+        muscles: list[str],
+        parent: QWidget | None = None,
+        folder: str = "",
+        guess: Callable[[list[Path]], Any] | None = None,
     ) -> None:
+        """``guess``: files -> :class:`~mskpipe.io.manual_areas.FrameGuess` (or None);
+        the coordinate frame is then preselected when a folder is loaded."""
         super().__init__(parent)
+        self._guess = guess
         self.setWindowTitle("Import attachment outlines")
         self.resize(820, 560)
         self.side = side
@@ -111,6 +121,9 @@ class ImportDialog(QDialog):
             "Voxel: meshes made from the voxel array alone (e.g. a raw volume "
             "in NMSBuilder/MAF); converted with the header of the run's input image"
         )
+        self.frame_note = QLabel()
+        self.frame_note.setWordWrap(True)
+        self.frame_note.setVisible(False)
         self.order_combo = QComboBox()
         self.order_combo.addItem("as in the file", "keep")
         self.order_combo.addItem("around the centre (unordered points)", "angular")
@@ -128,6 +141,7 @@ class ImportDialog(QDialog):
         top.addWidget(browse)
         options = QFormLayout()
         options.addRow("Coordinates", self.frame_combo)
+        options.addRow("", self.frame_note)
         options.addRow("Point order", self.order_combo)
         lay = QVBoxLayout(self)
         lay.addLayout(top)
@@ -182,6 +196,29 @@ class ImportDialog(QDialog):
         if match.errors:
             QMessageBox.warning(self, "areas.csv", "\n".join(match.errors))
         self._validate()
+        self._preselect_frame()
+
+    def _preselect_frame(self) -> None:
+        """Coordinates: the frame that puts the files onto the bones of the run."""
+        if self._guess is None:
+            return
+        files = [a.path for a in self.assignments()] or self._files
+        try:
+            guess = self._guess(files)
+        except Exception as exc:  # unreadable meshes etc.: leave the choice to the user
+            guess = None
+            self.frame_note.setText(f"Coordinates not detected: {exc}")
+        if guess is not None:
+            if guess.frame is not None:
+                i = self.frame_combo.findData(guess.frame)
+                if i >= 0:
+                    self.frame_combo.setCurrentIndex(i)
+                self.frame_note.setText(f"Detected: {guess.note}")
+            else:
+                self.frame_note.setText(
+                    f"<span style='color:#b9770e'>Coordinates {guess.note}</span>"
+                )
+        self.frame_note.setVisible(bool(self.frame_note.text()))
 
     def assignments(self) -> list[AreaFile]:
         """Assigned files; files left at '—' are skipped."""
@@ -566,7 +603,9 @@ class AttachmentEditor(QDialog):
         self.refresh(check=False)
 
     def import_files(self) -> None:
-        dialog = ImportDialog(self.session.side, list(self.session.muscles), self)
+        dialog = ImportDialog(
+            self.session.side, list(self.session.muscles), self, guess=self.session.guess_frame
+        )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         try:
