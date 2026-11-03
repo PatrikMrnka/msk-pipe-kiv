@@ -337,6 +337,24 @@ class AttachmentSession:
 
         return image_affine(Workspace.open(self.run_dir).input_image)
 
+    def guess_frame(self, paths: list[Path], max_distance_mm: float = 20.0) -> Any:
+        """:class:`~mskpipe.io.manual_areas.FrameGuess` of outline files by the bones of
+        this run (None when no file is readable)."""
+        from mskpipe.io.manual_areas import ManualAreasError, guess_frame, read_outline
+
+        outlines = []
+        for path in paths:
+            try:
+                outlines.append(read_outline(path))
+            except (ManualAreasError, OSError, ValueError):
+                continue
+        try:
+            affine = self.input_affine()
+        except Exception:  # no input copy in the run: voxel is not tried
+            affine = None
+        bones = [s.mesh.vertices for s in self.surfaces.values()]
+        return guess_frame(outlines, affine=affine, bones=bones, max_distance_mm=max_distance_mm)
+
     # ------------------------------------------------------------------ checks
 
     def _muscle(self, muscle: str) -> tuple[Any, float, float]:
@@ -449,4 +467,59 @@ def _run_with_outlines(ws: Any, side: str) -> Path | None:
     return None
 
 
-__all__ = ["AttachmentSession", "EditableArea", "SessionError"]
+def _same_path(a: str | Path, b: str | Path) -> bool:
+    import os
+
+    try:
+        return os.path.normcase(str(Path(a).resolve())) == os.path.normcase(str(Path(b).resolve()))
+    except (OSError, ValueError):
+        return False
+
+
+def run_with_bones(runs_dir: str | Path, image: str | Path) -> Path | None:
+    """Most recent run in ``runs_dir`` of ``image`` (file or DICOM folder, as given to the
+    run) whose step ``mesh`` completed: its bone meshes tell the frame of outline files."""
+    from mskpipe.core.manifest import Manifest
+
+    runs = Path(runs_dir)
+    if not runs.is_dir():
+        return None
+    for path in sorted(runs.glob("*/input.json"), reverse=True):
+        run = path.parent
+        try:
+            given = json.loads(path.read_text(encoding="utf-8")).get("image")
+        except (OSError, ValueError, AttributeError):
+            continue
+        if not given or not _same_path(given, image):
+            continue
+        if not any((run / "03_mesh" / "bones").glob("*.stl")):
+            continue
+        try:
+            mesh = Manifest.load(run / "manifest.json").steps.get("mesh")
+        except (OSError, ValueError):
+            continue
+        if mesh is not None and mesh.status in ("completed", "cached"):
+            return run
+    return None
+
+
+def bone_vertices(run_dir: str | Path) -> list[np.ndarray]:
+    """Vertices of the bone meshes of a run (``03_mesh/bones/*.stl``)."""
+    from mskpipe.io.mesh_io import MeshIOError, read_mesh
+
+    out = []
+    for path in sorted((Path(run_dir) / "03_mesh" / "bones").glob("*.stl")):
+        try:
+            out.append(read_mesh(path).vertices)
+        except (MeshIOError, OSError, ValueError):
+            continue
+    return out
+
+
+__all__ = [
+    "AttachmentSession",
+    "EditableArea",
+    "SessionError",
+    "bone_vertices",
+    "run_with_bones",
+]

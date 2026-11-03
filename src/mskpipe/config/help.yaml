@@ -458,7 +458,11 @@ plugins.attachments.manual.frame:
     drawn on them need ras; lps flips x and y (DICOM patient coordinates); voxel = voxel
     index times voxel size of the input image without its origin and orientation (meshes
     made from the voxel array alone, e.g. a raw volume in NMSBuilder),
-    converted with the header of the run's input image.
+    converted with the header of the run's input image. Not the orientation of the image
+    (e.g. LPS shown for the input): NIfTI coordinates are always RAS. The GUI detects it
+    (at start and when the folder, the input or the output folder changes) by the bones of
+    the latest run of that input in the output folder, else by the frame that puts the
+    outlines inside the input image, fills it in and shows the result below the field.
   example: ras (default); voxel for outlines drawn on such meshes.
 plugins.attachments.manual.order:
   help: >-

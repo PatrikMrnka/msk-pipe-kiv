@@ -343,3 +343,115 @@ def test_failed_run_starts_from_a_run_with_the_same_meshes(run_dir, tmp_path, sp
     assert session.source_run == run_dir
     assert session.method == "atlas_registration"
     assert session.state(ILIACUS_ORI) == "auto"
+
+
+# --------------------------------------------------------------------------- frame
+
+
+def lps_copy(session, folder):
+    """The run's iliacus origin written in LPS (x and y flipped)."""
+    pts = session.points(ILIACUS_ORI) * np.array([-1.0, -1.0, 1.0])
+    write_points(folder / "iliacus_r_Ori.vtk", pts)
+    return folder
+
+
+def test_session_guesses_frame_by_its_bones(session, tmp_path):
+    folder = lps_copy(session, tmp_path / "lps")
+    got = session.guess_frame([folder / "iliacus_r_Ori.vtk"])
+    assert got.frame == "lps" and got.basis == "bones" and got.scores["lps"] < 5.0
+    assert session.guess_frame([tmp_path / "missing.vtk"]) is None
+
+
+def test_import_dialog_preselects_frame(qapp, session, tmp_path, no_boxes):
+    from mskpipe.gui.attachment_editor import ImportDialog
+
+    folder = lps_copy(session, tmp_path / "lps")
+    dialog = ImportDialog("r", list(session.muscles), folder=str(folder), guess=session.guess_frame)
+    assert dialog.frame == "lps"
+    assert dialog.frame_note.text().startswith("Detected: LPS")
+    keys = session.import_files(dialog.assignments(), dialog.frame)
+    assert keys == [ILIACUS_ORI]
+
+
+def test_run_with_bones(run_dir, spec, tmp_path):  # noqa: F811
+    from mskpipe.gui.attachment_model import bone_vertices, run_with_bones
+
+    assert run_with_bones(run_dir.parent, spec.image) == run_dir
+    assert run_with_bones(run_dir.parent, tmp_path / "other.nii.gz") is None
+    assert run_with_bones(tmp_path / "no_runs", spec.image) is None
+    assert len(bone_vertices(run_dir)) >= 3
+
+
+def test_window_fills_in_frame(qapp, session, run_dir, spec, tmp_path, no_boxes):  # noqa: F811
+    from PySide6.QtCore import QSettings
+
+    from mskpipe.gui import app as gui_app
+
+    frame = ("attachments", "params", "frame")
+    settings = QSettings(str(tmp_path / "gui.ini"), QSettings.Format.IniFormat)
+    win = gui_app.MainWindow(settings, probe_device=False)
+    try:
+        assert win.form.is_shown(*frame) is False  # method atlas_registration
+        win.runs_edit.setText(str(run_dir.parent))
+        win.set_input(spec.image)
+        win.use_manual_attachments(lps_copy(session, tmp_path / "lps"))
+        win._validate()
+        assert win.form.field(*frame).get() == "lps"
+        assert win.form.is_shown(*frame)  # basic setting
+        note = win.form.note(*frame)
+        assert "detected LPS" in note and run_dir.name in note
+        assert win.frame_mismatch() is None
+        # chosen by hand afterwards: kept while the inputs stay the same, flagged
+        win.form.field(*frame).set("ras")
+        win._validate()
+        assert win.form.field(*frame).get() == "ras"
+        assert "RAS does not fit: detected LPS" in win.form.note(*frame)
+        assert "attachments.params.frame is ras" in win.frame_mismatch()
+        win._store()
+    finally:
+        win._pool.waitForDone(30_000)
+        win.deleteLater()
+    # next start with the wrong frame in the saved settings: detected again
+    win = gui_app.MainWindow(settings, probe_device=False)
+    try:
+        assert win.form.field(*frame).get() == "lps"
+        assert "detected LPS" in win.form.note(*frame)
+        # nothing to compare with (no run of this input, unreadable image): kept, no note
+        win.runs_edit.setText(str(tmp_path / "empty"))
+        win.set_input(tmp_path / "other.nii.gz")
+        win.form.field(*frame).set("ras")
+        win._validate()
+        assert win.form.field(*frame).get() == "ras" and win.form.note(*frame) == ""
+        # method changed and back: the note follows the rebuilt field
+        win.form.field("attachments", "method").set("atlas_registration")
+        win._validate()
+        assert win.form.note(*frame) == ""
+    finally:
+        win._pool.waitForDone(30_000)
+        win.deleteLater()
+
+
+def test_window_fills_in_frame_from_the_image(qapp, tmp_path, no_boxes):
+    import nibabel as nib
+    from PySide6.QtCore import QSettings
+
+    from mskpipe.gui import app as gui_app
+
+    affine = np.diag([1.0, 1.0, 1.0, 1.0])
+    affine[:3, 3] = [-400.0, -350.0, -1250.0]
+    image = tmp_path / "ct.nii.gz"
+    nib.save(nib.Nifti1Image(np.zeros((300, 300, 900), np.int16), affine), str(image))
+    folder = tmp_path / "areas"
+    write_points(folder / "iliacus_r_Ori.vtk", np.array([[200.0, 250.0, -500.0]]) + np.eye(3))
+    settings = QSettings(str(tmp_path / "gui.ini"), QSettings.Format.IniFormat)
+    win = gui_app.MainWindow(settings, probe_device=False)
+    try:
+        win.runs_edit.setText(str(tmp_path / "runs"))
+        win.set_input(image)
+        win.use_manual_attachments(folder)
+        win._validate()
+        assert win.form.field("attachments", "params", "frame").get() == "lps"
+        assert "inside the input image" in win.form.note("attachments", "params", "frame")
+    finally:
+        win._pool.waitForDone(30_000)
+        win.deleteLater()

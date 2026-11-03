@@ -351,3 +351,76 @@ def test_step_voxel_frame(tmp_path, areas):
     out = result.ws.step_dir("attachments")
     got = read_points(out / "iliacus_r/Iliacus_Ori.vtk")
     assert np.abs(got - read_points(areas / "iliacus_r/Iliacus_Ori.vtk")).max() < 1e-3
+
+
+# --------------------------------------------------------------------------- frame guess
+
+# grid like the LHDL CT exported from MAF: the whole volume at negative x and y
+OFFSET_AFFINE = np.array(
+    [[0.98, 0, 0, -400.0], [0, 0.98, 0, -350.0], [0, 0, 1.0, -1250.0], [0, 0, 0, 1.0]]
+)
+SHAPE = (400, 250, 1000)
+
+
+def outlines_ras():
+    return [ring((-200.0, -250.0, -500.0), 12.0), ring((-150.0, -230.0, -900.0), 8.0)]
+
+
+def test_guess_frame_by_image_box():
+    from mskpipe.io.manual_areas import guess_frame
+
+    ras = outlines_ras()
+    got = guess_frame(ras, affine=OFFSET_AFFINE, shape=SHAPE)
+    assert got.frame == "ras" and got.basis == "image" and got.scores["ras"] == 1.0
+    assert got.equivalent == ("ras",)
+    lps = [p * np.array([-1.0, -1.0, 1.0]) for p in ras]
+    assert guess_frame(lps, affine=OFFSET_AFFINE, shape=SHAPE).frame == "lps"
+    inv = np.linalg.inv(OFFSET_AFFINE)
+    spacing = np.linalg.norm(OFFSET_AFFINE[:3, :3], axis=0)
+    voxel = [(p @ inv[:3, :3].T + inv[:3, 3]) * spacing for p in ras]
+    got = guess_frame(voxel, affine=OFFSET_AFFINE, shape=SHAPE)
+    assert got.frame == "voxel" and "voxel 100%" in got.note
+    assert guess_frame(ras) is None  # nothing to compare with
+    assert guess_frame([], affine=OFFSET_AFFINE, shape=SHAPE) is None
+
+
+def test_guess_frame_centred_image_is_ambiguous_without_bones():
+    from mskpipe.io.manual_areas import guess_frame
+
+    centred = OFFSET_AFFINE.copy()
+    centred[:2, 3] = [-196.0, -122.5]  # box symmetric about x = y = 0
+    pts = [ring((-60.0, -40.0, -500.0), 12.0)]
+    got = guess_frame(pts, affine=centred, shape=SHAPE)
+    assert got.frame is None and got.fits == ("ras", "lps")
+    assert "RAS and LPS fit equally" in got.note and "step mesh" in got.note
+    # the bones of a run tell them apart
+    bone = ring((-60.0, -40.0, -500.0), 14.0)
+    got = guess_frame(pts, affine=centred, shape=SHAPE, bones=[bone])
+    assert got.frame == "ras" and got.basis == "bones" and got.scores["ras"] < 3
+    flipped = [p * np.array([-1.0, -1.0, 1.0]) for p in pts]
+    assert guess_frame(flipped, bones=[bone]).frame == "lps"
+
+
+def test_guess_frame_equivalent_frames_prefer_ras():
+    from mskpipe.io.manual_areas import guess_frame
+
+    identity = np.eye(4)
+    pts = [ring((50.0, 60.0, 70.0), 10.0)]
+    got = guess_frame(pts, affine=identity, shape=(200, 200, 200))
+    assert got.frame == "ras" and set(got.equivalent) == {"ras", "voxel"}
+
+
+def test_guess_frame_none_fits():
+    from mskpipe.io.manual_areas import guess_frame
+
+    got = guess_frame([ring((5000.0, 0.0, 0.0))], affine=OFFSET_AFFINE, shape=SHAPE)
+    assert got.frame is None and got.fits == () and got.note.startswith("not detected: no")
+
+
+def test_folder_outlines_skips_unreadable(tmp_path):
+    from mskpipe.io.manual_areas import folder_outlines
+
+    write_points(tmp_path / "iliacus_r_Ori.vtk", ring((0.0, 0.0, 0.0)))
+    (tmp_path / "broken.txt").write_text("1 2\n")
+    assert len(folder_outlines(tmp_path)) == 1
+    assert folder_outlines(tmp_path / "missing") == []
