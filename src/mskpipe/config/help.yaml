@@ -230,6 +230,28 @@ labelmap.bones.topology.on_unfixed:
     What to do with a defect that could not be repaired: warn = report and continue,
     fail = stop the run after the label map.
   example: warn (default); fail for batch runs that must be clean.
+labelmap.muscles.topology:
+  help: >-
+    Tunnels through muscles. Muscle Wrapping needs every muscle as one part without holes
+    (genus 0), but a segmentation can run one muscle through another or wrap a muscle around
+    a bone. Every repair is listed in defects.json and shown in the 3D view.
+labelmap.muscles.topology.repair:
+  help: >-
+    A tunnel filled with another muscle is given back to the surrounding muscle (voxel
+    transfer); a ring around something that cannot be taken (bone) is cut at its thinnest
+    section. Off = left to the surface repair of the mesh step, which often fails on such
+    tunnels and the muscle is then not exported.
+  example: On (default); LHDL CT vastus lateralis gets back a strip of vastus intermedius.
+labelmap.muscles.topology.max_volume_change:
+  help: >-
+    A muscle whose repair would change more than this fraction of its volume is left as it
+    is (reported by the mesh step).
+  example: 0.05 = 5 %.
+labelmap.muscles.topology.max_cut_radius_mm:
+  help: >-
+    The thinnest section of a ring is found by openings up to this radius; a thicker ring is
+    not cut.
+  example: 5 mm.
 
 # ------------------------------------------------------------------ mesh
 mesh:
