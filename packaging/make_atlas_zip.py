@@ -3,7 +3,7 @@
 
     python packaging/make_atlas_zip.py data/reference-GT/lhdl_atlas --out dist
 
-Writes ``dist/msk-pipe-atlas-lhdl-v1.zip`` with ``lhdl/atlas.json``, ``bones/*.obj``,
+Writes ``dist/msk-pipe-atlas-lhdl-v3.zip`` with ``lhdl/atlas.json``, ``bones/*.obj``,
 ``muscles/**/*.vtk`` and the atlas' own ``LICENSE`` and ``README.md`` (CC BY-NC-SA 2.0 BE,
 from ``packaging/atlas``), and prints its SHA-256 and the commands to publish it. The zip
 is byte-for-byte reproducible (fixed order and timestamps).
@@ -58,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("atlas", type=Path, help="atlas folder (atlas.json, bones/, muscles/)")
     parser.add_argument("--out", type=Path, default=Path("dist"))
-    parser.add_argument("--tag", default="atlas-lhdl-v1")
+    parser.add_argument("--tag", default="atlas-lhdl-v3")
     args = parser.parse_args(argv)
     archive = args.out / f"msk-pipe-{args.tag}.zip"
     digest = make_zip(args.atlas, archive)
@@ -67,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
     print("Publish once:")
     print(
         f"  gh release create {args.tag} {archive.as_posix()} --latest=false "
-        f'--title "Attachment atlas LHDL v1 (CC BY-NC-SA 2.0 BE)" '
+        f'--title "Attachment atlas LHDL {args.tag.rsplit("-", 1)[-1]} (CC BY-NC-SA 2.0 BE)" '
         '--notes "Attachment atlas for msk-pipe, derived from LHDL Cadaver #1. '
         'Licence CC BY-NC-SA 2.0 BE (not Apache-2.0), see LICENSE and README.md in the zip."'
     )

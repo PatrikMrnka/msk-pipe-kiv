@@ -24,9 +24,11 @@ Bruxelles, project LHDL (EU FP6 IST-2004-026932), distributed through Physiome S
 
 - bones: surfaces segmented from the lower-limb CT (`S032_*_B000_CTA_*`),
 - attachment areas: landmark clouds digitised during dissection (`Ori_*`, `Ins_*`),
-- right gluteus minimus, obturator internus and obturator externus (origin and insertion):
-  the LHDL attachment files distributed with the data of the Muscle Wrapping project
-  (LHDL GenericAtlas WP10, `S032_R_<Muscle>_{Ori,Ins}.vtk`), used unchanged.
+- right gluteus minimus, obturator internus and obturator externus (origin and insertion)
+  and the insertions of the right rectus femoris, vastus lateralis and vastus medialis
+  (distal femur at the end of the bellies): the LHDL attachment files distributed with the
+  data of the Muscle Wrapping project (LHDL GenericAtlas WP10,
+  `S032_R_<Muscle>_{Ori,Ins}.vtk`), used unchanged.
 
 ## Changes made to the original data
 
@@ -36,8 +38,18 @@ Bruxelles, project LHDL (EU FP6 IST-2004-026932), distributed through Physiome S
 3. Attachment areas: only muscles used by msk-pipe; several landmark clouds of one area
    merged into one closed outline (digitisation order kept, clouds joined by 2-opt);
    clouds lying on another bone than the muscle's attachment removed.
-4. No mirroring between sides: areas missing on one side are absent (left obturator
+4. Insertions of rectus femoris, vastus lateralis and vastus medialis belong to the femur
+   body (the model has no patella; as in the Muscle Wrapping model of LHDL). On the left
+   side they are the dissection points of the common insertion on the tibial tuberosity.
+5. No mirroring between sides: areas missing on one side are absent (left obturator
    internus and externus).
+
+## Versions
+
+| Version | Change |
+|---|---|
+| `lhdl-v3` | right quadriceps insertions from the Muscle Wrapping data, quadriceps insertions on the femur body |
+| `lhdl-v1` | first version (20 muscles, 76 areas) |
 
 ## Citation
 
