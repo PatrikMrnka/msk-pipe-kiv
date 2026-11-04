@@ -798,18 +798,11 @@ def test_exported_muscles_list(qapp):
     label = form.field("export", "exclude").label
     assert label is not None and label.text() == "Exported muscles"
     picker = form.picker("export", "exclude")
-    default_out = {
-        "piriformis",
-        "obturator_internus",
-        "obturator_externus",
-        "tensor_fasciae_latae",
-        "vastus_lateralis",
-        "vastus_medialis",
-    }
+    default_out = {"obturator_internus", "obturator_externus", "tensor_fasciae_latae"}
     assert set(picker.names()) - set(picker.checked()) == default_out
     assert form.overrides() == []
-    tip = picker.list.item(picker.names().index("piriformis")).toolTip()
-    assert "Not exported by default" in tip and "greater trochanter" in tip
+    tip = picker.list.item(picker.names().index("obturator_internus")).toolTip()
+    assert "Not exported by default" in tip and "lesser sciatic notch" in tip
 
     picker.set_checked(["gluteus_maximus", "gluteus_medius", "gluteus_minimus"])
     (override,) = form.overrides()
@@ -819,18 +812,15 @@ def test_exported_muscles_list(qapp):
         "gluteus_medius",
         "gluteus_minimus",
     }
-    assert excluded[:6] == [  # default exclusions first, in their order
-        "piriformis",
+    assert excluded[:3] == [  # default exclusions first, in their order
         "obturator_internus",
         "obturator_externus",
         "tensor_fasciae_latae",
-        "vastus_lateralis",
-        "vastus_medialis",
     ]
     config = api.resolved_config(overrides=form.overrides())
     assert config.export.muscles == "all" and "gluteus_maximus" not in config.export.exclude
 
-    picker._check_all()  # export everything, piriformis included
+    picker._check_all()  # export everything, obturators included
     assert form.overrides() == ["export.exclude=[]"]
     picker.set_checked([n for n in picker.names() if n not in default_out])  # Defaults
     assert form.overrides() == []
@@ -839,13 +829,13 @@ def test_exported_muscles_list(qapp):
 def test_explicit_muscle_list_from_config(qapp, tmp_path):
     source = tmp_path / "quick.yaml"
     source.write_text(
-        "export: {muscles: [iliacus_r, pectineus_r, piriformis_r]}\n",
+        "export: {muscles: [iliacus_r, pectineus_r, obturator_internus_r]}\n",
         encoding="utf-8",
     )
     form = ConfigForm()
     form.load(source)
     picker = form.picker("export", "exclude")
-    # piriformis stays excluded by the default exclusions
+    # obturator internus stays excluded by the default exclusions
     assert picker.checked() == ["iliacus", "pectineus"]
     config = api.resolved_config(overrides=form.overrides())
     assert config.export.muscles == "all"

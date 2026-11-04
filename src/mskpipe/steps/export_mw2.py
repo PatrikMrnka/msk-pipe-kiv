@@ -74,27 +74,12 @@ KINDS = {"Ori": "origin", "Ins": "insertion"}
 MW2_COMMAND = "opensim-cmd -L OsimMuscleGeneratorTool.dll run-tool " + SETUP_FILE
 
 # Muscles excluded by default (export.exclude), with the reason written to export.json.
-# All four reach their bony insertion through a tendon or fascia that the segmentation
+# All three reach their bony insertion through a tendon or fascia that the segmentation
 # does not capture and that runs around a bony pulley (or, for TFL, down to the tibia),
 # so the insertion outline cannot be placed on the segmented belly: Muscle Wrapping 2.x
 # projects it onto the closest part of the belly, where it collapses, and Luca2018 then
-# moves the fibre ends with the wrong bone. On LHDL, MW2 crashed on three of them and gave
-# an anatomically wrong decomposition for the fourth.
-# The vasti are excluded because MW2 crashes on them unpredictably: their origin is a long
-# strip along the femur (the outline is closed by an edge of about 260 mm, crossed after the
-# projection) whose distal end lies about 20 mm from the insertion at the end of the belly,
-# the quadriceps tendon not being segmented. On LHDL CT, attachment areas differing by less
-# than 2 mm (coherent ICP vs Fast-RNRR) decided between a result and a crash.
-_VASTUS = (
-    "Muscle Wrapping 2.x crashes on it unpredictably: the origin is a long strip along the "
-    "femur whose projected outline crosses itself and ends about 20 mm from the insertion "
-    "at the end of the belly (the quadriceps tendon is not segmented); attachment changes "
-    "below 2 mm decide between a result and a crash"
-)
+# moves the fibre ends with the wrong bone.
 EXCLUSION_REASONS = {
-    "piriformis": "the tendon to the tip of the greater trochanter is not segmented and "
-    "the muscle wraps over the greater sciatic notch; its insertion projects onto the belly "
-    "next to the pelvis (collapses, fibre ends move with the pelvis, not the femur)",
     "obturator_internus": "the belly lies inside the pelvis; the tendon turns about 90 deg "
     "around the lesser sciatic notch to the trochanteric fossa and is not segmented; the "
     "insertion projects onto the belly inside the pelvis (collapses, fibre ends move with "
@@ -105,8 +90,6 @@ EXCLUSION_REASONS = {
     "tensor_fasciae_latae": "inserts on the lateral tibia (Gerdy's tubercle) through the "
     "iliotibial tract, a fascial band that is not segmented; the insertion lies hundreds of "
     "mm below the belly (collapses, fibre ends move with the femur, not the tibia)",
-    "vastus_lateralis": _VASTUS,
-    "vastus_medialis": _VASTUS,
 }
 
 
