@@ -824,18 +824,14 @@ class ExportConfig(StrictModel):
     )
     exclude: list[Annotated[str, StringConstraints(pattern=r"^[a-z][a-z_]*[a-z]$")]] = Field(
         default_factory=lambda: [
-            "piriformis",
             "obturator_internus",
             "obturator_externus",
             "tensor_fasciae_latae",
-            "vastus_lateralis",
-            "vastus_medialis",
         ],
         description="Muscles (without side suffix) not exported for Muscle Wrapping 2.x. "
         "Default: muscles whose insertion is reached through an unsegmented tendon or "
         "fascia running around a bony pulley or down to the tibia, so their insertion cannot "
-        "be placed on the segmented belly, and the vasti, on which Muscle Wrapping 2.x "
-        "crashes unpredictably (reasons in export.json). [] exports all.",
+        "be placed on the segmented belly (reasons in export.json). [] exports all.",
         json_schema_extra=BASIC,
     )
     num_of_lines: int = Field(
