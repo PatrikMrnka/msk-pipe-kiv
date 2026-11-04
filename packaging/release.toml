@@ -19,7 +19,7 @@ platform = "win-64"
 [atlas]
 tag = "atlas-lhdl-v4"
 file = "msk-pipe-atlas-lhdl-v4.zip"
-sha256 = "03ceb6a362542618b46750c357e74c9c3278f06656a2eeef346021b4b032b12c"
+sha256 = "0fb9a27f9f33cf118cbc558dc602041c4859971e58b3c96a5018c203050c959c"
 folder = "lhdl"       # unpacked into <release>/atlas/<folder>
 
 # Muscle Wrapping 2.x demo (not part of the pipeline): prebuilt OsimMuscleGeneratorTool with
