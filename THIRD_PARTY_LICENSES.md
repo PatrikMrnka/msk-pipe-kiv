@@ -33,7 +33,7 @@ Both are only in the separate **Muscle Wrapping demo** (release asset `msk-pipe-
 
 | Component | License | Role |
 |---|---|---|
-| Attachment atlas `lhdl` (derived from LHDL Cadaver #1, IOR + ULB, EU FP6 IST-2004-026932) | [CC BY-NC-SA 2.0 BE](https://creativecommons.org/licenses/by-nc-sa/2.0/be/) | Attachment areas transferred by bone registration; folder `atlas/lhdl` of the release and asset `msk-pipe-atlas-lhdl-v1.zip`, with its own `LICENSE` and `README.md` (attribution, changes). Not covered by Apache-2.0; never committed to this repository. |
+| Attachment atlas `lhdl` (derived from LHDL Cadaver #1, IOR + ULB, EU FP6 IST-2004-026932) | [CC BY-NC-SA 2.0 BE](https://creativecommons.org/licenses/by-nc-sa/2.0/be/) | Attachment areas transferred by bone registration; folder `atlas/lhdl` of the release and asset `msk-pipe-atlas-lhdl-v2.zip`, with its own `LICENSE` and `README.md` (attribution, changes). Not covered by Apache-2.0; never committed to this repository. |
 
 ## Not redistributed
 
