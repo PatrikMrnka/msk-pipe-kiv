@@ -405,7 +405,7 @@ class GtMap:
     subjects: list[str]
     structures: dict[str, dict[str, Any]]
     attachments: dict[str, dict[str, list[str]]]
-    attachments_glob: dict[str, str]
+    attachments_glob: dict[str, str | dict[str, str]]
     sample_points: int
     voxel_mm: float
 
@@ -460,7 +460,11 @@ class GtMap:
     def gt_area(self, muscle: str, area: str) -> tuple[np.ndarray | None, list[Path]]:
         spec = self.attachments.get(muscle, {}).get(area)
         if spec is None and area in self.attachments_glob:
-            spec = self.attachments_glob[area].replace("{muscle}", muscle)
+            pattern = self.attachments_glob[area]
+            if isinstance(pattern, dict):  # one pattern per side: {r: ..., l: ...}
+                pattern = pattern.get(muscle[-1]) if muscle[-2:-1] == "_" else None
+            if pattern:
+                spec = pattern.replace("{muscle}", muscle)
         if spec is None:
             return None, []
         if isinstance(spec, dict) and "points" in spec:
