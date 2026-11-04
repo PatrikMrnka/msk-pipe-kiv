@@ -15,11 +15,12 @@ platform = "win-64"
 
 # Attachment atlas (CC BY-NC-SA 2.0 BE, derived from LHDL), a separately licensed asset of
 # the GitHub release with this tag; made with packaging/make_atlas_zip.py and uploaded once:
-#   gh release create atlas-lhdl-v1 dist\msk-pipe-atlas-lhdl-v1.zip --latest=false ...
+#   gh release create atlas-lhdl-v2 dist\msk-pipe-atlas-lhdl-v2.zip --latest=false ...
+# (atlas-lhdl-v1: 20 muscles, without vastus intermedius; stays published for old runs)
 [atlas]
-tag = "atlas-lhdl-v1"
-file = "msk-pipe-atlas-lhdl-v1.zip"
-sha256 = "04e9f1afc481cc870bc1b570742bffcf2c71fb8d79289df21450af49b8dd7ec4"
+tag = "atlas-lhdl-v2"
+file = "msk-pipe-atlas-lhdl-v2.zip"
+sha256 = "4424f0bcbd56f3847d7a78e4e95740517761c411428b1a80102554f456d7d4ce"
 folder = "lhdl"       # unpacked into <release>/atlas/<folder>
 
 # Muscle Wrapping 2.x demo (not part of the pipeline): prebuilt OsimMuscleGeneratorTool with

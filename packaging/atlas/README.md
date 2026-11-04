@@ -23,7 +23,10 @@ LHDL Cadaver #1 (female donor), Istituto Ortopedico Rizzoli and Universite Libre
 Bruxelles, project LHDL (EU FP6 IST-2004-026932), distributed through Physiome Space:
 
 - bones: surfaces segmented from the lower-limb CT (`S032_*_B000_CTA_*`),
-- attachment areas: landmark clouds digitised during dissection (`Ori_*`, `Ins_*`).
+- attachment areas: landmark clouds digitised during dissection (`Ori_*`, `Ins_*`),
+- right gluteus minimus, obturator internus and obturator externus (origin and insertion):
+  the LHDL attachment files distributed with the data of the Muscle Wrapping project
+  (LHDL GenericAtlas WP10, `S032_R_<Muscle>_{Ori,Ins}.vtk`), used unchanged.
 
 ## Changes made to the original data
 
@@ -33,11 +36,17 @@ Bruxelles, project LHDL (EU FP6 IST-2004-026932), distributed through Physiome S
 3. Attachment areas: only muscles used by msk-pipe; several landmark clouds of one area
    merged into one closed outline (digitisation order kept, clouds joined by 2-opt);
    clouds lying on another bone than the muscle's attachment removed.
-4. Areas missing in the dissection data (right gluteus minimus, right obturator internus
-   and externus, some insertions of adductors, pectineus, piriformis, quadriceps and
-   biceps femoris) taken from points placed manually on the same LHDL bones in the
-   bachelor thesis of P. Mrnka (2026).
-5. No mirroring between sides: areas missing on one side are absent.
+4. No mirroring between sides: areas missing on one side are absent (left obturator
+   internus and externus).
+
+## Versions
+
+| Version | Muscles | Areas | Change |
+|---|---|---|---|
+| `lhdl-v2` | 21 | 80 | vastus intermedius added on both sides (dissection data); right gluteus minimus and obturators taken directly from the Muscle Wrapping project data |
+| `lhdl-v1` | 20 | 76 | first version |
+
+The 76 areas of `lhdl-v1` are unchanged in `lhdl-v2`.
 
 ## Citation
 
