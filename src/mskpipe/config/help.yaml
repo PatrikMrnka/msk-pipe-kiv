@@ -241,7 +241,7 @@ labelmap.muscles.topology.repair:
     transfer); a ring around something that cannot be taken (bone) is cut at its thinnest
     section. Off = left to the surface repair of the mesh step, which often fails on such
     tunnels and the muscle is then not exported.
-  example: On (default); LHDL CT vastus lateralis gets back a strip of vastus intermedius.
+  example: On (default); on LHDL CT a tunnel through the vastus lateralis is closed.
 labelmap.muscles.topology.max_volume_change:
   help: >-
     A muscle whose repair would change more than this fraction of its volume is left as it

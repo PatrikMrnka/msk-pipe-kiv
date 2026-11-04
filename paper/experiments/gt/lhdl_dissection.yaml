@@ -27,8 +27,6 @@ structures:
   vastus_lateralis_l: {kind: muscle, files: [Surf_L_M095_Vast_Lat.obj]}
   vastus_medialis_r: {kind: muscle, files: [Surf_R_M096_Vast_Med.obj]}
   vastus_medialis_l: {kind: muscle, files: [Surf_L_M096_Vast_Med.obj]}
-  vastus_intermedius_r: {kind: muscle, files: [Surf_R_M097_Vast_Interm.obj]}
-  vastus_intermedius_l: {kind: muscle, files: [Surf_L_M097_Vast_Interm.obj]}
   sartorius_r: {kind: muscle, files: [Surf_R_M098_Sartorius.obj]}
   sartorius_l: {kind: muscle, files: [Surf_L_M098_Sartorius.obj]}
   tensor_fasciae_latae_r: {kind: muscle, files: [Surf_R_M099_Tens_fasc_lat.obj]}

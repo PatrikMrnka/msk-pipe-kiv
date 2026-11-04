@@ -48,8 +48,6 @@ structures:
   vastus_lateralis_l: {kind: muscle, files: [lhdl_msf/surfaces/S032_L_M095_Vastus_Lateralis-smooth.obj]}
   vastus_medialis_r: {kind: muscle, files: [lhdl_msf/surfaces/S032_R_M096_Vastus_Medialis-smooth.obj]}
   vastus_medialis_l: {kind: muscle, files: [lhdl_msf/surfaces/S032_L_M096_Vastus_Medialis-smooth.obj]}
-  vastus_intermedius_r: {kind: muscle, files: [lhdl_msf/surfaces/S032_R_M097_Vastus-Intermedius-smooth.obj]}
-  vastus_intermedius_l: {kind: muscle, files: [lhdl_msf/surfaces/S032_L_M097_Vastus-Intermedius-smooth.obj]}
   sartorius_r: {kind: muscle, files: [lhdl_msf/surfaces/S032_R_M098_Sartorius-smooth.obj]}
   sartorius_l: {kind: muscle, files: [lhdl_msf/surfaces/S032_L_M098_Sartorius-smooth.obj]}
   tensor_fasciae_latae_r: {kind: muscle, files: [lhdl_msf/surfaces/S032_R_M099_Tensor-fascia-latae-labels_smooth.obj]}
@@ -75,7 +73,7 @@ structures:
 
 # Attachment outlines of the LHDL atlas (dissection). On LHDL they measure the
 # registration/projection error only (atlas = same donor). Not in the atlas: obturators
-# left, vastus intermedius.
+# left. The vastus intermedius is not modelled.
 attachments_glob:
   Ori: lhdl_atlas/muscles/{muscle}/*_Ori.vtk
   Ins: lhdl_atlas/muscles/{muscle}/*_Ins.vtk

@@ -6,7 +6,8 @@ of the label map can get a tunnel in two ways, and each needs a different repair
 
 * **another muscle passes through it** - MuscleMap labels a strip of one muscle through a
   thin wall of its neighbour (LHDL CT: a 108 mm strip of vastus intermedius through the
-  vastus lateralis). The tunnel is filled: its voxels are *transferred* to the muscle,
+  vastus lateralis; msk-pipe does not model the vastus intermedius, so there the strip is
+  background). The tunnel is filled: its voxels are *transferred* to the muscle,
   background voxels added. Candidates are voxels enclosed by the muscle in a 2D slice
   along x, y or z (the tunnel is closed in some slice, a notch is not); voxels of bone are
   never taken. A transfer is accepted only if the genus drops and the donor keeps its
