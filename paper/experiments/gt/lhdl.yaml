@@ -2,7 +2,8 @@
 # Exported from the MAF scene with msf_extract.py --frame ras (RAS+ world frame of the CT
 # and of the MRI exported from the same scene = frame of the pipeline meshes).
 # Bones: segmented from the CT. Muscles: HiRes surfaces segmented from the MRI, registered
-# to the CT (0.88 mm). Attachments: dissection (= the attachment atlas, same donor).
+# to the CT (0.88 mm). Attachments: the atlas each side was registered from (same donor):
+# right = release atlas lhdl-v4, left = local dissection atlas lhdl_atlas (e18_gt.yaml).
 # File names checked against data/reference-GT/lhdl_msf/surfaces on 23. 10. 2026.
 # Missing GT: adductor_brevis_l (no M102 on the left in the scene).
 # Data are not in the repository (LHDL licence CC BY-NC-SA 2.0 BE).
@@ -71,9 +72,15 @@ structures:
   biceps_femoris_l: {kind: muscle, files: [lhdl_msf/surfaces/S032_L_M107_108_Biceps_crural-smooth.obj],
                     note: "GT = both heads, pipeline = long head (volume and gt2p not comparable)"}
 
-# Attachment outlines of the LHDL atlas (dissection). On LHDL they measure the
-# registration/projection error only (atlas = same donor). Not in the atlas: obturators
-# left. The vastus intermedius is not modelled.
+# Attachment outlines of the LHDL atlases, one pattern per side. On LHDL they measure the
+# registration/projection error only (atlas = same donor). Right (lhdl-v4): the insertions
+# of rectus femoris and vastus lateralis/medialis are the Muscle Wrapping areas on the distal
+# femur, not the dissection insertion on the tibia. Not in the atlas: obturators left.
+# The vastus intermedius is not modelled.
 attachments_glob:
-  Ori: lhdl_atlas/muscles/{muscle}/*_Ori.vtk
-  Ins: lhdl_atlas/muscles/{muscle}/*_Ins.vtk
+  Ori:
+    r: lhdl_atlas_v4/muscles/{muscle}/*_Ori.vtk
+    l: lhdl_atlas/muscles/{muscle}/*_Ori.vtk
+  Ins:
+    r: lhdl_atlas_v4/muscles/{muscle}/*_Ins.vtk
+    l: lhdl_atlas/muscles/{muscle}/*_Ins.vtk

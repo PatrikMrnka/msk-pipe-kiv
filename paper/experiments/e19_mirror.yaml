@@ -3,6 +3,9 @@
 # the left dissection. Same matrix as the left LHDL runs of E18 (e18_gt.yaml), which used
 # the left atlas -> paired per area by `attachment_checks.py pair`.
 # Segmentation, label map, meshes and skeleton come from the cache (only the atlas changes).
+# The mirrored atlas is made from the local dissection atlas (data/reference-GT/lhdl_atlas,
+# both legs), not from lhdl-v4: both sides then come from the same dissection, and the
+# quadriceps insertions of lhdl-v4 (Muscle Wrapping data) do not enter the comparison.
 #
 # Run from the repository root:
 #   pixi run -e dev-cpu python tools/attachment_checks.py mirror-atlas
