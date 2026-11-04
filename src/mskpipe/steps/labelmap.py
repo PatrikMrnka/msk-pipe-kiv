@@ -9,7 +9,8 @@ Output (``02_labelmap/``)::
     labelmap.nii.gz     uint8 label map on the input image grid
     labels.json         structure name -> value, kind (mskpipe.io.labels; read by ``mesh``)
     labelmap.json       index: sources, parameters, per-structure status and metrics
-    defects.json        bone holes / gaps / short bones found, repaired or not
+    defects.json        bone holes / gaps / short bones found, repaired or not, and
+                        repaired tunnels through muscles
                         (mskpipe.qc.defects; only when there are defects)
     patches.nii.gz      int16, value i = voxels added to repair defect i
 
@@ -36,7 +37,8 @@ VERSION = 1
 
 class LabelmapStep(Step):
     name: ClassVar[str] = "labelmap"
-    version: ClassVar[str] = "3"  # 2: bone topology repair; 3: genus of the mesh surface
+    # 2: bone topology repair; 3: genus of the mesh surface; 4: tunnels through muscles
+    version: ClassVar[str] = "4"
     config_sections: ClassVar[tuple[str, ...]] = ("segmentation", "labelmap")
 
     def fingerprint_extra(self, config: PipelineConfig) -> dict[str, Any]:
@@ -143,6 +145,11 @@ class LabelmapStep(Step):
                 "clean_time_s": round(float(np.sum([e["time_s"] for e in ok])), 3),
                 "structures": {e["name"]: _summary(e) for e in ok},
                 "defects": report.summary(),
+                "muscle_tunnels": {
+                    e["name"]: e["topology"]
+                    for e in ok
+                    if e["kind"] == "muscle" and "topology" in e
+                },
             }
         )
         unfixed = report.unfixed
@@ -188,7 +195,7 @@ def _defects(ctx: StepContext, result: Any) -> Any:
         log = ctx.logger.warning if d.fixed else ctx.logger.error
         log("[labelmap] %s | %s", d.message(), d.detail)
     ctx.logger.warning(
-        "[labelmap] %d bone defect(s), %d not repaired; check them in 3D: mskpipe qc %s --show",
+        "[labelmap] %d defect(s), %d not repaired; check them in 3D: mskpipe qc %s --show",
         len(report.defects),
         len(report.unfixed),
         ctx.ws.root,

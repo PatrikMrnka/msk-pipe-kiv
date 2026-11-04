@@ -531,6 +531,33 @@ class BonePreprocessParams(PreprocessParams):
     topology: BoneTopologyParams = Field(default_factory=BoneTopologyParams)
 
 
+class MuscleTopologyParams(StrictModel):
+    repair: bool = Field(
+        True,
+        description="Remove tunnels through muscles in the label map (Muscle Wrapping needs "
+        "genus 0): fill a tunnel with the voxels of the muscle passing through it, or cut a "
+        "ring at its thinnest section; off = left to the surface repair of step mesh.",
+    )
+    max_volume_change: float = Field(
+        0.05,
+        gt=0,
+        le=0.5,
+        description="Limit of the changed voxels (added + removed) per muscle, as a fraction "
+        "of its volume.",
+        json_schema_extra=recommended(
+            0.01, 0.1, "LHDL CT: vastus lateralis +1.4 %, vastus intermedius -1.6 %"
+        ),
+    )
+    max_cut_radius_mm: float = Field(
+        5.0,
+        ge=1.5,
+        le=8,
+        description="Largest opening radius used to find the thinnest section of a ring "
+        "(a ring thicker than about twice this is not cut).",
+        json_schema_extra=recommended(3, 6, "LHDL CT vastus intermedius needed 5 mm"),
+    )
+
+
 class MusclePreprocessParams(PreprocessParams):
     min_volume_ml: float = Field(
         1.0,
@@ -541,6 +568,7 @@ class MusclePreprocessParams(PreprocessParams):
             0, 10, "the smallest muscles (obturators) are about 15-20 ml"
         ),
     )
+    topology: MuscleTopologyParams = Field(default_factory=MuscleTopologyParams)
 
 
 class LabelmapConfig(StrictModel):

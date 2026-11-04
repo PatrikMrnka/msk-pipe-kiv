@@ -13,6 +13,10 @@
    joint space); bones win over muscles.
 4. Structures smaller than ``min_volume_ml`` are removed (status ``too_small``).
 
+After the assembly, tunnels through muscles (Muscle Wrapping needs genus 0) are filled by
+a voxel transfer from the muscle passing through, or the ring is cut
+(``labelmap.muscles.topology``, :mod:`mskpipe.labelmap.muscle_topology`).
+
 Bone parts also get their topology checked and repaired (``labelmap.bones.topology``,
 :class:`~mskpipe.labelmap.clean.Topology`): holes are filled from the same bone of the
 other tool (``DONORS``) when that tool's output is loaded. The defects
@@ -218,6 +222,14 @@ def build_labelmap(
                 contested[loser_name] = contested.get(loser_name, 0) + int(count)
             contested[part.structure] = contested.get(part.structure, 0) + int(other.sum())
 
+    # ---------------------------------------------------------------- muscle tunnels
+    muscle_topo = _muscle_tunnels(data, affine, scheme, plan, config, log)
+    for res in muscle_topo.values():
+        for defect, patch in zip(res.defects, res.patches, strict=True):
+            defects.append(defect)
+            if patch is not None:
+                patches[patch & (patches == 0)] = len(defects)
+
     # ---------------------------------------------------------------- finish
     counts = np.bincount(data.ravel(), minlength=256)
     entries: list[dict[str, Any]] = []
@@ -257,6 +269,13 @@ def build_labelmap(
         )
         if "topology" in s:
             entry["topology"] = s["topology"]
+        if name in muscle_topo:
+            entry["topology"] = muscle_topo[name].summary()
+        given = {
+            r.structure: r.taken_from[name] for r in muscle_topo.values() if name in r.taken_from
+        }
+        if given:
+            entry["given_to"] = given
         entries.append(entry)
 
     info = {
@@ -305,6 +324,27 @@ def _topology(part, config, affine, origin, outputs, grown, padding) -> Topology
         donor=donor,
         donor_name=donor_name,
     )
+
+
+def _muscle_tunnels(data, affine, scheme, plan, config, log) -> dict[str, Any]:
+    """Tunnels through muscles of the assembled map (:mod:`mskpipe.labelmap.muscle_topology`)."""
+    from mskpipe.labelmap.muscle_topology import repair_muscle_tunnels
+
+    p = config.muscles.topology
+    if not p.repair:
+        return {}
+    muscles = {n: scheme.structures[n].value for n in plan if scheme.structures[n].kind == "muscle"}
+    bones = [s.value for s in scheme.structures.values() if s.kind == "bone"]
+
+    def emit(level: str, msg: str, *args: Any) -> None:
+        if log is not None:
+            getattr(log, level)("[labelmap] " + msg, *args)
+
+    results = repair_muscle_tunnels(
+        data, affine, muscles, bones, max_volume_change=p.max_volume_change,
+        max_cut_radius_mm=p.max_cut_radius_mm, log=emit,
+    )  # fmt: skip
+    return {r.structure: r for r in results}
 
 
 def _shift(ijk: list[float] | None, origin: np.ndarray) -> list[float] | None:
