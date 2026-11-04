@@ -64,8 +64,7 @@ structures:
   semitendinosus_l: {value: 44, kind: muscle, group: muscles}
   tensor_fasciae_latae_r: {value: 45, kind: muscle, group: muscles}
   tensor_fasciae_latae_l: {value: 46, kind: muscle, group: muscles}
-  vastus_intermedius_r: {value: 47, kind: muscle, group: muscles}
-  vastus_intermedius_l: {value: 48, kind: muscle, group: muscles}
+  # 47, 48: vastus intermedius, not modelled (no attachment areas in the atlas); values kept free
   vastus_lateralis_r: {value: 49, kind: muscle, group: muscles}
   vastus_lateralis_l: {value: 50, kind: muscle, group: muscles}
   vastus_medialis_r: {value: 51, kind: muscle, group: muscles}
@@ -151,8 +150,6 @@ sources:
       semitendinosus_l: [semitendinosus_l]
       tensor_fasciae_latae_r: [tensor_fasciae_latae_r]
       tensor_fasciae_latae_l: [tensor_fasciae_latae_l]
-      vastus_intermedius_r: [vastus_intermedius_r]
-      vastus_intermedius_l: [vastus_intermedius_l]
       vastus_lateralis_r: [vastus_lateralis_r]
       vastus_lateralis_l: [vastus_lateralis_l]
       vastus_medialis_r: [vastus_medialis_r]

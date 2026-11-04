@@ -8,7 +8,7 @@ from mskpipe.labelmap.scheme import SchemeError, load_scheme, parse_scheme, sche
 def test_bundled_scheme_is_valid():
     scheme = load_scheme()
     assert scheme.structures["pelvis_no_sacrum"].kind == "bone"
-    assert len([s for s in scheme.structures.values() if s.kind == "muscle"]) == 42
+    assert len([s for s in scheme.structures.values() if s.kind == "muscle"]) == 40
     assert all(1 <= s.value <= 255 for s in scheme.structures.values())
     assert len(scheme_sha256()) == 64
 
@@ -20,7 +20,7 @@ def test_default_plan_ts_bones_and_tibia_musclemap_muscles():
     assert plan["tibia_r"] == ("ts_appendicular", ("tibia",))  # as BP
     assert plan["gluteus_maximus_r"] == ("musclemap", ("gluteus_maximus_r",))
     assert plan["sacrum"] == ("totalsegmentator", ("sacrum", "vertebrae_S1"))
-    assert len(plan) == 26  # skeleton.side (r) leg + pelvis + sacrum
+    assert len(plan) == 25  # skeleton.side (r) leg + pelvis + sacrum
     assert not any(name.endswith("_l") for name in plan)
     no_key = load_scheme().plan(load_config(overrides=["segmentation.bones=musclemap"]))
     assert no_key["tibia_r"] == ("musclemap", ("tibia_r",))
@@ -33,7 +33,7 @@ def test_plan_side():
     assert "femur_l" in left and "femur_r" not in left and "pelvis_no_sacrum" in left
     both = load_scheme().plan(load_config(), sides=("r", "l"))
     assert "sacrum" in left
-    assert len(both) == 50
+    assert len(both) == 48
 
 
 def test_plan_follows_segmentation_config():

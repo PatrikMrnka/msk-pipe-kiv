@@ -61,8 +61,6 @@ structures:
   semitendinosus_l: {kind: muscle, files: [muscles/semitendinosus_l/*.obj]}
   tensor_fasciae_latae_r: {kind: muscle, files: [muscles/tensor_fasciae_latae_r/*.obj]}
   tensor_fasciae_latae_l: {kind: muscle, files: [muscles/tensor_fasciae_latae_l/*.obj]}
-  vastus_intermedius_r: {kind: muscle, files: [muscles/vastus_intermedius_r/*.obj]}
-  vastus_intermedius_l: {kind: muscle, files: [muscles/vastus_intermedius_l/*.obj]}
   vastus_lateralis_r: {kind: muscle, files: [muscles/vastus_lateralis_r/*.obj]}
   vastus_lateralis_l: {kind: muscle, files: [muscles/vastus_lateralis_l/*.obj]}
   vastus_medialis_r: {kind: muscle, files: [muscles/vastus_medialis_r/*.obj]}

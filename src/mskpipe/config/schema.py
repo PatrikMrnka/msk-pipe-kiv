@@ -544,9 +544,7 @@ class MuscleTopologyParams(StrictModel):
         le=0.5,
         description="Limit of the changed voxels (added + removed) per muscle, as a fraction "
         "of its volume.",
-        json_schema_extra=recommended(
-            0.01, 0.1, "LHDL CT: vastus lateralis +1.4 %, vastus intermedius -1.6 %"
-        ),
+        json_schema_extra=recommended(0.01, 0.1, "LHDL CT: vastus lateralis +1.4 %"),
     )
     max_cut_radius_mm: float = Field(
         5.0,
@@ -554,7 +552,7 @@ class MuscleTopologyParams(StrictModel):
         le=8,
         description="Largest opening radius used to find the thinnest section of a ring "
         "(a ring thicker than about twice this is not cut).",
-        json_schema_extra=recommended(3, 6, "LHDL CT vastus intermedius needed 5 mm"),
+        json_schema_extra=recommended(3, 6, "thin rings need up to about 5 mm"),
     )
 
 
