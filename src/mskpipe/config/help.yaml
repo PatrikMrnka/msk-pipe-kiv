@@ -331,9 +331,11 @@ skeleton.backend:
   example: pystaple (the only backend; same results as MATLAB STAPLE).
 skeleton.side:
   help: >-
-    Leg to model: r = patient's right, l = left. Selects the bones and muscles of that
-    side.
-  example: l models the left leg (muscles gluteus_maximus_l, ...).
+    Leg to model. Only the right leg (r, patient's right) is supported and the GUI always
+    models it. l is kept on the command line for validation experiments and gives a
+    warning: the attachment atlas of the release has no left leg, and the Muscle Wrapping
+    2.x input of the left leg is not validated.
+  example: r (muscles gluteus_maximus_r, ...).
 skeleton.pelvis_algorithm:
   help: Method of the pelvis coordinate system (STAPLE).
   example: STAPLE

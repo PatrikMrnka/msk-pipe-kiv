@@ -37,6 +37,10 @@ flowchart LR
 | `Geometry/*.obj`, `muscles/<muscle>/*.obj` | bone and muscle surfaces (closed, mm) |
 | `muscles/<muscle>/*_Ori.vtk`, `*_Ins.vtk` | origin and insertion areas |
 
+> **Right leg only.** The attachment atlas is validated against the original Muscle Wrapping
+> model of its donor, which exists only for the right leg. The left leg has only dissection
+> data, and Muscle Wrapping 2.x crashed on some of its muscles, so it is not offered.
+
 Every run folder also keeps the intermediate steps (`01_segment` … `05_attachments`) and a
 `manifest.json` with versions, settings, timings and metrics.
 
@@ -151,7 +155,7 @@ from source.
 
 ```powershell
 mskpipe config init my.yaml                       # commented template
-mskpipe run scan.nii.gz -m ct -c my.yaml --set skeleton.side=l
+mskpipe run scan.nii.gz -m ct -c my.yaml --set skeleton.body_mass=72
 mskpipe dicom <DICOM folder>                      # series of a DICOM folder (--series for run)
 mskpipe batch experiment.yaml                     # repeated runs, parameter matrices
 mskpipe stats <runs folder> -o stats              # CSV tables: times, RAM, metrics per step

@@ -684,7 +684,11 @@ class MeshConfig(StrictModel):
 
 class SkeletonConfig(StrictModel):
     backend: Literal["pystaple"] = Field("pystaple", description="Skeletal model generator.")
-    side: Literal["r", "l"] = Field("r", description="Leg to model.", json_schema_extra=BASIC)
+    side: Literal["r", "l"] = Field(
+        "r",
+        description="Leg to model. Only the right leg (r) is supported; l is kept for "
+        "validation experiments (warning, see mskpipe.config.sanity).",
+    )
     pelvis_algorithm: Literal["STAPLE"] = Field("STAPLE", description="Pelvis ACS algorithm.")
     femur_algorithm: Literal["GIBOC-cylinder"] = Field(
         "GIBOC-cylinder", description="Femur ACS algorithm."

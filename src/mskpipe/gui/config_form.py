@@ -61,8 +61,11 @@ from mskpipe.gui.muscles import MusclePicker, base_name, muscle_names
 __all__ = ["HIDDEN", "ConfigForm", "flatten", "humanize", "nest", "yaml_value"]
 
 Path_ = tuple[str, ...]
-# set by the main window's own controls
-HIDDEN: frozenset[Path_] = frozenset({("runtime", "device"), ("runtime", "runs_dir")})
+# set by the main window's own controls, or fixed in the GUI (skeleton.side: only the right
+# leg is supported; l stays on the command line for validation)
+HIDDEN: frozenset[Path_] = frozenset(
+    {("runtime", "device"), ("runtime", "runs_dir"), ("skeleton", "side")}
+)
 PLUGIN_PARAMS: dict[Path_, tuple[Path_, str]] = {
     ("attachments", "params"): (("attachments", "method"), "attachments"),
 }

@@ -1,6 +1,6 @@
 # msk-pipe attachment atlas `lhdl`
 
-Muscle attachment areas (origin and insertion outlines) on the bones of one subject, used
+Muscle attachment areas (origin and insertion outlines) on the right-leg bones of one subject, used
 by msk-pipe (`attachments` step, plugin `atlas_registration`) to place the attachment areas
 on a new subject by registering the atlas bones onto the subject's bones.
 
@@ -12,7 +12,7 @@ of the Apache-2.0 licence of msk-pipe.
 | Path | Content |
 |---|---|
 | `atlas.json` | muscle -> stem, origin/insertion file, bone and model body |
-| `bones/*.obj` | atlas bones: `pelvis_with_sacrum`, `pelvis_no_sacrum`, `femur_<s>`, `tibia_<s>` (tibia + fibula), `patella_<s>` |
+| `bones/*.obj` | atlas bones: `pelvis_with_sacrum`, `pelvis_no_sacrum`, `femur_r`, `tibia_r` (tibia + fibula), `patella_r` |
 | `muscles/<muscle>/<Stem>_{Ori,Ins}.vtk` | closed attachment outlines, legacy VTK polydata (Muscle Wrapping 2.x layout) |
 
 Coordinates: world RAS (as NIfTI), millimetres.
@@ -39,15 +39,16 @@ Bruxelles, project LHDL (EU FP6 IST-2004-026932), distributed through Physiome S
    merged into one closed outline (digitisation order kept, clouds joined by 2-opt);
    clouds lying on another bone than the muscle's attachment removed.
 4. Insertions of rectus femoris, vastus lateralis and vastus medialis belong to the femur
-   body (the model has no patella; as in the Muscle Wrapping model of LHDL). On the left
-   side they are the dissection points of the common insertion on the tibial tuberosity.
-5. No mirroring between sides: areas missing on one side are absent (left obturator
-   internus and externus).
+   body (the model has no patella; as in the Muscle Wrapping model of LHDL).
+5. Right leg only (20 muscles, 40 areas). The left leg has no reference Muscle Wrapping
+   model and Muscle Wrapping 2.x crashed on some of its dissection areas, so its areas and
+   bones are not included.
 
 ## Versions
 
 | Version | Change |
 |---|---|
+| `lhdl-v4` | right leg only (left-leg areas and bones removed) |
 | `lhdl-v3` | right quadriceps insertions from the Muscle Wrapping data, quadriceps insertions on the femur body |
 | `lhdl-v1` | first version (20 muscles, 76 areas) |
 
