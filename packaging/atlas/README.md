@@ -39,15 +39,6 @@ Bruxelles, project LHDL (EU FP6 IST-2004-026932), distributed through Physiome S
 4. No mirroring between sides: areas missing on one side are absent (left obturator
    internus and externus).
 
-## Versions
-
-| Version | Muscles | Areas | Change |
-|---|---|---|---|
-| `lhdl-v2` | 21 | 80 | vastus intermedius added on both sides (dissection data); right gluteus minimus and obturators taken directly from the Muscle Wrapping project data |
-| `lhdl-v1` | 20 | 76 | first version |
-
-The 76 areas of `lhdl-v1` are unchanged in `lhdl-v2`.
-
 ## Citation
 
 Cite the LHDL dataset (Viceconti et al.; www.livinghuman.org) and msk-pipe
