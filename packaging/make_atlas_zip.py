@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Make the attachment atlas asset of the release (run once per atlas version, locally).
 
-    python packaging/make_atlas_zip.py data/reference-GT/lhdl_atlas --out dist
+    python packaging/make_atlas_zip.py data/reference-GT/lhdl_atlas_v4 --out dist
 
-Writes ``dist/msk-pipe-atlas-lhdl-v3.zip`` with ``lhdl/atlas.json``, ``bones/*.obj``,
+Writes ``dist/msk-pipe-atlas-lhdl-v4.zip`` with ``lhdl/atlas.json``, ``bones/*.obj``,
 ``muscles/**/*.vtk`` and the atlas' own ``LICENSE`` and ``README.md`` (CC BY-NC-SA 2.0 BE,
 from ``packaging/atlas``), and prints its SHA-256 and the commands to publish it. The zip
 is byte-for-byte reproducible (fixed order and timestamps).
@@ -58,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("atlas", type=Path, help="atlas folder (atlas.json, bones/, muscles/)")
     parser.add_argument("--out", type=Path, default=Path("dist"))
-    parser.add_argument("--tag", default="atlas-lhdl-v3")
+    parser.add_argument("--tag", default="atlas-lhdl-v4")
     args = parser.parse_args(argv)
     archive = args.out / f"msk-pipe-{args.tag}.zip"
     digest = make_zip(args.atlas, archive)

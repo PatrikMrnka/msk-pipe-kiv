@@ -149,6 +149,15 @@ def range_issues(data: Any, ranges: Mapping[str, Recommended], prefix: str = "")
 # ---------------------------------------------------------------------------- config
 
 
+# Only the right leg is supported (README, "Right leg only"); skeleton.side=l stays for the
+# validation experiments on the left LHDL leg (paper/experiments e18_gt.yaml, e19_mirror.yaml).
+LEFT_LEG_UNSUPPORTED = (
+    "skeleton.side=l: the left leg is not supported, for validation only. The released "
+    "attachment atlas has the right leg only, and the Muscle Wrapping 2.x input of the left "
+    "leg is not validated"
+)
+
+
 def check_config(config: PipelineConfig, registry: Registry | None = None) -> list[Issue]:
     """Recommended ranges and known poor combinations of settings (no input, no I/O)."""
     issues = range_issues(config, recommended_ranges(PipelineConfig))
@@ -184,6 +193,8 @@ def _plugin_ranges(config: PipelineConfig, registry: Registry | None) -> list[Is
 
 def _settings(config: PipelineConfig) -> list[Issue]:
     seg, issues = config.segmentation, []
+    if config.skeleton.side == "l":
+        issues.append(Issue("warning", "skeleton", LEFT_LEG_UNSUPPORTED, "skeleton.side"))
     ts_used = Segmenter.TOTALSEGMENTATOR in (seg.bones, seg.muscles)
     if ts_used and seg.totalsegmentator.fast:
         issues.append(

@@ -3,6 +3,8 @@
 # chooses all bones: totalsegmentator (tibia/fibula from appendicular_bones, licence key) or
 # musclemap (incl. sacrum). Segmentation is reused from the cache; no timings (see E13).
 # Data are not in the repository: paths point to the local data/ folder.
+# Left-leg runs (skeleton.side=l) are validation only (the tool supports the right leg) and
+# need the local atlas with both legs (lhdl_atlas); the release atlas lhdl-v4 is right only.
 #
 # Run from the repository root (atlas_dir is relative to the working dir, images to this file):
 #   pixi run -e gpu mskpipe batch paper/experiments/E18_gt.yaml --dry-run

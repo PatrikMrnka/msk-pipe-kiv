@@ -217,6 +217,7 @@ def _fields(issues):
             "export.motion.end_deg",
         ),
         (["export.motion.coordinate=hip_flexion_l"], "export.motion.coordinate"),
+        (["skeleton.side=l"], "skeleton.side"),
         (["export.motion.step_deg=0.05"], "export.motion.step_deg"),
     ],
 )

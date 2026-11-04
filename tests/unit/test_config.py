@@ -182,7 +182,6 @@ BASIC_SETTINGS = {
     "runtime.threads",
     "runtime.cache",
     "segmentation.bones",
-    "skeleton.side",
     "skeleton.body_mass",
     "export.exclude",
     "export.num_of_lines",

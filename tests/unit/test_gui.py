@@ -272,7 +272,9 @@ def test_form_shows_only_params_of_the_nonrigid_stage(qapp):
 def test_form_hides_advanced_settings_by_default(qapp):
     form = ConfigForm()
     assert not form.show_advanced
-    assert form.is_shown("skeleton", "side") and form.is_shown("attachments", "params", "nonrigid")
+    assert form.is_shown("skeleton", "body_mass")
+    assert form.is_shown("attachments", "params", "nonrigid")
+    assert ("skeleton", "side") not in form._fields  # right leg only
     assert not form.is_shown("skeleton", "geometry_format")
     assert not form.is_shown("attachments", "method")
     assert not form.is_shown("attachments", "params", "n_points")
@@ -287,7 +289,7 @@ def test_form_hides_advanced_settings_by_default(qapp):
     assert not parent.isRowVisible(box)  # group box without a basic setting
     shown = {p for p in form._fields if form.is_shown(*p)}
     assert shown == {p for p in form._fields if form.is_basic(*p)}
-    assert len(shown) == 14
+    assert len(shown) == 13
     form.set_show_advanced(True)
     assert form.visible_tab_names() == form.tab_names()
     assert form.is_shown("labelmap", "bones", "topology", "max_hole_mm")
@@ -313,7 +315,7 @@ def test_form_advanced_with_show_if(qapp):
 def test_form_counts_hidden_changed_settings(qapp):
     form = ConfigForm()
     assert form.hidden_changes() == [] and form.advanced_note.isHidden()
-    form.field("skeleton", "side").set("l")  # basic: visible, not counted
+    form.field("skeleton", "body_mass").set(72.0)  # basic: visible, not counted
     assert form.hidden_changes() == [] and form.advanced_note.isHidden()
     form.set_values(
         {"mesh": {"bones": {"passband": 0.05}}, "attachments": {"params": {"trim": 0.95}}}
@@ -352,26 +354,26 @@ def test_form_load_save_roundtrip(qapp, tmp_path):
     source = tmp_path / "in.yaml"
     source.write_text(
         "runtime: {device: gpu, cache: false}\n"
-        "skeleton: {side: l}\n"
+        "skeleton: {body_mass: 72}\n"
         "attachments: {params: {nonrigid: none, n_points: 4000}}\n",
         encoding="utf-8",
     )
     form = ConfigForm()
     data = form.load(source)
     assert data["runtime"]["device"] == "gpu"
-    assert form.field("skeleton", "side").get() == "l"
+    assert form.field("skeleton", "body_mass").get() == 72
     assert form.field("attachments", "params", "n_points").get() == 4000
     target = tmp_path / "out.yaml"
     form.save(target, {"runtime": {"device": "gpu"}})
     text = target.read_text(encoding="utf-8")
     assert text.startswith("# msk-pipe configuration")
     saved = yaml.safe_load(text)
-    assert saved["skeleton"] == {"side": "l"} and saved["runtime"]["cache"] is False
+    assert saved["skeleton"] == {"body_mass": 72} and saved["runtime"]["cache"] is False
     config = load_config(target)
     assert config.runtime.device.value == "gpu"
     assert config.attachments.params == {"nonrigid": "none", "n_points": 4000}
     bad = tmp_path / "bad.yaml"
-    bad.write_text("skeleton: {side: x}\n", encoding="utf-8")
+    bad.write_text("skeleton: {body_mass: x}\n", encoding="utf-8")
     with pytest.raises(api.SetupError):
         form.load(bad)
 
@@ -694,7 +696,7 @@ def test_window_settings_persist(qapp, tmp_path):
     first = gui_app.MainWindow(
         QSettings(path, QSettings.Format.IniFormat), command=FAKE_CLI, probe_device=False
     )
-    first.form.field("skeleton", "side").set("l")
+    first.form.field("skeleton", "body_mass").set(72.0)
     first.form.field("attachments", "params", "atlas_dir").set("D:/atlas")
     first.form.set_show_advanced(True)
     gui_app._select(first.modality_combo, "mri")
@@ -703,7 +705,7 @@ def test_window_settings_persist(qapp, tmp_path):
     second = gui_app.MainWindow(
         QSettings(path, QSettings.Format.IniFormat), command=FAKE_CLI, probe_device=False
     )
-    assert second.form.field("skeleton", "side").get() == "l"
+    assert second.form.field("skeleton", "body_mass").get() == 72
     assert second.form.field("attachments", "params", "atlas_dir").get() == "D:/atlas"
     assert second.form.show_advanced
     assert second.modality_combo.currentData() == "mri"
@@ -828,7 +830,7 @@ def test_exported_muscles_list(qapp):
 def test_explicit_muscle_list_from_config(qapp, tmp_path):
     source = tmp_path / "quick.yaml"
     source.write_text(
-        "skeleton: {side: l}\nexport: {muscles: [iliacus_l, pectineus_l, piriformis_l]}\n",
+        "export: {muscles: [iliacus_r, pectineus_r, piriformis_r]}\n",
         encoding="utf-8",
     )
     form = ConfigForm()
