@@ -798,7 +798,14 @@ def test_exported_muscles_list(qapp):
     label = form.field("export", "exclude").label
     assert label is not None and label.text() == "Exported muscles"
     picker = form.picker("export", "exclude")
-    default_out = {"piriformis", "obturator_internus", "obturator_externus", "tensor_fasciae_latae"}
+    default_out = {
+        "piriformis",
+        "obturator_internus",
+        "obturator_externus",
+        "tensor_fasciae_latae",
+        "vastus_lateralis",
+        "vastus_medialis",
+    }
     assert set(picker.names()) - set(picker.checked()) == default_out
     assert form.overrides() == []
     tip = picker.list.item(picker.names().index("piriformis")).toolTip()
@@ -812,11 +819,13 @@ def test_exported_muscles_list(qapp):
         "gluteus_medius",
         "gluteus_minimus",
     }
-    assert excluded[:4] == [  # default exclusions first, in their order
+    assert excluded[:6] == [  # default exclusions first, in their order
         "piriformis",
         "obturator_internus",
         "obturator_externus",
         "tensor_fasciae_latae",
+        "vastus_lateralis",
+        "vastus_medialis",
     ]
     config = api.resolved_config(overrides=form.overrides())
     assert config.export.muscles == "all" and "gluteus_maximus" not in config.export.exclude

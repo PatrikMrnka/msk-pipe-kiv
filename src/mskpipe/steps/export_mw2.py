@@ -80,6 +80,17 @@ MW2_COMMAND = "opensim-cmd -L OsimMuscleGeneratorTool.dll run-tool " + SETUP_FIL
 # projects it onto the closest part of the belly, where it collapses, and Luca2018 then
 # moves the fibre ends with the wrong bone. On LHDL, MW2 crashed on three of them and gave
 # an anatomically wrong decomposition for the fourth.
+# The vasti are excluded because MW2 crashes on them unpredictably: their origin is a long
+# strip along the femur (the outline is closed by an edge of about 260 mm, crossed after the
+# projection) whose distal end lies about 20 mm from the insertion at the end of the belly,
+# the quadriceps tendon not being segmented. On LHDL CT, attachment areas differing by less
+# than 2 mm (coherent ICP vs Fast-RNRR) decided between a result and a crash.
+_VASTUS = (
+    "Muscle Wrapping 2.x crashes on it unpredictably: the origin is a long strip along the "
+    "femur whose projected outline crosses itself and ends about 20 mm from the insertion "
+    "at the end of the belly (the quadriceps tendon is not segmented); attachment changes "
+    "below 2 mm decide between a result and a crash"
+)
 EXCLUSION_REASONS = {
     "piriformis": "the tendon to the tip of the greater trochanter is not segmented and "
     "the muscle wraps over the greater sciatic notch; its insertion projects onto the belly "
@@ -94,6 +105,8 @@ EXCLUSION_REASONS = {
     "tensor_fasciae_latae": "inserts on the lateral tibia (Gerdy's tubercle) through the "
     "iliotibial tract, a fascial band that is not segmented; the insertion lies hundreds of "
     "mm below the belly (collapses, fibre ends move with the femur, not the tibia)",
+    "vastus_lateralis": _VASTUS,
+    "vastus_medialis": _VASTUS,
 }
 
 

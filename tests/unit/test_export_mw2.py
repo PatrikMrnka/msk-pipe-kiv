@@ -364,6 +364,9 @@ def test_excluded_reason():
     assert set(default) == set(EXCLUSION_REASONS)
     assert excluded_reason("tensor_fasciae_latae_l", default).startswith("inserts on the lateral")
     assert excluded_reason("piriformis_r", default) is not None
+    assert "crashes on it unpredictably" in excluded_reason("vastus_lateralis_r", default)
+    vasti = {excluded_reason(f"vastus_{h}_r", default) for h in ("lateralis", "medialis")}
+    assert len(vasti) == 1
     assert excluded_reason("iliacus_r", default) is None
     assert excluded_reason("iliacus_r", ["iliacus"]) == "listed in export.exclude"
     assert excluded_reason("piriformis_r", []) is None

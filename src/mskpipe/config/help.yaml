@@ -521,9 +521,10 @@ export.exclude:
   help: >-
     Checked muscles are written for Muscle Wrapping, unchecked ones are left out (saved as
     export.exclude). Unchecked by default are the four whose insertion is reached through a
-    tendon or fascia the segmentation does not contain; the outline would lie on the belly
-    and Muscle Wrapping would move the fibre ends with the wrong bone. Hover a muscle for
-    the reason.
+    tendon or fascia the segmentation does not contain (the outline would lie on the belly
+    and Muscle Wrapping would move the fibre ends with the wrong bone) and the vastus
+    lateralis and medialis, on which Muscle Wrapping crashes unpredictably. They can be
+    checked again. Hover a muscle for the reason.
   example: Check only the three gluteal muscles for a quick Muscle Wrapping test.
 export.num_of_lines:
   help: Number of fibres each muscle is divided into.
