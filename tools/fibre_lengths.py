@@ -272,8 +272,14 @@ def _legend(fig, plt) -> None:
     handles = [
         plt.Line2D([], [], color=REF_COLOR, lw=1.6, ls="--", label="reference"),
         plt.Line2D([], [], color=PIPE_COLOR, lw=1.6, label="pipeline"),
+        plt.matplotlib.patches.Patch(
+            color=REF_COLOR, alpha=0.16, lw=0, label="reference, 5-95 % of fibres"
+        ),
+        plt.matplotlib.patches.Patch(
+            color=PIPE_COLOR, alpha=0.16, lw=0, label="pipeline, 5-95 % of fibres"
+        ),
     ]
-    fig.legend(handles=handles, loc="upper center", ncol=2, frameon=False, fontsize=8)
+    fig.legend(handles=handles, loc="upper center", ncol=4, frameon=False, fontsize=8)
 
 
 def _save(fig, plt, out: Path, stem: str) -> list[Path]:
@@ -335,8 +341,9 @@ def plot_violins(rows, fibres, grid, pose: float, out: Path) -> list[Path]:
     handles = [
         plt.matplotlib.patches.Patch(color=REF_COLOR, alpha=0.55, label="reference (upper half)"),
         plt.matplotlib.patches.Patch(color=PIPE_COLOR, alpha=0.55, label="pipeline (lower half)"),
+        plt.Line2D([], [], color=INK, lw=1.0, label="median (thick), quartiles"),
     ]
-    fig.legend(handles=handles, loc="upper center", ncol=2, frameon=False, fontsize=8)
+    fig.legend(handles=handles, loc="upper center", ncol=3, frameon=False, fontsize=8)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     return _save(fig, plt, out, "fibre_lengths_violins")
 
@@ -380,8 +387,9 @@ def plot_detail(row, ref, pipe, grid, poses, out: Path) -> list[Path]:
     handles = [
         plt.Line2D([], [], color=REF_COLOR, lw=1.6, ls="--", label="reference (violin right)"),
         plt.Line2D([], [], color=PIPE_COLOR, lw=1.6, label="pipeline (violin left)"),
+        plt.Line2D([], [], color=INK, lw=1.0, label="median (thick), quartiles"),
     ]
-    fig.legend(handles=handles, loc="upper center", ncol=2, frameon=False, fontsize=8)
+    fig.legend(handles=handles, loc="upper center", ncol=3, frameon=False, fontsize=8)
     fig.subplots_adjust(top=0.86, bottom=0.06, left=0.09, right=0.98)
     return _save(fig, plt, out, f"fibre_lengths_{row['muscle']}")
 
