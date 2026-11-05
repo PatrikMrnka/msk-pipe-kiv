@@ -485,15 +485,27 @@ def log(msg: str) -> None:
 
 
 def find_runs(paths: list[Path]) -> list[Path]:
-    runs: list[Path] = []
+    """Run folders: a run, a folder of runs, or a batch folder / batch.json (``run_dir``)."""
+    runs: dict[Path, None] = {}
     for p in paths:
+        index = p if p.name == "batch.json" else p / "batch.json"
         if (p / "03_mesh").is_dir():
-            runs.append(p)
+            runs[p.resolve()] = None
+        elif index.is_file():  # batches keep only batch.json, runs live in runs/
+            entries = json.loads(index.read_text(encoding="utf-8")).get("entries", [])
+            for e in entries:
+                d = Path(e["run_dir"]) if e.get("run_dir") else None
+                if d is not None and (d / "03_mesh").is_dir():
+                    runs[d.resolve()] = None
+                elif e.get("status") == "completed":
+                    log(f"skip {e.get('run_id')}: run folder {d} not found")
         elif p.is_dir():
-            runs += sorted(c for c in p.iterdir() if (c / "03_mesh").is_dir())
+            for c in sorted(p.iterdir()):
+                if (c / "03_mesh").is_dir():
+                    runs[c.resolve()] = None
         else:
             log(f"skip {p}: not a run folder")
-    return runs
+    return sorted(runs, key=lambda r: r.name)
 
 
 def _get(d: Any, dotted: str) -> Any:
