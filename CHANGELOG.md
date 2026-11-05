@@ -4,6 +4,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 
 ## [Unreleased]
 
+### Added
+- `paper/experiments/run_experiments.ps1`: runs the validation experiments of the paper (E13, E14, E16, E18, E19) and collects their statistics in `..\paper\stats\v<version>` with `experiments.json` (versions, batch and run folders); Muscle Wrapping 2.x is run on the reference run with retries. `paper/experiments/README.md` lists the experiments.
+- `tools/fibre_lengths.py` (E16): fibre lengths over hip flexion of a run vs a reference Muscle Wrapping run, compared on the flexion angle, not time (offset, RMSE, RMSE without offset, Pearson r, excursion error, spread of the fibres as IQR ratio, Wasserstein distance of the centred length distributions; optional second reference run for the run-to-run noise). CSV, JSON with input checksums and percentiles; figures: all muscles with the 5-95 % band of the fibres, split violins of all muscles at one pose, detail of selected muscles with violins at three poses.
+- `run_experiments.ps1 -E18Batch / -E19Batch <folder>`: statistics and GT comparison of a finished batch without new runs; E19 also runs `attachment_checks.py gt-bones` and `fibre-hull`.
+
+### Fixed
+- `tools/gt_compare.py` reads the runs of a batch from `batch.json` (batches keep only `batch.json`, the runs live in `runs/`); before, a batch folder gave no runs and exit code 2.
+
 ## [0.3.0] - 2026-11-04
 
 Right leg only; 17 of the 20 modelled muscles are exported to Muscle Wrapping 2.x by default.
