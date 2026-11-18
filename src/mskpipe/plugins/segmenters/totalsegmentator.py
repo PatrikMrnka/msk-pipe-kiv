@@ -114,7 +114,8 @@ def saving_workers(
     per_worker = WORKER_COMMIT["cuda" if device == "cuda" else "cpu"]
     fit = int(max(0, commit_limit - MAIN_RESERVE) // per_worker)
     workers = max(1, min(MAX_SAVING_WORKERS, fit))
-    return workers, f"auto: {commit_limit / GIB:.0f} GiB RAM + page file, {device}"
+    swap = "page file" if sys.platform == "win32" else "swap"
+    return workers, f"auto: {commit_limit / GIB:.0f} GiB RAM + {swap}, {device}"
 
 
 def build_command(

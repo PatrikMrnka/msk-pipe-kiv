@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# msk-pipe command line, e.g.:  ./mskpipe run ct.nii.gz -m ct
+#                               ./mskpipe setup status
+# shellcheck source=bin/_setup.sh
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/bin/_setup.sh" || exit 1
+exec "$MSKPIPE_PYTHON" -m mskpipe "$@"

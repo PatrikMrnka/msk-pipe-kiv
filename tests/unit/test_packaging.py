@@ -1,11 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Windows release tooling (packaging/): pins, wheel sources from pixi.lock, release folder
-and zip, licence collection, atlas asset, workflow, build info (no network, no Windows)."""
+"""Release tooling (packaging/): pins, wheel sources from pixi.lock, release folder and
+archive (Windows zip, Linux tar.gz), licence collection, atlas asset, workflow, build info
+(no network, on any system)."""
 
 import importlib.util
 import json
 import re
+import subprocess
 import sys
+import tarfile
 import zipfile
 from pathlib import Path
 
@@ -41,19 +44,27 @@ def lock():
 # ---------------------------------------------------------------- pins / lock
 
 
-def test_pins():
+def test_pins(lock):
     pins = br.load_pins()
-    pp = pins["pixi-pack"]
-    assert SHA.match(pp["pack_sha256"]) and SHA.match(pp["unpack_sha256"])
-    assert pp["version"] in pp["pack_url"] and pp["version"] in pp["unpack_url"]
-    assert pins["environment"] == {"name": "cpu", "platform": "win-64"}
+    version = pins["pixi-pack"]["version"]
+    assert pins["environment"] == {"name": "cpu", "platforms": ["win-64", "linux-64"]}
+    assert set(br.TARGETS) == set(pins["environment"]["platforms"])
+    for platform in pins["environment"]["platforms"]:
+        pp = pins["pixi-pack"][platform]
+        assert SHA.match(pp["pack_sha256"]) and SHA.match(pp["unpack_sha256"])
+        assert version in pp["pack_url"] and version in pp["unpack_url"]
+        assert pp["pack_url"].endswith(".exe") == (platform == "win-64")
+        # every release platform is locked (pixi.toml) and has its GPU wheels
+        assert platform in lock["environments"]["cpu"]["packages"], "pixi.lock"
+    assert len({pins["pixi-pack"][p]["pack_sha256"] for p in br.TARGETS}) == len(br.TARGETS)
     sha = pins["atlas"]["sha256"]
     assert sha == "" or SHA.match(sha)
     assert pins["atlas"]["file"] == f"msk-pipe-{pins['atlas']['tag']}.zip"
 
 
-def test_wheel_sources_from_lock(lock):
-    sources = br.wheel_sources(lock, "cpu", "win-64")
+@pytest.mark.parametrize("platform", sorted(br.TARGETS))
+def test_wheel_sources_from_lock(lock, platform):
+    sources = br.wheel_sources(lock, "cpu", platform)
     assert sources[0] == str(ROOT) or str(ROOT) in sources
     gits = [s for s in sources if s.startswith("git+")]
     assert {s.split("@")[0] for s in gits} == {
@@ -203,6 +214,109 @@ def test_stage_and_zip(tmp_path):
         br.zip_folder(folder, tmp_path / "big.zip", limit=10)
 
 
+def _linux_parts(tmp_path):
+    pack, unpack = tmp_path / "environment.tar", tmp_path / "pixi-unpack"
+    pack.write_bytes(b"tar")
+    unpack.write_bytes(b"\x7fELF")
+    lic = tmp_path / "licenses"
+    lic.mkdir()
+    (lic / "packages.csv").write_text("name\n", encoding="utf-8")
+    atlas = tmp_path / "atlas.zip"
+    atlas_zip.make_zip(make_atlas(tmp_path / "atlas_src"), atlas)
+    env = tmp_path / "env"
+    (env / "ssl").mkdir(parents=True)
+    (env / "ssl" / "cacert.pem").write_text("-----BEGIN CERTIFICATE-----\n", encoding="ascii")
+    return pack, unpack, lic, atlas, env
+
+
+def test_stage_and_tar_linux(tmp_path):
+    pack, unpack, lic, atlas, env = _linux_parts(tmp_path)
+    folder = br.stage(
+        tmp_path / "stage" / "msk-pipe-0.1.0",
+        runtime=[br.ca_bundle(env)],
+        version="0.1.0",
+        pack=pack,
+        unpack=unpack,
+        licenses=lic,
+        atlas=atlas,
+        platform="linux-64",
+    )
+    names = {p.relative_to(folder).as_posix() for p in folder.rglob("*") if p.is_file()}
+    assert names >= {
+        "msk-pipe",
+        "mskpipe",
+        "bin/_setup.sh",
+        "bin/pixi-unpack",
+        "bin/cacert.pem",
+        "environment.tar",
+        "atlas/lhdl/atlas.json",
+        "atlas/lhdl/LICENSE",
+        "licenses/packages.csv",
+        "LICENSE",
+        "NOTICE",
+        "THIRD_PARTY_LICENSES.md",
+        "CITATION.cff",
+        "README.txt",
+        "version.txt",
+    }
+    assert not [n for n in names if n.endswith((".cmd", ".exe", ".dll")) or "maxpath" in n]
+    for script in ("msk-pipe", "mskpipe", "bin/_setup.sh", "README.txt", "version.txt"):
+        assert b"\r" not in (folder / script).read_bytes(), script
+    assert (folder / "version.txt").read_bytes() == b"0.1.0\n"
+    assert "msk-pipe 0.1.0 for Linux" in (folder / "README.txt").read_text(encoding="utf-8")
+    assert br.executables("linux-64") == ("msk-pipe", "mskpipe", "bin/pixi-unpack")
+    assert br.executables("win-64") == ()
+
+    archive = tmp_path / "dist" / "msk-pipe-0.1.0-linux-x86_64.tar.gz"
+    br.tar_folder(folder, archive, br.executables("linux-64"))
+    with tarfile.open(archive) as tf:
+        members = {m.name: m for m in tf.getmembers()}
+    staged = {p.relative_to(folder.parent).as_posix() for p in folder.rglob("*")}
+    assert set(members) == {"msk-pipe-0.1.0"} | staged
+    for name, member in members.items():
+        relative = name.removeprefix("msk-pipe-0.1.0").lstrip("/")
+        runnable = member.isdir() or relative in br.executables("linux-64")
+        assert member.mode == (0o755 if runnable else 0o644), name
+        assert (member.uid, member.gid, member.uname, member.gname) == (0, 0, "", "")
+    with pytest.raises(br.BuildError, match="2 GiB"):
+        br.tar_folder(folder, tmp_path / "big.tar.gz", limit=10)
+    with pytest.raises(br.BuildError, match="Not in"):
+        br.tar_folder(folder, tmp_path / "x.tar.gz", ["bin/missing"])
+
+
+def test_ca_bundle_required(tmp_path):
+    with pytest.raises(br.BuildError, match="ca-certificates"):
+        br.ca_bundle(tmp_path)
+
+
+def test_assemble_linux_and_checksum_list(tmp_path, monkeypatch, capsys):
+    pack, unpack, lic, atlas, env = _linux_parts(tmp_path)
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    # the list of the Windows build, which made the draft release
+    (dist / "SHA256SUMS.txt").write_text(f"{'a' * 64}  msk-pipe-0.1.0-win64.zip\n", "ascii")
+    argv = ["assemble", "--platform", "linux-64", "--version", "0.1.0", "--pack", str(pack)]
+    argv += ["--unpack", str(unpack), "--licenses", str(lic), "--runtime-from", str(env)]
+    argv += ["--atlas", str(atlas), "--work", str(tmp_path / "work"), "--out", str(dist)]
+    assert br.main(argv) == 0
+    package = dist / "msk-pipe-0.1.0-linux-x86_64.tar.gz"
+    assert package.is_file() and (dist / "atlas.zip").is_file()
+    lines = (dist / "SHA256SUMS.txt").read_text("ascii").splitlines()
+    assert lines == [
+        f"{br.sha256(dist / 'atlas.zip')}  atlas.zip",
+        f"{br.sha256(package)}  {package.name}",
+        f"{'a' * 64}  msk-pipe-0.1.0-win64.zip",
+    ]
+    # the workflow step: add one file to a downloaded list; a second time changes nothing
+    listed = tmp_path / "sums" / "SHA256SUMS.txt"
+    assert br.main(["sums", "--file", str(listed), str(package)]) == 0
+    assert br.main(["sums", "--file", str(listed), str(package)]) == 0
+    assert listed.read_text("ascii") == f"{br.sha256(package)}  {package.name}\n"
+    # Windows needs the path limit of its environment
+    argv[2] = "win-64"
+    assert br.main(argv) == 1 and "--maxpath" in capsys.readouterr().err
+
+
 def test_runtime_dlls_required(tmp_path):
     with pytest.raises(br.BuildError, match=r"vcruntime140\.dll"):
         br.runtime_dlls(tmp_path)
@@ -231,6 +345,85 @@ def test_launcher_references():
     gui = (PACKAGING / "launcher" / "msk-pipe.cmd").read_text(encoding="utf-8")
     assert "-m mskpipe.gui" in gui and "MSKPIPE_PYTHONW" in gui
     assert importlib.util.find_spec("mskpipe.gui.__main__") is not None
+
+
+def test_linux_launcher_references():
+    linux = PACKAGING / "launcher" / "linux"
+    setup = (linux / "bin" / "_setup.sh").read_text(encoding="utf-8")
+    for name in (
+        "version.txt",
+        "environment.tar",
+        "bin/pixi-unpack",
+        "bin/cacert.pem",
+        "MSKPIPE_ATLAS_DIR",
+        "atlas/lhdl/atlas.json",
+        "PYTHONNOUSERSITE",
+    ):
+        assert name in setup, name
+    # the activate.sh of pixi-unpack breaks on a path with a space: not sourced
+    assert not re.search(r"^\s*(source|\.)\s.*activate\.sh", setup, re.MULTILINE)
+    gui = (linux / "msk-pipe").read_text(encoding="utf-8")
+    cli = (linux / "mskpipe").read_text(encoding="utf-8")
+    assert "-m mskpipe.gui" in gui and '-m mskpipe "$@"' in cli
+    for text in (gui, cli):
+        assert text.startswith("#!/usr/bin/env bash\n") and "bin/_setup.sh" in text
+        assert "readlink -f" in text  # started through a symbolic link
+    for script in (linux / "msk-pipe", linux / "mskpipe", linux / "bin" / "_setup.sh"):
+        assert b"\r" not in script.read_bytes(), script
+    readme = (linux / "README.txt").read_text(encoding="utf-8")
+    assert "{version}" in readme and "./mskpipe" in readme and "./msk-pipe" in readme
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="bash")
+def test_linux_launcher_runs(tmp_path):
+    """The scripts with a fake pixi-unpack: first start, a path with a space, stdout only
+    from the program, a moved folder, the start through a symbolic link."""
+    pack, unpack, lic, atlas, env = _linux_parts(tmp_path)
+    python = '#!/bin/sh\necho "python $* atlas=$MSKPIPE_ATLAS_DIR"\n'
+    unpack.write_text(
+        "#!/bin/sh\n"  # pixi-unpack ARCHIVE -o ROOT -e env -s bash -q
+        'test -f "$SSL_CERT_FILE" || exit 3\n'
+        'mkdir -p "$3/env/bin"\n'
+        f"cat > \"$3/env/bin/python\" <<'EOF'\n{python}EOF\n"
+        'chmod +x "$3/env/bin/python"\n'
+        "echo unpacked\n",
+        encoding="utf-8",
+    )
+    folder = br.stage(
+        tmp_path / "stage" / "msk-pipe-0.1.0",
+        runtime=[br.ca_bundle(env)],
+        version="0.1.0",
+        pack=pack,
+        unpack=unpack,
+        licenses=lic,
+        atlas=atlas,
+        platform="linux-64",
+    )
+    archive = br.tar_folder(folder, tmp_path / "p.tar.gz", br.executables("linux-64"))
+    home = tmp_path / "a home"
+    home.mkdir()
+    with tarfile.open(archive) as tf:
+        tf.extractall(home, filter="tar")
+    root = home / "msk-pipe-0.1.0"
+
+    def run(script, *args):
+        return subprocess.run(
+            [str(script), *args], capture_output=True, text=True, stdin=subprocess.DEVNULL
+        )
+
+    first = run(root / "mskpipe", "run", "a b.nii.gz")
+    assert first.returncode == 0, first.stderr
+    assert first.stdout == f"python -m mskpipe run a b.nii.gz atlas={root}/atlas/lhdl\n"
+    assert "first start" in first.stderr and "unpacked" in first.stderr
+    again = run(root / "mskpipe", "--version")
+    assert again.stderr == "" and again.stdout.startswith("python -m mskpipe --version")
+    link = tmp_path / "mskpipe-link"
+    link.symlink_to(root / "mskpipe")
+    assert run(link, "plugins").stderr == ""
+    moved = home / "moved"
+    root.rename(moved)
+    assert "first start" in run(moved / "mskpipe", "--version").stderr
+    assert (moved / "env" / ".mskpipe-unpacked").read_text() == f"0.1.0*{moved}\n"
 
 
 # ---------------------------------------------------------------- licences
@@ -278,8 +471,10 @@ def test_release_workflow():
     wf = yaml.safe_load((ROOT / ".github" / "workflows" / "release.yml").read_text("utf-8"))
     triggers = wf[True] if True in wf else wf["on"]  # YAML 1.1 reads "on" as True
     assert triggers["push"]["tags"] == ["v*.*.*"] and "workflow_dispatch" in triggers
-    assert set(wf["jobs"]) == {"build", "smoke", "publish"}
+    assert set(wf["jobs"]) == {"build", "smoke", "build-linux", "smoke-linux", "publish"}
     assert wf["jobs"]["publish"]["if"] == "github.ref_type == 'tag'"
+    # nothing is published before both packages passed their tests
+    assert set(wf["jobs"]["publish"]["needs"]) == set(wf["jobs"]) - {"publish"}
     assert wf["jobs"]["publish"]["permissions"] == {"contents": "write"}
     # the ~1 GB package goes from job to job through a draft release, not an Actions
     # artifact (the artifact storage quota of a private repository is smaller)
@@ -297,6 +492,18 @@ def test_release_workflow():
     # string passes its characters (broke the atlas step of the first test build)
     text = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     assert not re.search(r"=\s*if\s*\(.*\)\s*\{\s*@\(", text)
+    # Linux: built on a fixed Ubuntu, added to the draft of the Windows build, tested in
+    # the Docker images of both LTS releases (nothing installed in them)
+    linux, clean = wf["jobs"]["build-linux"], wf["jobs"]["smoke-linux"]
+    assert linux["needs"] == "build" and linux["runs-on"] == "ubuntu-24.04"
+    assert linux["permissions"] == clean["permissions"] == {"contents": "write"}
+    runs = "\n".join(s.get("run", "") for s in linux["steps"])
+    assert "--platform linux-64" in runs and "--runtime-from build/test/env" in runs
+    assert "gh release upload" in runs and "--clobber" in runs and "sums --file" in runs
+    assert clean["strategy"]["matrix"]["ubuntu"] == ["24.04", "26.04"]
+    test = clean["steps"][-1]["run"]
+    assert "docker run" in test and "packaging/linux/smoke_test.sh" in test
+    assert (PACKAGING / "linux" / "smoke_test.sh").is_file()
 
 
 def test_zenodo_and_citation_metadata():

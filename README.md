@@ -7,6 +7,7 @@
 [![CI](https://github.com/kivzcu/msk-pipe/actions/workflows/ci.yml/badge.svg)](https://github.com/kivzcu/msk-pipe/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/kivzcu/msk-pipe?label=release)](https://github.com/kivzcu/msk-pipe/releases/latest)
 ![Windows x64](https://img.shields.io/badge/Windows-x64-0078D6)
+![Linux x64](https://img.shields.io/badge/Linux-x64-E95420)
 ![Python 3.11](https://img.shields.io/badge/python-3.11-3776AB)
 [![License: Apache-2.0 (non-commercial bundle)](https://img.shields.io/badge/license-Apache--2.0%20%2B%20NC-blue)](#licence)
 
@@ -46,9 +47,11 @@ Every run folder also keeps the intermediate steps (`01_segment` … `05_attachm
 
 ---
 
-## a) Just run it (Windows release)
+## a) Just run it (release)
 
 No Python, MATLAB or OpenSim needed.
+
+### Windows
 
 1. Download `msk-pipe-<version>-win64.zip` from
    [**Releases**](https://github.com/kivzcu/msk-pipe/releases/latest) (~1 GB).
@@ -71,12 +74,31 @@ Command line: `mskpipe.cmd run scan.nii.gz -m ct` · `mskpipe.cmd run <DICOM fol
 | `%LOCALAPPDATA%\msk-pipe` | GPU support, MuscleMap weights, atlases |
 | `%USERPROFILE%\.totalsegmentator` | TotalSegmentator weights and licence key |
 
+### Linux
+
+x86_64 with glibc ≥ 2.28; tested on Ubuntu 24.04 and 26.04. Download
+`msk-pipe-<version>-linux-x86_64.tar.gz` from
+[**Releases**](https://github.com/kivzcu/msk-pipe/releases/latest) (~1 GB), then:
+
+```bash
+tar -xzf msk-pipe-<version>-linux-x86_64.tar.gz
+cd msk-pipe-<version>
+./msk-pipe                           # GUI; the first start unpacks the environment (1–3 min)
+./mskpipe run scan.nii.gz -m ct      # command line
+./mskpipe setup gpu                  # optional: NVIDIA driver ≥ 570, ~3.5 GB
+```
+
+The command line needs nothing from the system. The GUI needs a desktop; where the system
+lacks its graphics libraries (WSL, servers), it names the packages to install. GUI results:
+`~/Documents/msk-pipe/runs/<run>/06_mw2_input`. Data: `~/.local/share/msk-pipe` (GPU
+support, MuscleMap weights, atlases), `~/.totalsegmentator` (weights, licence key).
+
 ## b) Build from source
 
-Requires [pixi](https://pixi.sh) ≥ 0.60 and Git (Windows x64).
+Requires [pixi](https://pixi.sh) ≥ 0.60 and Git (Windows x64 or Linux x64).
 
 ```powershell
-winget install prefix-dev.pixi
+winget install prefix-dev.pixi                # Linux: curl -fsSL https://pixi.sh/install.sh | sh
 git clone https://github.com/kivzcu/msk-pipe.git
 cd msk-pipe
 ```
@@ -128,10 +150,37 @@ py packaging/build_release.py assemble --version $version --pack build/environme
 
 </details>
 
+<details>
+<summary>Build the Linux release package yourself</summary>
+
+The same steps as the `build-linux` job of [`release.yml`](.github/workflows/release.yml):
+
+```bash
+py() { pixi exec --spec python=3.11 --spec pip --spec pyyaml python "$@"; }
+py packaging/build_release.py tools --out build/tools
+py packaging/build_release.py wheels --out build/wheels
+inject=(); for wheel in build/wheels/*.whl; do inject+=(--inject "$wheel"); done
+build/tools/pixi-pack --environment cpu --platform linux-64 --ignore-pypi-non-wheel \
+    --output-file build/environment.tar "${inject[@]}" pixi.toml
+build/tools/pixi-unpack build/environment.tar -o build/test -e env -s bash -q
+build/test/env/bin/python packaging/collect_licenses.py --prefix build/test/env --out build/licenses
+py packaging/build_release.py atlas --out build/assets
+version=$(py packaging/build_release.py version --wheels build/wheels)
+py packaging/build_release.py assemble --version "$version" --pack build/environment.tar \
+    --unpack build/tools/pixi-unpack --licenses build/licenses --runtime-from build/test/env \
+    --out dist --atlas build/assets/*.zip
+```
+
+The workflow then adds the package to the checksum list of the release
+(`build_release.py sums --file SHA256SUMS.txt <package>`) and tests it in the Docker images
+`ubuntu:24.04` and `ubuntu:26.04` ([`packaging/linux`](packaging/linux)).
+
+</details>
+
 ## Muscle Wrapping demo
 
 Not part of the pipeline — a prebuilt [Muscle Wrapping 2.x](https://doi.org/10.1007/s10439-020-02490-4)
-(OpenSim 4.5 plugin) to try the output. Nothing to install.
+(OpenSim 4.5 plugin) to try the output. Nothing to install. Windows only.
 
 1. Download `msk-pipe-mw2-demo-v1-win64.zip` from
    [**Releases → mw2-demo-v1**](https://github.com/kivzcu/msk-pipe/releases/tag/mw2-demo-v1) (~55 MB)
@@ -150,8 +199,8 @@ OpenSim GUI), `analysis\*_Lengths.sto`, `*_MomentArms_*.sto`, `mw2.log`.
 ## Configuration and experiments
 
 Every setting has a default and an explanation (`?` in the GUI). Priority: defaults < YAML <
-`--set key=value`. `mskpipe` below is `mskpipe.cmd` in the release and `pixi run -e cpu mskpipe`
-from source.
+`--set key=value`. `mskpipe` below is `mskpipe.cmd` in the release (`./mskpipe` on Linux) and
+`pixi run -e cpu mskpipe` from source.
 
 ```powershell
 mskpipe config init my.yaml                       # commented template
@@ -189,6 +238,7 @@ mskpipe run scan.nii.gz -m ct --set attachments.method=manual --set attachments.
 | No internet during the run | download weights beforehand: `mskpipe setup weights -m ct` |
 | No TotalSegmentator licence key | *Use MuscleMap instead* (`--set segmentation.bones=musclemap`): all bones from MuscleMap |
 | Path too long | keep the release at a short path such as `C:\msk-pipe-<version>` |
+| Linux: the GUI does not start (WSL, server) | install the packages the message names (`sudo apt install libgl1 …`); the command line needs none |
 | Warning "bone defect(s)" after the run | holes in thin bone or a broken fibula (common in MRI) were repaired or could not be: check them with `mskpipe qc <run> --show` (GUI: *Geometry check…*) |
 | What is missing? | `mskpipe setup status` |
 

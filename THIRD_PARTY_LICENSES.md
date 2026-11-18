@@ -3,7 +3,7 @@
 msk-pipe itself is licensed under [Apache-2.0](LICENSE). It relies on the components below, each under its own license.
 
 > [!IMPORTANT]
-> **pystaple is licensed under CC BY-NC 4.0.** The complete pipeline and the Windows release that includes it may therefore be used for **non-commercial purposes only**.
+> **pystaple is licensed under CC BY-NC 4.0.** The complete pipeline and the releases that include it may therefore be used for **non-commercial purposes only**.
 
 ## Core pipeline
 
@@ -18,7 +18,7 @@ msk-pipe itself is licensed under [Apache-2.0](LICENSE). It relies on the compon
 | PySide6 | LGPL-3.0 | Graphical user interface (unmodified, shipped as separate libraries) | [qt.io](https://www.qt.io/qt-for-python) |
 | dcm2niix | BSD-2-Clause (bundled parts: public domain, MIT, BSD) | DICOM to NIfTI conversion of DICOM input folders (unmodified executable, conda-forge) | [rordenlab/dcm2niix](https://github.com/rordenlab/dcm2niix) |
 
-The Windows release additionally bundles further Python and conda packages. Their complete list and license texts are generated automatically at release time and shipped in the `licenses/` folder of the release archive.
+The releases additionally bundle further Python and conda packages (the Linux release also X11 client libraries from conda-forge — libX11, libXrender, libxcb, xcb-util, libxkbcommon; MIT — used where the system has none). Their complete list and license texts are generated automatically at release time and shipped in the `licenses/` folder of the release archive.
 
 ## Not included (read the output of msk-pipe)
 

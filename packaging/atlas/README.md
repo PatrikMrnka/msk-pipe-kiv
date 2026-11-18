@@ -26,9 +26,12 @@ Bruxelles, project LHDL (EU FP6 IST-2004-026932), distributed through Physiome S
 - attachment areas: landmark clouds digitised during dissection (`Ori_*`, `Ins_*`),
 - right gluteus minimus, obturator internus and obturator externus (origin and insertion)
   and the insertions of the right rectus femoris, vastus lateralis and vastus medialis
-  (distal femur at the end of the bellies): the LHDL attachment files distributed with the
-  data of the Muscle Wrapping project (LHDL GenericAtlas WP10,
-  `S032_R_<Muscle>_{Ori,Ins}.vtk`), used unchanged.
+  (distal femur at the end of the bellies): the attachment files of the same donor
+  distributed with the data of the Muscle Wrapping project (`S032_R_<Muscle>_{Ori,Ins}.vtk`),
+  used unchanged. These files come from LHDL GenericAtlas WP10, a version of the LHDL data
+  prepared in the VPHOP project (EU FP7-ICT-223865), in which the muscle surfaces were made
+  closed, manifold and smooth and extended to whole muscle-tendon units (Kohout et al. 2013,
+  doi:10.1098/rsfs.2012.0062). They are LHDL data under the same licence.
 
 ## Changes made to the original data
 
@@ -54,5 +57,5 @@ Bruxelles, project LHDL (EU FP6 IST-2004-026932), distributed through Physiome S
 
 ## Citation
 
-Cite the LHDL dataset (Viceconti et al.; www.livinghuman.org) and msk-pipe
-(`CITATION.cff` in the repository).
+Cite the LHDL dataset (Viceconti et al.; www.livinghuman.org), for the GenericAtlas WP10
+files also Kohout et al. (2013), and msk-pipe (`CITATION.cff` in the repository).

@@ -1,7 +1,7 @@
 [workspace]
 name = "msk-pipe"
 channels = ["conda-forge"]
-platforms = ["win-64"]
+platforms = ["win-64", "linux-64"]
 requires-pixi = ">=0.60"
 
 # ---------------------------------------------------------------------------
@@ -13,6 +13,23 @@ pydantic = ">=2.7,<3"
 pyyaml = ">=6"
 psutil = ">=5.9,<7"
 dcm2niix = ">=1.0.20260724,<2"  # DICOM input (BSD-2-Clause)
+
+# Linux: X11 client libraries that the PyPI wheels of VTK and Qt take from the system.
+# `import vtk` needs libX11 and libXrender even without a display (server, container);
+# Qt's xcb plugin needs the xcb-util family and libxkbcommon-x11, of which Ubuntu installs
+# only a part (24.04: no libxcb-cursor0; 26.04: seven are missing). Used when the system
+# has none (VTK: found through the environment's Python; Qt: mskpipe.gui.platform_libs).
+[target.linux-64.dependencies]
+xorg-libx11 = ">=1.8"
+xorg-libxrender = ">=0.9"
+libxcb = ">=1.17"
+xcb-util = ">=0.4"
+xcb-util-cursor = ">=0.1"
+xcb-util-image = ">=0.4"
+xcb-util-keysyms = ">=0.4"
+xcb-util-renderutil = ">=0.3"
+xcb-util-wm = ">=0.4"
+libxkbcommon = ">=1.7"
 
 [pypi-dependencies]
 mskpipe = { path = ".", editable = true }
@@ -86,7 +103,7 @@ cov = "pytest --cov --cov-report=term-missing"
 #   default : dev tools only (lint, unit tests)         pixi run test
 #   cpu     : full pipeline on CPU (release bundle)     pixi run -e cpu mskpipe ...
 #   gpu     : full pipeline on NVIDIA GPU (CUDA 12.8)   pixi run -e gpu mskpipe ...
-#   dev-cpu : full pipeline + dev tools (slow tests)    pixi run -e dev-cpu pytest -m slow
+#   dev-cpu : full pipeline + dev tools                 pixi run -e dev-cpu pytest -m reference
 #   all of them include the GUI                          pixi run -e gpu gui
 # ---------------------------------------------------------------------------
 [environments]

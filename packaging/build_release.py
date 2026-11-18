@@ -1,21 +1,26 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Build the Windows release of msk-pipe (used by .github/workflows/release.yml).
+"""Build the Windows and Linux releases of msk-pipe (.github/workflows/release.yml).
 
-Steps (each a subcommand, run from the repository root)::
+Steps (each a subcommand, run from the repository root; ``--platform`` win-64 or linux-64,
+default: the platform the script runs on)::
 
     python packaging/build_release.py tools --out build/tools        # pixi-pack, pixi-unpack
     python packaging/build_release.py wheels --out build/wheels      # non-wheel packages
-    build/tools/pixi-pack.exe ... --inject build/wheels/*.whl        # environment.tar
+    build/tools/pixi-pack ... --inject build/wheels/*.whl            # environment.tar
     python packaging/build_release.py atlas --out build/assets       # pinned atlas asset
-    python packaging/build_release.py maxpath --root build/test      # longest path in env
-    python packaging/build_release.py assemble --version 0.1.0 ...   # dist/*.zip + SHA256SUMS
+    python packaging/build_release.py maxpath --root build/test      # longest path (Windows)
+    python packaging/build_release.py assemble --version 0.1.0 ...   # dist/ archive + sums
+    python packaging/build_release.py sums --file SHA256SUMS.txt F   # add F to the list
 
-The release folder (zipped as ``msk-pipe-<version>-win64.zip``)::
+The release folder (``msk-pipe-<version>-win64.zip``, ``...-linux-x86_64.tar.gz``)::
 
     msk-pipe-<version>/
-        msk-pipe.cmd, mskpipe.cmd     GUI (double-click) and command line
+        msk-pipe.cmd, mskpipe.cmd     GUI (double-click) and command line; Linux: msk-pipe,
+                                      mskpipe (shell scripts)
         environment.tar               pixi-pack of the "cpu" environment
-        bin/                          pixi-unpack.exe (+ VC++ runtime DLLs), _setup.cmd
+        bin/                          pixi-unpack and the setup script (_setup.cmd with the
+                                      VC++ runtime DLLs and maxpath.txt; Linux: _setup.sh
+                                      with cacert.pem)
         atlas/lhdl/                   attachment atlas (own licence, CC BY-NC-SA 2.0 BE)
         licenses/                     licences of every bundled package
         LICENSE, NOTICE, THIRD_PARTY_LICENSES.md, CITATION.cff, README.txt, version.txt
@@ -27,15 +32,18 @@ builds with pip).
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import json
 import shutil
 import subprocess
 import sys
+import tarfile
 import tomllib
 import urllib.request
 import zipfile
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import urlparse
@@ -49,8 +57,38 @@ DOCS = ("LICENSE", "NOTICE", "THIRD_PARTY_LICENSES.md", "CITATION.cff")
 # have; it runs before the environment exists, so its DLLs are put next to it (app-local,
 # taken from the environment's own conda package vc14_runtime, licence in licenses/).
 RUNTIME_DLLS = ("vcruntime140.dll", "vcruntime140_1.dll")
+# Linux: pixi-unpack (static) sets up a TLS client although it downloads nothing and stops
+# on a system without CA certificates (minimal containers); it gets the bundle of the
+# environment's own conda package ca-certificates (licence in licenses/).
+CA_BUNDLE = PurePosixPath("ssl/cacert.pem")
 MAX_ASSET_BYTES = 2 * 2**30 - 2**20  # GitHub release assets must be < 2 GiB
 STORED_SUFFIXES = (".tar", ".exe", ".whl", ".zip")  # already compressed
+
+
+@dataclass(frozen=True)
+class Target:
+    """What differs between the release packages."""
+
+    platform: str  # pixi platform
+    asset: str  # msk-pipe-<version>-<asset>
+    launcher: Path  # folder with the start scripts, README.txt and bin/
+    scripts: tuple[str, ...]  # start scripts in the release root
+    exe: str  # suffix of executables
+    crlf: bool  # line ends of the scripts and text files
+
+
+TARGETS = {
+    "win-64": Target(
+        "win-64", "win64.zip", LAUNCHER, ("msk-pipe.cmd", "mskpipe.cmd"), ".exe", True
+    ),
+    "linux-64": Target(
+        "linux-64", "linux-x86_64.tar.gz", LAUNCHER / "linux", ("msk-pipe", "mskpipe"), "", False
+    ),
+}
+
+
+def host_platform() -> str:
+    return "win-64" if sys.platform == "win32" else "linux-64"
 
 
 class BuildError(RuntimeError):
@@ -209,6 +247,14 @@ def extract_atlas(archive: Path, dest: Path) -> None:
 # ---------------------------------------------------------------- assemble
 
 
+def ca_bundle(prefix: Path) -> Path:
+    """CA certificates of an unpacked environment (conda package ca-certificates)."""
+    path = prefix.joinpath(*CA_BUNDLE.parts)
+    if not path.is_file() or b"BEGIN CERTIFICATE" not in path.read_bytes():
+        raise BuildError(f"No {CA_BUNDLE} in {prefix} (conda package ca-certificates)")
+    return path
+
+
 def runtime_dlls(prefix: Path) -> list[Path]:
     """Visual C++ runtime DLLs of an unpacked environment (root, else Library/bin)."""
     found = []
@@ -238,27 +284,32 @@ def stage(
     pack: Path,
     unpack: Path,
     licenses: Path,
-    maxpath: int,
+    maxpath: int | None = None,
     atlas: Path | None,
     atlas_folder: str = "lhdl",
     runtime: list[Path] | None = None,
+    platform: str = "win-64",
 ) -> Path:
     """Lay out the release folder ``folder`` (created fresh)."""
+    target = TARGETS[platform]
+    write = _write_crlf if target.crlf else _write_lf
     if folder.exists():
         shutil.rmtree(folder)
     (folder / "bin").mkdir(parents=True)
-    # batch files need CRLF line ends (labels, goto); text files for Notepad too
-    for name in ("msk-pipe.cmd", "mskpipe.cmd"):
-        _write_crlf(folder / name, (LAUNCHER / name).read_text(encoding="utf-8"))
-    for path in (LAUNCHER / "bin").iterdir():
-        _write_crlf(folder / "bin" / path.name, path.read_text(encoding="utf-8"))
-    readme = (LAUNCHER / "README.txt").read_text(encoding="utf-8").replace("{version}", version)
-    _write_crlf(folder / "README.txt", readme)
-    _write_crlf(folder / "version.txt", version + "\n")
-    _write_crlf(folder / "bin" / "maxpath.txt", f"{maxpath}\n")
-    shutil.copy2(unpack, folder / "bin" / "pixi-unpack.exe")
-    for dll in runtime or ():
-        shutil.copy2(dll, folder / "bin" / dll.name.lower())
+    # batch files need CRLF line ends (labels, goto), text files for Notepad too; shell
+    # scripts need LF. Neither depends on how git checked the files out.
+    for name in target.scripts:
+        write(folder / name, (target.launcher / name).read_text(encoding="utf-8"))
+    for path in (target.launcher / "bin").iterdir():
+        write(folder / "bin" / path.name, path.read_text(encoding="utf-8"))
+    readme = target.launcher / "README.txt"
+    write(folder / "README.txt", readme.read_text(encoding="utf-8").replace("{version}", version))
+    write(folder / "version.txt", version + "\n")
+    if maxpath is not None:
+        write(folder / "bin" / "maxpath.txt", f"{maxpath}\n")
+    shutil.copy2(unpack, folder / "bin" / f"pixi-unpack{target.exe}")
+    for path in runtime or ():  # files pixi-unpack needs before the environment exists
+        shutil.copy2(path, folder / "bin" / path.name.lower())
     shutil.copy2(pack, folder / "environment.tar")
     for name in DOCS:
         shutil.copy2(ROOT / name, folder / name)
@@ -268,8 +319,18 @@ def stage(
     return folder
 
 
+def executables(platform: str) -> tuple[str, ...]:
+    """Files of a POSIX release folder that must be executable (relative, POSIX style)."""
+    target = TARGETS[platform]
+    return () if target.crlf else (*target.scripts, "bin/pixi-unpack")
+
+
 def _write_crlf(path: Path, text: str) -> None:
     path.write_bytes(text.replace("\r\n", "\n").replace("\n", "\r\n").encode("utf-8"))
+
+
+def _write_lf(path: Path, text: str) -> None:
+    path.write_bytes(text.replace("\r\n", "\n").encode("utf-8"))
 
 
 def zip_folder(folder: Path, archive: Path, limit: int = MAX_ASSET_BYTES) -> Path:
@@ -287,14 +348,71 @@ def zip_folder(folder: Path, archive: Path, limit: int = MAX_ASSET_BYTES) -> Pat
     return archive
 
 
+def tar_folder(
+    folder: Path, archive: Path, executable: Iterable[str] = (), limit: int = MAX_ASSET_BYTES
+) -> Path:
+    """``folder`` (as its top-level directory) as .tar.gz. File modes do not depend on the
+    file system the release was staged on: 0755 for ``executable`` (paths relative to
+    ``folder``) and directories, 0644 otherwise; no user names. The environment is
+    compressed already, so gzip only wraps it (level 1)."""
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    runnable = {PurePosixPath(p) for p in executable}
+    missing = sorted(str(p) for p in runnable if not folder.joinpath(*p.parts).is_file())
+    if missing:
+        raise BuildError(f"Not in {folder.name}: {missing}")
+
+    def entry(info: tarfile.TarInfo) -> tarfile.TarInfo:
+        relative = PurePosixPath(*PurePosixPath(info.name).parts[1:])
+        info.mode = 0o755 if info.isdir() or relative in runnable else 0o644
+        info.uid = info.gid = 0
+        info.uname = info.gname = ""
+        return info
+
+    with (
+        archive.open("wb") as raw,
+        gzip.GzipFile(filename="", fileobj=raw, mode="wb", compresslevel=1, mtime=0) as gz,
+        tarfile.open(fileobj=gz, mode="w", format=tarfile.PAX_FORMAT) as tf,
+    ):
+        tf.add(folder, arcname=folder.name, recursive=False, filter=entry)
+        for path in sorted(folder.rglob("*")):
+            name = (PurePosixPath(folder.name) / path.relative_to(folder).as_posix()).as_posix()
+            tf.add(path, arcname=name, recursive=False, filter=entry)
+    size = archive.stat().st_size
+    if size > limit:
+        raise BuildError(f"{archive.name} has {size / 2**30:.2f} GiB, GitHub allows < 2 GiB")
+    return archive
+
+
 def write_sums(files: Iterable[Path], out: Path) -> Path:
     lines = [f"{sha256(p)}  {p.name}" for p in sorted(files)]
     out.write_text("\n".join(lines) + "\n", encoding="ascii")
     return out
 
 
+def add_sums(files: Iterable[Path], out: Path) -> Path:
+    """Add ``files`` to the checksum list ``out`` (created if missing; a file listed
+    already gets its new checksum), sorted by file name."""
+    sums: dict[str, str] = {}
+    if out.is_file():
+        for line in out.read_text(encoding="ascii").splitlines():
+            digest, _, name = line.partition("  ")
+            if name:
+                sums[name] = digest
+    for path in files:
+        sums[path.name] = sha256(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    text = "".join(f"{sums[name]}  {name}\n" for name in sorted(sums))
+    out.write_bytes(text.encode("ascii"))
+    return out
+
+
 def assemble(args: argparse.Namespace) -> list[Path]:
     pins = load_pins()
+    target = TARGETS[args.platform]
+    windows = args.platform == "win-64"
+    if windows and not args.maxpath:
+        raise BuildError("The Windows release needs --maxpath")
+    prefix = Path(args.runtime_from)
     dist = Path(args.out)
     dist.mkdir(parents=True, exist_ok=True)
     name = f"msk-pipe-{args.version}"
@@ -304,15 +422,20 @@ def assemble(args: argparse.Namespace) -> list[Path]:
         pack=Path(args.pack),
         unpack=Path(args.unpack),
         licenses=Path(args.licenses),
-        maxpath=int(Path(args.maxpath).read_text(encoding="ascii").strip()),
+        maxpath=int(Path(args.maxpath).read_text(encoding="ascii").strip()) if windows else None,
         atlas=Path(args.atlas) if args.atlas else None,
         atlas_folder=pins["atlas"]["folder"],
-        runtime=runtime_dlls(Path(args.runtime_from)),
+        runtime=runtime_dlls(prefix) if windows else [ca_bundle(prefix)],
+        platform=args.platform,
     )
-    outputs = [zip_folder(folder, dist / f"{name}-win64.zip")]
+    archive = dist / f"{name}-{target.asset}"
+    if windows:
+        outputs = [zip_folder(folder, archive)]
+    else:
+        outputs = [tar_folder(folder, archive, executables(args.platform))]
     if args.atlas:
         outputs.append(Path(shutil.copy2(args.atlas, dist / Path(args.atlas).name)))
-    outputs.append(write_sums(outputs, dist / "SHA256SUMS.txt"))
+    outputs.append(add_sums(outputs, dist / "SHA256SUMS.txt"))
     for path in outputs:
         print(f"{path} ({path.stat().st_size / 2**20:.1f} MiB)")
     return outputs
@@ -325,12 +448,17 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
 
+    def platform_option(p: argparse.ArgumentParser) -> None:
+        p.add_argument("--platform", choices=sorted(TARGETS), default=host_platform())
+
     p = sub.add_parser("tools", help="download the pinned pixi-pack and pixi-unpack")
     p.add_argument("--out", required=True)
+    platform_option(p)
 
     p = sub.add_parser("wheels", help="build wheels of the non-wheel PyPI packages")
     p.add_argument("--out", required=True)
     p.add_argument("--lock", default=str(ROOT / "pixi.lock"))
+    platform_option(p)
 
     p = sub.add_parser("version", help="print the mskpipe version of the built wheel")
     p.add_argument("--wheels", required=True)
@@ -347,32 +475,41 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--root", required=True)
     p.add_argument("--out", required=True)
 
-    p = sub.add_parser("assemble", help="release folder -> zip + SHA256SUMS")
+    p = sub.add_parser("assemble", help="release folder -> zip or tar.gz + SHA256SUMS")
     p.add_argument("--version", required=True)
     p.add_argument("--pack", required=True, help="environment.tar from pixi-pack")
-    p.add_argument("--unpack", required=True, help="pixi-unpack.exe")
+    p.add_argument("--unpack", required=True, help="pixi-unpack of the platform")
     p.add_argument("--licenses", required=True, help="output of collect_licenses.py")
-    p.add_argument("--maxpath", required=True, help="output of the maxpath command")
+    p.add_argument("--maxpath", help="output of the maxpath command (Windows)")
     p.add_argument("--atlas", help="atlas zip (omit for a release without atlas)")
     p.add_argument(
         "--runtime-from",
         required=True,
-        help="unpacked environment with the Visual C++ runtime DLLs for bin/",
+        help="unpacked environment with the files pixi-unpack needs in bin/: the Visual "
+        "C++ runtime DLLs (Windows), the CA certificates (Linux)",
     )
     p.add_argument("--work", default="build/stage")
     p.add_argument("--out", default="dist")
+    platform_option(p)
+
+    p = sub.add_parser("sums", help="add files to a SHA256SUMS list")
+    p.add_argument("--file", required=True, help="the list (created if missing)")
+    p.add_argument("files", nargs="+")
 
     args = parser.parse_args(argv)
     pins = load_pins()
     try:
         if args.command == "tools":
-            pp = pins["pixi-pack"]
-            out = Path(args.out)
-            fetch(pp["pack_url"], out / "pixi-pack.exe", pp["pack_sha256"])
-            fetch(pp["unpack_url"], out / "pixi-unpack.exe", pp["unpack_sha256"])
+            pp = pins["pixi-pack"][args.platform]
+            out, exe = Path(args.out), TARGETS[args.platform].exe
+            for tool in ("pack", "unpack"):
+                path = fetch(pp[f"{tool}_url"], out / f"pixi-{tool}{exe}", pp[f"{tool}_sha256"])
+                path.chmod(0o755)
         elif args.command == "wheels":
             env = pins["environment"]
-            build_wheels(Path(args.out), Path(args.lock), env["name"], env["platform"])
+            if args.platform not in env["platforms"]:
+                raise BuildError(f"No release for {args.platform} in packaging/release.toml")
+            build_wheels(Path(args.out), Path(args.lock), env["name"], args.platform)
         elif args.command == "version":
             print(wheel_version(Path(args.wheels)))
         elif args.command == "atlas":
@@ -386,6 +523,8 @@ def main(argv: list[str] | None = None) -> int:
             print(value)
         elif args.command == "assemble":
             assemble(args)
+        elif args.command == "sums":
+            print(add_sums([Path(f) for f in args.files], Path(args.file)).read_text("ascii"))
     except BuildError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1

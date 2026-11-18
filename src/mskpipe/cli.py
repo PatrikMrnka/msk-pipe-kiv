@@ -641,7 +641,7 @@ def view(
     try:
         from mskpipe.gui.slice_viewer import main as view_main
     except ImportError as exc:
-        typer.echo(f"Error: the viewer needs PySide6 ({exc}).", err=True)
+        typer.echo(f"Error: the viewer needs PySide6 ({exc}).{_gui_libraries_hint()}", err=True)
         raise typer.Exit(1) from None
     raise typer.Exit(view_main(target, labels or []))
 
@@ -736,13 +736,22 @@ def gui() -> None:
     try:
         from mskpipe.gui.app import main as gui_main
     except ImportError as exc:
-        typer.echo(
-            f"Error: the GUI needs PySide6 ({exc}). Use a pixi environment with the GUI: "
-            "pixi run -e cpu mskpipe gui",
-            err=True,
+        hint = _gui_libraries_hint() or (
+            " Use a pixi environment with the GUI: pixi run -e cpu mskpipe gui"
         )
+        typer.echo(f"Error: the GUI needs PySide6 ({exc}).{hint}", err=True)
         raise typer.Exit(1) from None
     raise typer.Exit(gui_main([]))
+
+
+def _gui_libraries_hint() -> str:
+    """Linux without a desktop: which system libraries Qt misses (else empty)."""
+    try:
+        from mskpipe.gui.platform_libs import missing_hint
+    except ImportError:
+        return ""
+    hint = missing_hint()
+    return f"\n{hint}" if hint else ""
 
 
 # ---------------------------------------------------------------------------- setup
@@ -960,11 +969,12 @@ def setup_gpu(
         bool, typer.Option("--keep-downloads", help="Keep the downloaded wheels.")
     ] = False,
 ) -> None:
-    """Install GPU support for the Windows release (CUDA build of PyTorch, ~3.5 GB).
+    """Install GPU support for the release (CUDA build of PyTorch, ~3.5 GB).
 
-    Downloads the torch/torchvision CUDA wheels pinned in pixi.lock, checks their SHA-256
-    and unpacks them next to the environment; runs on the GPU use them, CPU runs do not.
-    Needs an NVIDIA driver 570 or newer. From the sources use `pixi run -e gpu` instead.
+    Downloads the CUDA wheels pinned in pixi.lock (torch, torchvision; on Linux also the
+    CUDA libraries), checks their SHA-256 and unpacks them into the msk-pipe data folder;
+    runs on the GPU use them, CPU runs do not. Needs an NVIDIA driver 570 or newer. From
+    the sources use `pixi run -e gpu` instead.
     """
     from mskpipe.resources.download import DownloadError
     from mskpipe.resources.gpu import GpuSetupError, install_gpu, remove_gpu

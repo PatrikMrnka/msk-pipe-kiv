@@ -114,9 +114,9 @@ def test_dialog_shows_status(qapp):
     assert "not set" in dlg.licence_label.text()
     assert "missing" in dlg.atlas_label.text()
     assert dlg.musclemap_button.isEnabled()
-    if not gpu.platform_supported():  # Linux CI: GPU support only in the Windows release
+    if not gpu.platform_supported():  # a platform without GPU wheels in gpu_wheels.json
         assert not dlg.gpu_install.isEnabled()
-        assert "Windows release" in dlg.gpu_label.text()
+        assert "not available" in dlg.gpu_label.text()
     assert not dlg.at_start_check.isVisible()
     dlg.deleteLater()
 

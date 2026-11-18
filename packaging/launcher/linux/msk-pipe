@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# msk-pipe - start the graphical user interface.
+# shellcheck source=bin/_setup.sh
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/bin/_setup.sh" || exit 1
+if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ] && [ -z "${QT_QPA_PLATFORM:-}" ]; then
+  echo "ERROR: no display found (DISPLAY, WAYLAND_DISPLAY). Without a desktop use the" >&2
+  echo "command line: $MSKPIPE_ROOT/mskpipe --help" >&2
+  exit 1
+fi
+# run folders go to Documents/msk-pipe/runs (the GUI remembers another choice)
+docs="$(xdg-user-dir DOCUMENTS 2>/dev/null || true)"
+if [ -z "$docs" ] || [ "$docs" = "$HOME" ] || [ ! -d "$docs" ]; then docs="$HOME/Documents"; fi
+if [ -d "$docs" ]; then work="$docs/msk-pipe"; else work="$HOME/msk-pipe"; fi
+mkdir -p "$work" && cd "$work" || exit 1
+exec "$MSKPIPE_PYTHON" -m mskpipe.gui "$@"

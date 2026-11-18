@@ -370,7 +370,7 @@ class SetupDialog(QDialog):
             self.gpu_remove.setEnabled(not busy and gpu.source == "overlay")
         elif not gpu.supported:
             self.gpu_label.setText(
-                _colored("only in the Windows release; from the sources use pixi -e gpu", NOTE)
+                _colored("not available on this system; from the sources use pixi -e gpu", NOTE)
             )
             self.gpu_install.setEnabled(False)
             self.gpu_remove.setEnabled(False)

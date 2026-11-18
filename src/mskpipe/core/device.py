@@ -36,7 +36,7 @@ PROBE_TIMEOUT_S = 300  # first CUDA start after installing GPU support: minutes
 
 _GPU_HINT = (
     f"Needs an NVIDIA driver {MIN_DRIVER} or newer and a CUDA build of PyTorch: in the "
-    "Windows release install GPU support (`mskpipe setup gpu`), from the sources use the GPU "
+    "release install GPU support (`mskpipe setup gpu`), from the sources use the GPU "
     "environment (`pixi run -e gpu mskpipe ...`); or use runtime.device=cpu (or auto)."
 )
 

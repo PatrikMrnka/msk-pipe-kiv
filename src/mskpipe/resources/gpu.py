@@ -1,13 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
-"""GPU support on demand for the Windows release (``mskpipe setup gpu``).
+"""GPU support on demand for the releases (``mskpipe setup gpu``).
 
-The pixi environments ``cpu`` and ``gpu`` differ only in two wheels: ``torch`` and
-``torchvision`` (``+cpu`` vs ``+cu128``; checked by a test against ``pixi.lock``). The
-release ships the CPU environment; GPU support downloads the two CUDA wheels pinned in
-``pixi.lock`` (URL and SHA-256, copied to ``gpu_wheels.json``) and unpacks them into an
+The pixi environments ``cpu`` and ``gpu`` differ only in a few wheels: ``torch`` and
+``torchvision`` (``+cpu`` vs ``+cu128``) and, on Linux, the CUDA libraries, which are
+wheels of their own there (``nvidia-*``, ``triton``; on Windows they are inside the torch
+wheel). The releases ship the CPU environment; GPU support downloads the wheels of the
+``gpu`` environment that differ, as pinned in ``pixi.lock`` (URL and SHA-256, copied to
+``gpu_wheels.json`` per platform and checked by a test), and unpacks them into an
 *overlay* folder shared by all msk-pipe versions::
 
-    <MSKPIPE_HOME>/gpu/<tag>/site-packages/   torch + torchvision (CUDA build)
+    <MSKPIPE_HOME>/gpu/<tag>/site-packages/   torch + torchvision (CUDA build), CUDA libs
     <MSKPIPE_HOME>/gpu/<tag>/overlay.json     what was installed (written last)
 
 Only the child processes of a run whose device resolved to ``cuda`` (and the torch probe)
@@ -22,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform as platform_module
 import re
 import shutil
 import sys
@@ -42,8 +45,10 @@ OVERLAY_ENV = "MSKPIPE_TORCH_OVERLAY"
 SPEC_FILE = "gpu_wheels.json"
 MARKER = "overlay.json"
 SITE = "site-packages"
-OVERLAY_PACKAGES = ("torch", "torchvision")  # the only packages that differ cpu <-> gpu
-MIN_FREE_BYTES = 10 * 2**30  # downloads (~3.5 GB) + unpacked overlay (~6 GB)
+OVERLAY_PACKAGES = ("torch", "torchvision")  # differ cpu <-> gpu on every platform
+# pixi platform -> platform tag of its wheels (the end of it: manylinux_2_28_x86_64)
+PLATFORMS = {"win-64": "win_amd64", "linux-64": "x86_64"}
+MIN_FREE_BYTES = 12 * 2**30  # downloads (~3.5 GB) + unpacked overlay (6-8 GB)
 
 
 class GpuSetupError(RuntimeError):
@@ -62,12 +67,20 @@ class Wheel(BaseModel):
 
 
 class GpuSpec(BaseModel):
-    format: str = "mskpipe.gpu_wheels"
-    version: int = 1
+    """The overlay of one platform."""
+
     tag: str  # e.g. torch-2.7.1+cu128
     python: str  # e.g. cp311
-    platform: str  # e.g. win_amd64
+    platform: str  # platform tag of the torch wheel: win_amd64, manylinux_2_28_x86_64
     wheels: list[Wheel]
+
+
+class GpuSpecFile(BaseModel):
+    """``gpu_wheels.json``: the overlay of every release platform (pixi platform names)."""
+
+    format: str = "mskpipe.gpu_wheels"
+    version: int = 2
+    platforms: dict[str, GpuSpec]
 
 
 class GpuStatus(BaseModel):
@@ -76,7 +89,7 @@ class GpuStatus(BaseModel):
     path: str | None = None
     source: str  # "overlay", "env" (MSKPIPE_TORCH_OVERLAY) or "none"
     packages: dict[str, str] = {}
-    supported: bool  # the release platform (Windows, CPython 3.11)
+    supported: bool  # a release platform (Windows or Linux x64, the pinned CPython)
 
 
 # ---------------------------------------------------------------- spec
@@ -88,9 +101,30 @@ def url_filename(url: str) -> str:
     return unquote(PurePosixPath(urlparse(url).path).name)
 
 
-def load_spec() -> GpuSpec:
+def current_platform() -> str | None:
+    """pixi platform of this interpreter if a release exists for it, else None."""
+    if platform_module.machine().lower() not in ("amd64", "x86_64"):
+        return None
+    if sys.platform == "win32":
+        return "win-64"
+    return "linux-64" if sys.platform.startswith("linux") else None
+
+
+def load_specs() -> dict[str, GpuSpec]:
     text = files("mskpipe.resources").joinpath(SPEC_FILE).read_text(encoding="utf-8")
-    return GpuSpec.model_validate_json(text)
+    return GpuSpecFile.model_validate_json(text).platforms
+
+
+def load_spec(platform: str | None = None) -> GpuSpec:
+    """The overlay of ``platform`` (default: this one). On a platform without an overlay
+    the first one is returned, for display only: :func:`platform_supported` is False."""
+    specs = load_specs()
+    spec = specs.get(platform or current_platform() or "")
+    if spec is not None:
+        return spec
+    if platform is not None or not specs:
+        raise GpuSetupError(f"{SPEC_FILE} has no GPU wheels for {platform or 'any platform'}")
+    return next(iter(specs.values()))
 
 
 def _canonical(name: str) -> str:
@@ -126,13 +160,36 @@ def env_differences(
     }
 
 
-def spec_from_lock(lock: Mapping[str, Any], env: str = "gpu", platform: str = "win-64") -> GpuSpec:
-    """GPU wheels (torch, torchvision) of a locked environment with URL and SHA-256."""
+def unexpected_differences(
+    lock: Mapping[str, Any], platform: str = "win-64", a: str = "cpu", b: str = "gpu"
+) -> dict[str, tuple[str | None, str | None]]:
+    """Differences between the two environments that the overlay must not have: all but
+    another build of torch/torchvision and packages only ``b`` has (Linux: the CUDA
+    libraries ``nvidia-*``, ``triton`` and what they need). A package of ``a`` in
+    another version, or missing in ``b``, would make a GPU run differ from the ``gpu``
+    environment in more than the GPU."""
+    return {
+        name: (va, vb)
+        for name, (va, vb) in env_differences(lock, a, b, platform).items()
+        if name not in OVERLAY_PACKAGES and va is not None
+    }
+
+
+def spec_from_lock(
+    lock: Mapping[str, Any], env: str = "gpu", platform: str = "win-64", base: str = "cpu"
+) -> GpuSpec:
+    """The wheels that turn the locked environment ``base`` into ``env``, with URL and
+    SHA-256: torch and torchvision, and whatever else differs (Linux: the CUDA libraries).
+    Fails if a difference cannot be overlaid: a package missing in ``env``, a conda
+    package or a source distribution."""
     pypi = {p["pypi"]: p for p in lock["packages"] if "pypi" in p}
+    differing = set(env_differences(lock, base, env, platform)) | set(OVERLAY_PACKAGES)
     wheels: dict[str, Wheel] = {}
     for entry in lock["environments"][env]["packages"][platform]:
         info = pypi.get(entry.get("pypi", ""))
-        if info is None or _canonical(info["name"]) not in OVERLAY_PACKAGES:
+        if info is None or _canonical(info["name"]) not in differing:
+            continue
+        if not url_filename(entry["pypi"]).endswith(".whl") or not info.get("sha256"):
             continue
         wheels[_canonical(info["name"])] = Wheel(
             name=_canonical(info["name"]),
@@ -140,16 +197,28 @@ def spec_from_lock(lock: Mapping[str, Any], env: str = "gpu", platform: str = "w
             url=entry["pypi"],
             sha256=info["sha256"],
         )
-    missing = [p for p in OVERLAY_PACKAGES if p not in wheels]
+    missing = sorted(differing - set(wheels))
     if missing:
-        raise GpuSetupError(f"pixi.lock environment '{env}' has no wheel for {missing}")
+        raise GpuSetupError(
+            f"pixi.lock ({platform}): environment '{env}' has no wheel for {missing}, "
+            f"which differ from '{base}' - the overlay cannot reproduce '{env}'"
+        )
     torch = wheels["torch"]
     parts = torch.filename.removesuffix(".whl").split("-")  # name-ver-py-abi-platform
+    others = sorted(differing - set(OVERLAY_PACKAGES))
     return GpuSpec(
         tag=f"torch-{torch.version}",
         python=parts[2],
         platform=parts[4],
-        wheels=[wheels[p] for p in OVERLAY_PACKAGES],
+        wheels=[wheels[p] for p in (*OVERLAY_PACKAGES, *others)],
+    )
+
+
+def specs_from_lock(lock: Mapping[str, Any], env: str = "gpu") -> GpuSpecFile:
+    """``gpu_wheels.json`` for every release platform the lock file has."""
+    locked = lock["environments"][env]["packages"]
+    return GpuSpecFile(
+        platforms={p: spec_from_lock(lock, env, p) for p in PLATFORMS if p in locked}
     )
 
 
@@ -165,10 +234,11 @@ def overlay_dir(spec: GpuSpec | None = None) -> Path:
 
 
 def platform_supported(spec: GpuSpec | None = None) -> bool:
-    """The overlay wheels fit this interpreter (Windows x64, the pinned CPython)."""
+    """The overlay wheels fit this interpreter (Windows or Linux x64, the pinned CPython)."""
     spec = spec or load_spec()
     py = f"cp{sys.version_info.major}{sys.version_info.minor}"
-    return sys.platform == "win32" and spec.platform == "win_amd64" and spec.python == py
+    suffix = PLATFORMS.get(current_platform() or "")
+    return suffix is not None and spec.platform.endswith(suffix) and spec.python == py
 
 
 def installed_overlay() -> Path | None:
@@ -230,7 +300,8 @@ def with_overlay(env: Mapping[str, str], site: Path | None) -> dict[str, str]:
 def extract_wheel(wheel: Path, site: Path) -> None:
     """Unpack a wheel like ``pip install --target --no-deps``: package files and the
     ``.dist-info`` into ``site``; ``<dist>.data/{purelib,platlib}`` merged into ``site``,
-    other ``.data`` parts (scripts, headers) are not needed and skipped."""
+    other ``.data`` parts (scripts, headers) are not needed and skipped. Executable files
+    stay executable (Linux: helper programs inside the torch and CUDA wheels)."""
     with zipfile.ZipFile(wheel) as zf:
         for info in zf.infolist():
             name = PurePosixPath(info.filename)
@@ -247,6 +318,8 @@ def extract_wheel(wheel: Path, site: Path) -> None:
             target.parent.mkdir(parents=True, exist_ok=True)
             with zf.open(info) as src, target.open("wb") as dst:
                 shutil.copyfileobj(src, dst, 1 << 20)
+            if (info.external_attr >> 16) & 0o111:  # Unix mode of the archive member
+                target.chmod(target.stat().st_mode | 0o111)
 
 
 def install_gpu(
@@ -263,8 +336,8 @@ def install_gpu(
     spec = spec or load_spec()
     if not platform_supported(spec):
         raise GpuSetupError(
-            f"GPU support for the release needs Windows x64 with {spec.python}; from the "
-            "sources use the pixi GPU environment instead: pixi run -e gpu mskpipe ..."
+            f"GPU support for the release needs Windows or Linux x64 with {spec.python}; from "
+            "the sources use the pixi GPU environment instead: pixi run -e gpu mskpipe ..."
         )
     final = overlay_dir(spec)
     if (final / MARKER).is_file() and not force:
@@ -337,11 +410,36 @@ IN_USE = (
 )
 
 
+def running_gpu_processes() -> list[int]:
+    """Processes of this user that have a file of the overlay mapped (a run on the GPU).
+    Linux only: Windows refuses to rename the folder of a loaded DLL by itself."""
+    if not sys.platform.startswith("linux"):
+        return []
+    root = str(overlay_root().resolve()) + os.sep
+    found = []
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit() or int(entry.name) == os.getpid():
+            continue
+        try:
+            maps = (entry / "maps").read_text(encoding="utf-8", errors="replace")
+        except OSError:  # not ours, or gone
+            continue
+        if root in maps:
+            found.append(int(entry.name))
+    return found
+
+
 def _move_aside(folder: Path, old: Path) -> None:
     """Rename ``folder`` out of the way, then delete it. The rename fails as a whole on
     Windows while one of its DLLs is loaded, so a GPU run never sees a half-deleted
     overlay; deleting the renamed copy may leave files behind, removed next time."""
     shutil.rmtree(old, ignore_errors=True)
+    users = running_gpu_processes()
+    if users:
+        raise GpuSetupError(
+            "GPU support is in use, probably by a run on the GPU (process "
+            f"{', '.join(map(str, users))}). Wait until it finishes and try again."
+        )
     try:
         folder.replace(old)
     except OSError as exc:
