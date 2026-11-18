@@ -232,7 +232,11 @@ def wheels(tmp_path):
 
 @pytest.fixture
 def supported(monkeypatch):
+    """Install the fake wheels on any system: platform and free disk space are not checked
+    (the real overlay needs 12 GiB, a CI runner may have less; test_install_refused checks
+    the limit)."""
     monkeypatch.setattr(gpu, "platform_supported", lambda spec=None: True)
+    monkeypatch.setattr(gpu, "MIN_FREE_BYTES", 0)
 
 
 def test_extract_wheel(tmp_path, wheels):
