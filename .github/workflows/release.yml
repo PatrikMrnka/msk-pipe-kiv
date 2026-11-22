@@ -301,7 +301,8 @@ jobs:
           mkdir release
           tar -xzf "dist/msk-pipe-$VERSION-linux-x86_64.tar.gz" -C release
           rm -rf dist
-          test -x "release/msk-pipe-$VERSION/mskpipe" -a -x "release/msk-pipe-$VERSION/msk-pipe"
+          test -x "release/msk-pipe-$VERSION/mskpipe"
+          test ! -e "release/msk-pipe-$VERSION/msk-pipe"  # command line only, no GUI launcher
       - name: Test in ubuntu:${{ matrix.ubuntu }}
         run: |
           docker run --rm -v "$PWD/release:/release" -v "$PWD:/repo:ro" "ubuntu:${{ matrix.ubuntu }}" \

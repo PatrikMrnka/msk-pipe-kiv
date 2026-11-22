@@ -516,6 +516,10 @@ def test_release_workflow():
     assert clean["strategy"]["matrix"]["ubuntu"] == ["24.04", "26.04"]
     test = clean["steps"][-1]["run"]
     assert "docker run" in test and "packaging/linux/smoke_test.sh" in test
+    # the files the unpack step expects to run are the launchers of the package
+    unpack = "\n".join(s.get("run", "") for s in clean["steps"])
+    for name in re.findall(r'-x "release/msk-pipe-\$VERSION/([^"]+)"', unpack):
+        assert name in br.executables("linux-64"), name
     assert (PACKAGING / "linux" / "smoke_test.sh").is_file()
 
 
