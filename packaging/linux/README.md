@@ -18,5 +18,4 @@ on a computer with an NVIDIA GPU (WSL 2 works):
 - [ ] `./mskpipe setup licence <key>`, `./mskpipe setup weights -m ct`
 - [ ] `./mskpipe run <ct.nii.gz> -m ct -d gpu` completes, `06_mw2_input` has the `.osim`,
       `.xml` and meshes; Muscle Wrapping (Windows demo) reads it
-- [ ] `./msk-pipe` opens the GUI on a desktop (Wayland and X11 session), *Setup…* shows
-      the atlas `ok (release)`
+- [ ] `./mskpipe setup status -m ct` shows the atlas `ok` (bundled with the release)

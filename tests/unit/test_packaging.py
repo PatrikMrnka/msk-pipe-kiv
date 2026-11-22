@@ -243,7 +243,6 @@ def test_stage_and_tar_linux(tmp_path):
     )
     names = {p.relative_to(folder).as_posix() for p in folder.rglob("*") if p.is_file()}
     assert names >= {
-        "msk-pipe",
         "mskpipe",
         "bin/_setup.sh",
         "bin/pixi-unpack",
@@ -260,11 +259,12 @@ def test_stage_and_tar_linux(tmp_path):
         "version.txt",
     }
     assert not [n for n in names if n.endswith((".cmd", ".exe", ".dll")) or "maxpath" in n]
-    for script in ("msk-pipe", "mskpipe", "bin/_setup.sh", "README.txt", "version.txt"):
+    assert "msk-pipe" not in names  # command line only: no GUI launcher
+    for script in ("mskpipe", "bin/_setup.sh", "README.txt", "version.txt"):
         assert b"\r" not in (folder / script).read_bytes(), script
     assert (folder / "version.txt").read_bytes() == b"0.1.0\n"
     assert "msk-pipe 0.1.0 for Linux" in (folder / "README.txt").read_text(encoding="utf-8")
-    assert br.executables("linux-64") == ("msk-pipe", "mskpipe", "bin/pixi-unpack")
+    assert br.executables("linux-64") == ("mskpipe", "bin/pixi-unpack")
     assert br.executables("win-64") == ()
 
     archive = tmp_path / "dist" / "msk-pipe-0.1.0-linux-x86_64.tar.gz"
@@ -362,16 +362,29 @@ def test_linux_launcher_references():
         assert name in setup, name
     # the activate.sh of pixi-unpack breaks on a path with a space: not sourced
     assert not re.search(r"^\s*(source|\.)\s.*activate\.sh", setup, re.MULTILINE)
-    gui = (linux / "msk-pipe").read_text(encoding="utf-8")
     cli = (linux / "mskpipe").read_text(encoding="utf-8")
-    assert "-m mskpipe.gui" in gui and '-m mskpipe "$@"' in cli
-    for text in (gui, cli):
-        assert text.startswith("#!/usr/bin/env bash\n") and "bin/_setup.sh" in text
-        assert "readlink -f" in text  # started through a symbolic link
-    for script in (linux / "msk-pipe", linux / "mskpipe", linux / "bin" / "_setup.sh"):
+    assert '-m mskpipe "$@"' in cli
+    assert cli.startswith("#!/usr/bin/env bash\n") and "bin/_setup.sh" in cli
+    assert "readlink -f" in cli  # started through a symbolic link
+    # command line only (no PySide6 in the Linux environment)
+    assert sorted(p.name for p in linux.iterdir() if p.is_file()) == ["README.txt", "mskpipe"]
+    for script in (linux / "mskpipe", linux / "bin" / "_setup.sh"):
         assert b"\r" not in script.read_bytes(), script
     readme = (linux / "README.txt").read_text(encoding="utf-8")
-    assert "{version}" in readme and "./mskpipe" in readme and "./msk-pipe" in readme
+    assert "{version}" in readme and "./mskpipe" in readme and "Windows release only" in readme
+
+
+def test_gui_only_on_windows():
+    """pixi.toml: PySide6 and the gui task only for win-64; Linux brings just the X11
+    libraries VTK needs for `import vtk`."""
+    import tomllib
+
+    pixi = tomllib.loads((ROOT / "pixi.toml").read_text(encoding="utf-8"))
+    gui = pixi["feature"]["gui"]
+    assert "pypi-dependencies" not in gui and "tasks" not in gui
+    assert set(gui["target"]) == {"win-64"}
+    assert "pyside6-essentials" in gui["target"]["win-64"]["pypi-dependencies"]
+    assert set(pixi["target"]["linux-64"]["dependencies"]) == {"xorg-libx11", "xorg-libxrender"}
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="bash")

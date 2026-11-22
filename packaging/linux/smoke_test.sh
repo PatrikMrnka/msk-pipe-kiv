@@ -5,9 +5,8 @@
 #
 #   smoke_test.sh RELEASE_FOLDER VERSION [REPO]
 #
-# 1. as unpacked, nothing installed: first start, command line, libraries, relocation;
-# 2. the GUI names the system packages it misses; with them installed (apt) the main
-#    window opens on X11 (Xvfb) using the X11 libraries of the release.
+# As unpacked, nothing installed: first start, command line, libraries, relocation, and
+# that the release is command line only (no PySide6; `mskpipe gui` says so).
 # REPO (a checkout of msk-pipe) adds the skeleton parity check, which needs the network.
 # SMOKE_LIGHT=1 skips the segmenters (to try this script with a reduced environment).
 set -euo pipefail
@@ -57,48 +56,10 @@ mv "$ROOT" "$moved"
 mv "$moved" "$ROOT"
 "$ROOT/mskpipe" --version >/dev/null
 
-packages=""
-if [ -n "$("$PY" -c 'from mskpipe.gui.platform_libs import missing_hint; print(missing_hint() or "")')" ]; then
-  step "GUI without the graphics libraries of a desktop: names the packages"
-  if hint="$(DISPLAY=:99 "$ROOT/msk-pipe" 2>&1)"; then fail "the GUI started without a display"; fi
-  echo "$hint"
-  packages="$(echo "$hint" | sed -n 's/^ *sudo apt install //p')"
-  [ -n "$packages" ] || fail "no 'sudo apt install ...' line in the message"
-fi
-
-step "GUI with them installed: main window on X11 (Xvfb)"
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -q >/dev/null
-# shellcheck disable=SC2086
-apt-get install -y -q --no-install-recommends $packages xvfb xauth fonts-dejavu-core >/dev/null
-QT_QPA_PLATFORM=offscreen "$PY" -c "import mskpipe.gui.app; from PySide6.QtWidgets import QApplication; QApplication([]); print('Qt starts (offscreen)')"
-"$ROOT/mskpipe" gui --help >/dev/null
-probe="$(mktemp --suffix=.py)"
-cat >"$probe" <<'PYEOF'
-import sys
-
-from mskpipe.gui import platform_libs  # importing mskpipe.gui preloads the libraries
-
-from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QApplication
-
-from mskpipe.gui.app import MainWindow
-
-app = QApplication(sys.argv)
-window = MainWindow()
-window.show()
-
-
-def done():
-    image = window.grab()
-    print("platform:", app.platformName(), "window:", image.width(), "x", image.height())
-    print("from the release:", " ".join(platform_libs.preload()) or "-")
-    app.exit(0 if app.platformName() == "xcb" and window.isVisible() else 1)
-
-
-QTimer.singleShot(1500, done)
-sys.exit(app.exec())
-PYEOF
-(cd "$(mktemp -d)" && QT_QPA_PLATFORM=xcb xvfb-run -a "$PY" "$probe") || fail "the main window did not open on X11"
+step "Command line only: no Qt, the GUI command says so"
+if "$PY" -c "import PySide6" 2>/dev/null; then fail "PySide6 is in the Linux environment"; fi
+if msg="$("$ROOT/mskpipe" gui 2>&1)"; then fail "mskpipe gui did not fail"; fi
+echo "$msg"
+case "$msg" in *"Windows only"*) ;; *) fail "mskpipe gui: no 'Windows only' message" ;; esac
 
 step "OK"

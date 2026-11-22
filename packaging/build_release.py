@@ -15,8 +15,8 @@ default: the platform the script runs on)::
 The release folder (``msk-pipe-<version>-win64.zip``, ``...-linux-x86_64.tar.gz``)::
 
     msk-pipe-<version>/
-        msk-pipe.cmd, mskpipe.cmd     GUI (double-click) and command line; Linux: msk-pipe,
-                                      mskpipe (shell scripts)
+        msk-pipe.cmd, mskpipe.cmd     GUI (double-click) and command line; Linux: mskpipe
+                                      (shell script, command line only)
         environment.tar               pixi-pack of the "cpu" environment
         bin/                          pixi-unpack and the setup script (_setup.cmd with the
                                       VC++ runtime DLLs and maxpath.txt; Linux: _setup.sh
@@ -82,7 +82,7 @@ TARGETS = {
         "win-64", "win64.zip", LAUNCHER, ("msk-pipe.cmd", "mskpipe.cmd"), ".exe", True
     ),
     "linux-64": Target(
-        "linux-64", "linux-x86_64.tar.gz", LAUNCHER / "linux", ("msk-pipe", "mskpipe"), "", False
+        "linux-64", "linux-x86_64.tar.gz", LAUNCHER / "linux", ("mskpipe",), "", False
     ),
 }
 

@@ -641,7 +641,7 @@ def view(
     try:
         from mskpipe.gui.slice_viewer import main as view_main
     except ImportError as exc:
-        typer.echo(f"Error: the viewer needs PySide6 ({exc}).{_gui_libraries_hint()}", err=True)
+        typer.echo(f"Error: {_no_gui('the viewer', exc)}", err=True)
         raise typer.Exit(1) from None
     raise typer.Exit(view_main(target, labels or []))
 
@@ -736,22 +736,22 @@ def gui() -> None:
     try:
         from mskpipe.gui.app import main as gui_main
     except ImportError as exc:
-        hint = _gui_libraries_hint() or (
-            " Use a pixi environment with the GUI: pixi run -e cpu mskpipe gui"
-        )
-        typer.echo(f"Error: the GUI needs PySide6 ({exc}).{hint}", err=True)
+        typer.echo(f"Error: {_no_gui('the GUI', exc)}", err=True)
         raise typer.Exit(1) from None
     raise typer.Exit(gui_main([]))
 
 
-def _gui_libraries_hint() -> str:
-    """Linux without a desktop: which system libraries Qt misses (else empty)."""
-    try:
-        from mskpipe.gui.platform_libs import missing_hint
-    except ImportError:
-        return ""
-    hint = missing_hint()
-    return f"\n{hint}" if hint else ""
+def _no_gui(what: str, exc: ImportError) -> str:
+    """Why ``what`` cannot open: Linux has the command line only (no PySide6 there)."""
+    if sys.platform != "win32":
+        return (
+            f"{what} is available on Windows only; on this system msk-pipe is a command "
+            "line tool (no PySide6): mskpipe run --help"
+        )
+    return (
+        f"{what} needs PySide6 ({exc}). Use a pixi environment with the GUI: "
+        "pixi run -e cpu mskpipe gui"
+    )
 
 
 # ---------------------------------------------------------------------------- setup

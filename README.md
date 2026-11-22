@@ -7,7 +7,7 @@
 [![CI](https://github.com/kivzcu/msk-pipe/actions/workflows/ci.yml/badge.svg)](https://github.com/kivzcu/msk-pipe/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/kivzcu/msk-pipe?label=release)](https://github.com/kivzcu/msk-pipe/releases/latest)
 ![Windows x64](https://img.shields.io/badge/Windows-x64-0078D6)
-![Linux x64](https://img.shields.io/badge/Linux-x64-E95420)
+![Linux x64 (CLI)](https://img.shields.io/badge/Linux-x64%20CLI-E95420)
 ![Python 3.11](https://img.shields.io/badge/python-3.11-3776AB)
 [![License: Apache-2.0 (non-commercial bundle)](https://img.shields.io/badge/license-Apache--2.0%20%2B%20NC-blue)](#licence)
 
@@ -16,7 +16,8 @@
 msk-pipe turns a lower-limb volume (NIfTI `.nii` / `.nii.gz` or a DICOM folder) into a personalised hip model: bone and
 muscle surfaces, an OpenSim skeletal model and muscle attachment areas, written exactly as
 [Muscle Wrapping 2.x](https://doi.org/10.1007/s10439-020-02490-4) reads them. It replaces the
-manual front end of the image-to-simulation workflow. GUI and command line, CPU or NVIDIA GPU.
+manual front end of the image-to-simulation workflow. GUI and command line on Windows, command
+line on Linux; CPU or NVIDIA GPU.
 
 ```mermaid
 flowchart LR
@@ -74,24 +75,23 @@ Command line: `mskpipe.cmd run scan.nii.gz -m ct` · `mskpipe.cmd run <DICOM fol
 | `%LOCALAPPDATA%\msk-pipe` | GPU support, MuscleMap weights, atlases |
 | `%USERPROFILE%\.totalsegmentator` | TotalSegmentator weights and licence key |
 
-### Linux
+### Linux (command line)
 
-x86_64 with glibc ≥ 2.28; tested on Ubuntu 24.04 and 26.04. Download
-`msk-pipe-<version>-linux-x86_64.tar.gz` from
+x86_64 with glibc ≥ 2.28; tested on Ubuntu 24.04 and 26.04. Nothing has to be installed.
+Download `msk-pipe-<version>-linux-x86_64.tar.gz` from
 [**Releases**](https://github.com/kivzcu/msk-pipe/releases/latest) (~1 GB), then:
 
 ```bash
 tar -xzf msk-pipe-<version>-linux-x86_64.tar.gz
 cd msk-pipe-<version>
-./msk-pipe                           # GUI; the first start unpacks the environment (1–3 min)
-./mskpipe run scan.nii.gz -m ct      # command line
-./mskpipe setup gpu                  # optional: NVIDIA driver ≥ 570, ~3.5 GB
+./mskpipe setup status -m ct         # first start unpacks the environment (1–3 min)
+./mskpipe setup licence <key>        # or --set segmentation.bones=musclemap
+./mskpipe setup gpu                  # optional: NVIDIA driver ≥ 570, ~4 GB
+./mskpipe run scan.nii.gz -m ct      # results in runs/<run>/06_mw2_input
 ```
 
-The command line needs nothing from the system. The GUI needs a desktop; where the system
-lacks its graphics libraries (WSL, servers), it names the packages to install. GUI results:
-`~/Documents/msk-pipe/runs/<run>/06_mw2_input`. Data: `~/.local/share/msk-pipe` (GPU
-support, MuscleMap weights, atlases), `~/.totalsegmentator` (weights, licence key).
+The GUI is part of the Windows release only. Data: `~/.local/share/msk-pipe` (GPU support,
+MuscleMap weights, atlases), `~/.totalsegmentator` (weights, licence key).
 
 ## b) Build from source
 
@@ -110,8 +110,8 @@ VTK and [pystaple](https://github.com/PatrikMrnka/pystaple). MATLAB and OpenSim 
 Muscle Wrapping is not part of the pipeline.
 
 ```powershell
-pixi run -e cpu gui                                  # GUI (CPU)
-pixi run -e gpu gui                                  # GUI (CUDA 12.8)
+pixi run -e cpu gui                                  # GUI (CPU; Windows only)
+pixi run -e gpu gui                                  # GUI (CUDA 12.8; Windows only)
 pixi run -e cpu mskpipe run scan.nii.gz -m ct -d auto
 pixi run -e cpu mskpipe setup licence <key>          # or --set segmentation.bones=musclemap
 ```
@@ -238,7 +238,6 @@ mskpipe run scan.nii.gz -m ct --set attachments.method=manual --set attachments.
 | No internet during the run | download weights beforehand: `mskpipe setup weights -m ct` |
 | No TotalSegmentator licence key | *Use MuscleMap instead* (`--set segmentation.bones=musclemap`): all bones from MuscleMap |
 | Path too long | keep the release at a short path such as `C:\msk-pipe-<version>` |
-| Linux: the GUI does not start (WSL, server) | install the packages the message names (`sudo apt install libgl1 …`); the command line needs none |
 | Warning "bone defect(s)" after the run | holes in thin bone or a broken fibula (common in MRI) were repaired or could not be: check them with `mskpipe qc <run> --show` (GUI: *Geometry check…*) |
 | What is missing? | `mskpipe setup status` |
 

@@ -6,14 +6,10 @@
 * Unit tests never download model weights: ``api.run`` would otherwise fetch missing
   TotalSegmentator/MuscleMap weights (gigabytes) before a run wherever the tools are
   installed (dev-cpu). Tests of the download itself call the real functions directly.
-* Linux: importing ``mskpipe.gui`` loads the X11 libraries of the environment that the
-  system lacks, before a test module imports Qt (``pytest.importorskip`` would otherwise
-  skip the GUI tests without a word; ``test_platform_libs`` checks that Qt imports).
 """
 
 import pytest
 
-import mskpipe.gui  # noqa: F401
 from mskpipe import api
 
 

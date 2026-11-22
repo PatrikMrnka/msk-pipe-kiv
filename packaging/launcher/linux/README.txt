@@ -1,23 +1,24 @@
-msk-pipe {version} for Linux (x86_64)
-=====================================
+msk-pipe {version} for Linux (x86_64), command line
+===================================================
 
 CT or MRI (NIfTI or DICOM) -> input for Muscle Wrapping 2.x (.osim, .xml, .obj).
 
 Start
-  Graphical interface:  ./msk-pipe
-  Command line:         ./mskpipe --help   (e.g. ./mskpipe run ct.nii.gz -m ct)
+  ./mskpipe --help
+  ./mskpipe run ct.nii.gz -m ct          results in ./runs/<run>/06_mw2_input (-o to change)
   The first start unpacks the environment (1-3 min); nothing else has to be installed.
+  The graphical interface is part of the Windows release only.
 
 Needs Linux on x86_64 with glibc 2.28 or newer; tested on Ubuntu 24.04 and 26.04. If you
 move this folder, the environment is unpacked again at the next start.
 
 First run
-  - Setup... in the GUI (or ./mskpipe setup status) shows what is missing:
-    TotalSegmentator licence key (free for non-commercial use) or "Use MuscleMap instead",
-    model weights (downloaded on the first run, needs internet), optional GPU support
-    (NVIDIA driver 570+, ~3.5 GB; or ./mskpipe setup gpu).
-  - Results: ~/Documents/msk-pipe/runs/<run>/06_mw2_input (GUI); the command line writes
-    to runs/ in the current folder (-o to change).
+  ./mskpipe setup status -m ct           shows what is missing
+  ./mskpipe setup licence <key>          TotalSegmentator licence key (free for
+                                         non-commercial use), or run with
+                                         --set segmentation.bones=musclemap
+  ./mskpipe setup weights -m ct          model weights (else downloaded on the first run)
+  ./mskpipe setup gpu                    optional GPU support (NVIDIA driver 570+, ~4 GB)
 
 Where data goes
   this folder                 program and environment (delete the folder to uninstall)

@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 import json
+import sys
 
 import pytest
 from typer.testing import CliRunner
@@ -174,7 +175,10 @@ def test_watch_stdin():
     assert eof.is_set()
 
 
-def test_gui_command_without_pyside(monkeypatch):
+@pytest.mark.parametrize("platform", ["win32", "linux"])
+@pytest.mark.parametrize("command", [["gui"], ["view"]])
+def test_gui_command_without_pyside(monkeypatch, platform, command):
+    """Linux is command line only (no PySide6 in its environment): say so, not a Qt error."""
     import builtins
 
     real = builtins.__import__
@@ -185,8 +189,12 @@ def test_gui_command_without_pyside(monkeypatch):
         return real(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", no_qt)
-    result = runner.invoke(app, ["gui"])
+    monkeypatch.setattr(sys, "platform", platform)
+    result = runner.invoke(app, command)
     assert result.exit_code == 1 and "PySide6" in result.output
+    windows_only = "available on Windows only" in result.output
+    assert windows_only == (platform == "linux")
+    assert ("mskpipe run --help" in result.output) == (platform == "linux")
 
 
 class _FakePipe:
