@@ -52,6 +52,8 @@ def test_spec_matches_pins_tool():
     assert {c.version for c in spec.compilers.values()} == {tool.ZIG_VERSION}
     assert set(spec.compilers) == {"win_amd64", "manylinux_x86_64"}
     assert spec.compilers["win_amd64"].target == "x86_64-windows-gnu"
+    # not "native": baseline CPU as on Windows (zig 0.13 + AVX-512 fails on Eigen)
+    assert spec.compilers["manylinux_x86_64"].target == "x86_64-linux-gnu.2.28"
     assert spec.eigen.sha256 == tool.EIGEN["sha256"]
     for item in [*spec.fast_rnrr.files, spec.openmesh, spec.eigen, *spec.compilers.values()]:
         assert len(item.sha256) == 64

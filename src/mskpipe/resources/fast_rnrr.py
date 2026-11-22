@@ -92,7 +92,7 @@ class Compiler(BaseModel):
     version: str
     url: str
     sha256: str
-    target: str  # zig target triple, "native" = this computer
+    target: str  # zig target triple (an explicit one = baseline CPU, not this computer's)
 
 
 class BuildSpec(BaseModel):
