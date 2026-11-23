@@ -4,6 +4,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [Sem
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-23
+
+A Linux release (command line only) next to the Windows one, with GPU support and Fast-RNRR; the Windows release is unchanged except for messages.
+
 ### Added
 - **Linux release, command line only** (`msk-pipe-<version>-linux-x86_64.tar.gz`, x86_64 with glibc 2.28 or newer, tested on Ubuntu 24.04 and 26.04): the pipeline of the Windows package without the GUI, started with the shell script `mskpipe` (`packaging/launcher/linux`). The first start unpacks the environment next to it (again after the folder is moved; a path with spaces and a start through a symbolic link work; two starts at once wait for each other; the messages go to stderr). Nothing has to be installed, not even CA certificates (`bin/cacert.pem` for pixi-unpack). `pixi.toml` has the platform `linux-64`; `packaging/build_release.py` takes `--platform` (default: the system it runs on), writes the tar.gz with fixed file modes and adds files to a checksum list (`sums`). `release.yml` builds the package after the Windows one (`build-linux`, added to the same draft release and to `SHA256SUMS.txt`) and tests it in the Docker images `ubuntu:24.04` and `ubuntu:26.04`, which have nothing installed (`smoke-linux`, `packaging/linux/smoke_test.sh`: first start, command line, libraries, skeleton parity, moved folder, no Qt); a release is published only when both packages passed.
 - Linux has no GUI: PySide6 and the `gui` task are Windows only (`[feature.gui.target.win-64]`); `mskpipe gui` and `mskpipe view` say that the GUI is available on Windows only. The Linux environment brings libX11 and libXrender (conda-forge), which `import vtk` needs even without a display (servers, containers).
@@ -179,7 +183,8 @@ Right leg only; 17 of the 20 modelled muscles are exported to Muscle Wrapping 2.
 - BP `VotingBinaryIterativeHoleFilling` grew masks instead of filling cavities; BP binarization was correct only for uint8 masks; BP cleaned masks could overlap (e.g. femur/hip).
 - MuscleMap exits with code 0 on errors and stores labels with the input header (8-bit inputs scale label IDs lossily): the output is checked and 8-bit inputs get a float32 copy.
 
-[Unreleased]: https://github.com/kivzcu/msk-pipe/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/kivzcu/msk-pipe/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/kivzcu/msk-pipe/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/kivzcu/msk-pipe/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/kivzcu/msk-pipe/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/kivzcu/msk-pipe/releases/tag/v0.1.0
