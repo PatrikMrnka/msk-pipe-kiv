@@ -206,6 +206,22 @@ def test_build_installs_and_cleans_up(fake_spec):
     assert not fr.remove_fast_rnrr(print, spec)
 
 
+def test_build_of_another_compiler_is_not_used(fake_spec):
+    """A build made with another target (msk-pipe before the baseline CPU on Linux: zig
+    "native") is not used and is built again."""
+    spec, calls = fake_spec
+    exe = fr.build_fast_rnrr(print, accepted=True, spec=spec)
+    marker_file = exe.parent / fr.MARKER
+    marker = fr.read_marker(exe.parent)
+    assert marker["compiler"] == fr.compiler_id(spec, "manylinux_x86_64")
+    marker["compiler"] = "zig 0.13.0 (native)"
+    marker_file.write_text(json.dumps(marker), encoding="utf-8")
+    assert fr.built_executable(spec) is None and not fr.fast_rnrr_status().built
+    calls.clear()
+    assert fr.build_fast_rnrr(print, accepted=True, spec=spec) == exe and "compile" in calls
+    assert fr.built_executable(spec) == exe
+
+
 def test_failed_check_installs_nothing(fake_spec):
     spec, calls = fake_spec
     calls["check_ok"] = False
