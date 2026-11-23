@@ -16,7 +16,8 @@ CSV files (UTF-8, one row per ...):
   subject, modality, device, step), from steps executed in the run (cached steps and
   failed runs are left out); step ``total`` = runs that executed every step.
 
-Times are wall-clock seconds; memory is the sampled peak RSS of the process tree (GB =
+Times are wall-clock seconds; memory is the sampled peak of the process tree (RSS; on
+Linux PSS, column ``memory_metric`` of runs.csv says which, see core.metrics; GB =
 2^30 bytes). GPU memory is not reported (device-wide NVML value, see core.metrics).
 """
 
@@ -79,6 +80,7 @@ COLUMNS: dict[str, tuple[str, ...]] = {
         "executed_wall_s",
         "pipeline_wall_s",
         "peak_rss_gb",
+        "memory_metric",
         "n_muscles_selected",
         "n_muscles_exported",
         "n_muscles_excluded",
@@ -283,7 +285,7 @@ def _add_run(
     env = m.environment
     pkgs = env.packages
 
-    executed, cached, rss = 0, 0, []
+    executed, cached, rss, metrics = 0, 0, [], set()
     for name, rec in m.steps.items():
         res = rec.resources
         if rec.status == "completed":
@@ -292,6 +294,7 @@ def _add_run(
             cached += 1
         if res is not None and res.peak_rss_bytes:
             rss.append(res.peak_rss_bytes)
+            metrics.add(res.memory_metric)
         out["steps"].append(
             {
                 **key,
@@ -441,6 +444,7 @@ def _add_run(
             "executed_wall_s": _r(sum(walls)),
             "pipeline_wall_s": _r(sum(walls)) if all_executed else None,
             "peak_rss_gb": _r(max(rss) / GB) if rss else None,
+            "memory_metric": "/".join(sorted(metrics)) or None,
             "n_muscles_selected": len(muscles) if muscles else None,
             "n_muscles_exported": sum(r.get("status") != "excluded" for r in muscles)
             if muscles

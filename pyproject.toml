@@ -15,6 +15,7 @@ keywords = ["musculoskeletal", "OpenSim", "segmentation", "CT", "MRI", "muscle w
 classifiers = [
     "Programming Language :: Python :: 3.11",
     "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
     "Intended Audience :: Science/Research",
     "Topic :: Scientific/Engineering :: Medical Science Apps.",
 ]

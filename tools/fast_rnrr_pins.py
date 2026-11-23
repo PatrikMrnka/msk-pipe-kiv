@@ -61,9 +61,12 @@ CITATION = (
     "https://arxiv.org/abs/2004.04322"
 )
 ZIG_VERSION = "0.13.0"
+# Explicit targets = the baseline x86_64 CPU on both systems (the same code as on Windows;
+# "native" took the CPU features of the computer, and with AVX-512 zig 0.13 fails to compile
+# Eigen: "AVX vector ... without 'evex512' enabled"); glibc 2.28 like the Linux release.
 ZIG_PLATFORMS = {  # platform tag -> (wheel tag, zig target)
     "win_amd64": ("win_amd64", "x86_64-windows-gnu"),
-    "manylinux_x86_64": ("manylinux_2_12_x86_64", "native"),
+    "manylinux_x86_64": ("manylinux_2_12_x86_64", "x86_64-linux-gnu.2.28"),
 }
 OPENMESH_PYPI = "1.2.1"  # sdist of the Python bindings, contains the C++ OpenMesh 9.1.0
 EIGEN = {

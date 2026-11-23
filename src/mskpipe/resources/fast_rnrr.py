@@ -92,7 +92,7 @@ class Compiler(BaseModel):
     version: str
     url: str
     sha256: str
-    target: str  # zig target triple, "native" = this computer
+    target: str  # zig target triple (an explicit one = baseline CPU, not this computer's)
 
 
 class BuildSpec(BaseModel):
@@ -163,8 +163,16 @@ def read_marker(folder: Path) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
+def compiler_id(spec: BuildSpec, tag: str | None = None) -> str | None:
+    """How this computer builds Fast-RNRR (``compiler`` of the build marker), or None."""
+    compiler = spec.compilers.get(tag if tag is not None else platform_tag() or "")
+    return None if compiler is None else f"{compiler.name} {compiler.version} ({compiler.target})"
+
+
 def built_executable(spec: BuildSpec | None = None) -> Path | None:
-    """The executable built by :func:`build_fast_rnrr` for the pinned commit, or None."""
+    """The executable built by :func:`build_fast_rnrr` for the pinned commit and the
+    pinned compiler of this platform, or None. A build with another compiler or target
+    (e.g. an older msk-pipe) is not used: ``mskpipe setup fast-rnrr`` builds it again."""
     try:
         spec = spec or load_spec()
     except (OSError, ValueError):
@@ -173,6 +181,9 @@ def built_executable(spec: BuildSpec | None = None) -> Path | None:
     marker = read_marker(folder)
     exe = folder / exe_name()
     if marker is None or marker.get("commit") != spec.fast_rnrr.commit or not exe.is_file():
+        return None
+    expected = compiler_id(spec)
+    if expected is not None and marker.get("compiler") != expected:
         return None
     return exe
 
@@ -329,7 +340,7 @@ def build_fast_rnrr(
             "repository": spec.fast_rnrr.repository,
             "executable": exe_name(),
             "sha256": file_sha256(staging / exe_name()),
-            "compiler": f"{compiler.name} {compiler.version} ({compiler.target})",
+            "compiler": compiler_id(spec, tag),
             "platform": tag,
             "libraries": {
                 a.name: {"version": a.version, "licence": a.licence, "sha256": a.sha256}

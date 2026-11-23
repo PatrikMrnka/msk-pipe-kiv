@@ -4,7 +4,7 @@
 The atlas used by ``attachments/atlas_registration`` is looked up in this order:
 
 1. ``attachments.params.atlas_dir`` (config),
-2. the ``MSKPIPE_ATLAS_DIR`` environment variable (set by the Windows release launcher
+2. the ``MSKPIPE_ATLAS_DIR`` environment variable (set by the release launcher
    to the atlas shipped with the release),
 3. ``<MSKPIPE_HOME>/atlas/lhdl`` (installed with ``mskpipe setup atlas``).
 

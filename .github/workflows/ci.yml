@@ -13,14 +13,25 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  QT_QPA_PLATFORM: offscreen  # Qt in the tests (Windows; Linux is command line only)
+
 jobs:
   lint-test:
-    name: Lint & unit tests
-    runs-on: windows-latest
+    name: Lint & unit tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Ubuntu by version, not ubuntu-latest: the label moves between releases
+        os: [windows-latest, ubuntu-24.04, ubuntu-26.04]
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0  # hatch-vcs needs tags for the version
+      - name: Linux runner (temporary files on disk, not in memory)
+        if: runner.os == 'Linux'
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
       - uses: prefix-dev/setup-pixi@v0.11.2
         with:
           pixi-version: v0.81.0
@@ -31,12 +42,19 @@ jobs:
       - run: pixi run test
 
   cpu-env:
-    name: Pipeline environment (CPU)
-    runs-on: windows-latest
+    name: Pipeline environment (CPU, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-26.04]  # the release test covers Ubuntu 24.04 too
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      - name: Linux runner (temporary files on disk, not in memory)
+        if: runner.os == 'Linux'
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
       - uses: prefix-dev/setup-pixi@v0.11.2
         with:
           pixi-version: v0.81.0
@@ -52,19 +70,35 @@ jobs:
           pixi run -e cpu mm_segment --help
           pixi run -e cpu python -m totalsegmentator.bin.TotalSegmentator --version
           pixi run -e cpu mskpipe plugins
-          pixi run -e cpu python -c "from PySide6.QtWidgets import QApplication; import mskpipe.gui.app"
           pixi run -e cpu mskpipe gui --help
           pixi run -e cpu python -c "import vtk; v = vtk.vtkVersion.GetVTKVersion(); assert v == '9.4.2', v"
+      - name: GUI (Windows)
+        if: runner.os == 'Windows'
+        run: pixi run -e cpu python -c "import mskpipe.gui.app; from PySide6.QtWidgets import QApplication; QApplication([])"
+      - name: Command line only (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          if pixi run -e cpu python -c "import PySide6" 2>/dev/null; then echo "::error::PySide6 in the Linux environment"; exit 1; fi
+          pixi run -e cpu mskpipe gui 2>&1 | tee gui.txt || true
+          grep -q "Windows only" gui.txt
       - name: Skeleton parity with MATLAB STAPLE
         run: pixi run -e cpu python tools/skeleton_parity.py --fetch
 
   fast-rnrr:
     # Manual only ("Run workflow"): builds Fast-RNRR from the authors' source on a clean
-    # Windows runner exactly as `mskpipe setup fast-rnrr` does for a user, including the
-    # authors' test. Research use only and not redistributable: nothing is uploaded.
-    name: Fast-RNRR build on Windows
+    # runner exactly as `mskpipe setup fast-rnrr` does for a user, including the authors'
+    # test. Research use only and not redistributable: nothing is uploaded.
+    name: Fast-RNRR build (${{ matrix.os }})
     if: github.event_name == 'workflow_dispatch'
-    runs-on: windows-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-24.04]
+    defaults:
+      run:
+        shell: pwsh
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -77,7 +111,7 @@ jobs:
           locked: true
           cache: true
       - name: Empty per-user folder
-        run: '"MSKPIPE_HOME=$env:RUNNER_TEMP\mskpipe-home" >> $env:GITHUB_ENV'
+        run: '"MSKPIPE_HOME=$(Join-Path $env:RUNNER_TEMP mskpipe-home)" >> $env:GITHUB_ENV'
       - name: Build and check
         run: pixi run mskpipe setup fast-rnrr --accept-research-licence
       - name: Found by the pipeline

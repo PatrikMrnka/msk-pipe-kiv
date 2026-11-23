@@ -52,6 +52,8 @@ def test_spec_matches_pins_tool():
     assert {c.version for c in spec.compilers.values()} == {tool.ZIG_VERSION}
     assert set(spec.compilers) == {"win_amd64", "manylinux_x86_64"}
     assert spec.compilers["win_amd64"].target == "x86_64-windows-gnu"
+    # not "native": baseline CPU as on Windows (zig 0.13 + AVX-512 fails on Eigen)
+    assert spec.compilers["manylinux_x86_64"].target == "x86_64-linux-gnu.2.28"
     assert spec.eigen.sha256 == tool.EIGEN["sha256"]
     for item in [*spec.fast_rnrr.files, spec.openmesh, spec.eigen, *spec.compilers.values()]:
         assert len(item.sha256) == 64
@@ -202,6 +204,22 @@ def test_build_installs_and_cleans_up(fake_spec):
     assert fr.build_fast_rnrr(print, accepted=True, spec=spec) == exe and not calls
     assert fr.remove_fast_rnrr(print, spec) and fr.built_executable(spec) is None
     assert not fr.remove_fast_rnrr(print, spec)
+
+
+def test_build_of_another_compiler_is_not_used(fake_spec):
+    """A build made with another target (msk-pipe before the baseline CPU on Linux: zig
+    "native") is not used and is built again."""
+    spec, calls = fake_spec
+    exe = fr.build_fast_rnrr(print, accepted=True, spec=spec)
+    marker_file = exe.parent / fr.MARKER
+    marker = fr.read_marker(exe.parent)
+    assert marker["compiler"] == fr.compiler_id(spec, "manylinux_x86_64")
+    marker["compiler"] = "zig 0.13.0 (native)"
+    marker_file.write_text(json.dumps(marker), encoding="utf-8")
+    assert fr.built_executable(spec) is None and not fr.fast_rnrr_status().built
+    calls.clear()
+    assert fr.build_fast_rnrr(print, accepted=True, spec=spec) == exe and "compile" in calls
+    assert fr.built_executable(spec) == exe
 
 
 def test_failed_check_installs_nothing(fake_spec):

@@ -6,6 +6,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import psutil
 import pytest
 
 from mskpipe.config import InputSpec, load_config
@@ -102,6 +103,26 @@ def test_sampler_counts_child_processes():
     assert usage.wall_s >= 1.0
     assert usage.samples >= 5
     assert usage.gpu_mem_peak_bytes is None
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="fork and PSS: Linux")
+def test_sampler_counts_pages_shared_by_forked_workers_once():
+    """nnU-Net and TotalSegmentator fork their workers: the pages of the parent are shared,
+    and the sum of RSS would count them once per process (here 8 x 200 MB)."""
+    code = (
+        "import os, time\n"
+        "x = b'\\x01' * (200 * 2**20)\n"
+        "pids = [os.fork() for _ in range(3)]\n"
+        "time.sleep(1.0)\n"
+        "if all(pids):\n"
+        "    [os.waitpid(p, 0) for p in pids]\n"
+    )
+    own = psutil.Process().memory_full_info().pss  # the tree starts at this process
+    with ResourceSampler(interval_s=0.1) as sampler:
+        subprocess.run([sys.executable, "-c", code], check=True)
+    usage = sampler.usage
+    assert usage.memory_metric == "pss"
+    assert 180 * 2**20 <= usage.peak_rss_bytes - own < 450 * 2**20
 
 
 def test_sampler_survives_os_errors(monkeypatch, caplog):

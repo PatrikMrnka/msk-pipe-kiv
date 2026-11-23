@@ -1,7 +1,7 @@
 [workspace]
 name = "msk-pipe"
 channels = ["conda-forge"]
-platforms = ["win-64"]
+platforms = ["win-64", "linux-64"]
 requires-pixi = ">=0.60"
 
 # ---------------------------------------------------------------------------
@@ -13,6 +13,13 @@ pydantic = ">=2.7,<3"
 pyyaml = ">=6"
 psutil = ">=5.9,<7"
 dcm2niix = ">=1.0.20260724,<2"  # DICOM input (BSD-2-Clause)
+
+# Linux: `import vtk` needs libX11 and libXrender (the VTK wheel takes them from the
+# system) even without a display; servers and containers have none. Linux is command line
+# only: no Qt there (feature gui).
+[target.linux-64.dependencies]
+xorg-libx11 = ">=1.8"
+xorg-libxrender = ">=0.9"
 
 [pypi-dependencies]
 mskpipe = { path = ".", editable = true }
@@ -56,13 +63,13 @@ torch = { version = "==2.7.1", index = "https://download.pytorch.org/whl/cu128" 
 torchvision = { version = "==0.22.1", index = "https://download.pytorch.org/whl/cu128" }
 
 # ---------------------------------------------------------------------------
-# GUI (PySide6, LGPL-3.0; QtCore/QtGui/QtWidgets only). Also in "default" so that the
-# GUI tests run in CI (Qt offscreen platform).
+# GUI (PySide6, LGPL-3.0; QtCore/QtGui/QtWidgets only), Windows only. Also in "default" so
+# that the GUI tests run in CI (Qt offscreen platform); on Linux they are skipped.
 # ---------------------------------------------------------------------------
-[feature.gui.pypi-dependencies]
+[feature.gui.target.win-64.pypi-dependencies]
 pyside6-essentials = ">=6.8,<7"
 
-[feature.gui.tasks]
+[feature.gui.target.win-64.tasks]
 gui = "mskpipe gui"
 
 # ---------------------------------------------------------------------------
@@ -86,8 +93,8 @@ cov = "pytest --cov --cov-report=term-missing"
 #   default : dev tools only (lint, unit tests)         pixi run test
 #   cpu     : full pipeline on CPU (release bundle)     pixi run -e cpu mskpipe ...
 #   gpu     : full pipeline on NVIDIA GPU (CUDA 12.8)   pixi run -e gpu mskpipe ...
-#   dev-cpu : full pipeline + dev tools (slow tests)    pixi run -e dev-cpu pytest -m slow
-#   all of them include the GUI                          pixi run -e gpu gui
+#   dev-cpu : full pipeline + dev tools                 pixi run -e dev-cpu pytest -m reference
+#   all of them include the GUI (Windows only)           pixi run -e gpu gui
 # ---------------------------------------------------------------------------
 [environments]
 default = { features = ["dev", "gui"] }

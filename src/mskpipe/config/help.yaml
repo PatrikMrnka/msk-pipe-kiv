@@ -122,8 +122,9 @@ segmentation.totalsegmentator.nr_thr_saving:
   help: >-
     Number of worker processes that write the segmentation. Each one loads PyTorch (with the
     GPU build about 3 GB of reserved memory on Windows), so too many of them fail with
-    "the paging file is too small" (WinError 1455) on computers with 16 GB of RAM. auto
-    chooses 1-6 from the RAM and page file size; the segmentation itself does not change.
+    "the paging file is too small" (WinError 1455) on computers with 16 GB of RAM (on Linux
+    the system stops a process when memory runs out). auto chooses 1-6 from the RAM and
+    page file (swap) size; the segmentation itself does not change.
   example: 1 on a computer with little memory; 6 = TotalSegmentator's own default.
 segmentation.totalsegmentator.extra_args:
   help: >-
@@ -381,8 +382,8 @@ attachments.params:
 plugins.attachments.atlas_registration.atlas_dir:
   help: >-
     Folder of the attachment atlas (atlas.json, bones/, muscles/). Empty = the
-    MSKPIPE_ATLAS_DIR environment variable (set by the Windows release to the bundled
-    atlas), else the atlas installed with `mskpipe setup atlas`.
+    MSKPIPE_ATLAS_DIR environment variable (set by the release to the bundled atlas),
+    else the atlas installed with `mskpipe setup atlas`.
   example: D:\atlases\lhdl (a folder with atlas.json, bones\ and muscles\).
 plugins.attachments.atlas_registration.n_points:
   help: Points sampled on each atlas bone for the rigid registration.
@@ -454,10 +455,10 @@ plugins.attachments.atlas_registration.cpd_sigma_init_mm:
   example: "5"
 plugins.attachments.atlas_registration.fast_rnrr_exe:
   help: >-
-    fast_rnrr: path to your own build of Fast_RNRR.exe (research-only licence, not
-    distributed). Empty = MSKPIPE_FAST_RNRR, the build of Setup… -> Fast-RNRR
+    fast_rnrr: path to your own build of Fast_RNRR (Fast_RNRR.exe on Windows; research-only
+    licence, not distributed). Empty = MSKPIPE_FAST_RNRR, the build of Setup… -> Fast-RNRR
     (mskpipe setup fast-rnrr) or PATH.
-  example: C:\tools\Fast_RNRR\Fast_RNRR.exe
+  example: C:\tools\Fast_RNRR\Fast_RNRR.exe or /opt/Fast_RNRR/Fast_RNRR
 plugins.attachments.atlas_registration.fast_rnrr_max_faces:
   help: "fast_rnrr: the atlas bone is decimated to at most this many triangles."
   example: "20000"

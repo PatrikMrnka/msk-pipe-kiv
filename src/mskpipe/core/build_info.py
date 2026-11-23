@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Build information baked into release wheels (``mskpipe/build_info.json``).
 
-Packages built into wheels for the Windows release (pixi-pack cannot pack git or source
+Packages built into wheels for the releases (pixi-pack cannot pack git or source
 packages) lose the git commit that ``pip``/``uv`` record in ``direct_url.json``, and the
 installed release has no git checkout of msk-pipe. ``packaging/build_release.py wheels``
 therefore writes this file before building the mskpipe wheel::

@@ -1,13 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
 """Resource usage of a pipeline step, including child processes.
 
-A background thread samples the whole process tree (RSS, CPU times) and,
+A background thread samples the whole process tree (memory, CPU times) and,
 optionally, the GPU memory in use. Sampling is needed because external
 tools (TotalSegmentator, MuscleMap) run as subprocesses and, on Windows,
 psutil does not report CPU time of terminated children.
 
 All values are sampled and therefore approximate:
-* ``peak_rss_bytes`` - peak sum of RSS over the process tree,
+* ``peak_rss_bytes`` - peak memory of the process tree: the sum of RSS on Windows; on
+  Linux the sum of PSS (``memory_metric`` says which). Worker processes made with
+  ``fork`` (nnU-Net, TotalSegmentator) share the pages of their parent, and RSS counts
+  such pages once per process - the sum over the tree then exceeds the memory really
+  used several times. PSS divides every shared page among the processes sharing it,
 * ``cpu_s`` - user + system time of the tree during the step,
 * ``gpu_mem_peak_bytes`` - peak increase of device memory in use over the
   value at step start (device-wide; per-process data is not available
@@ -21,10 +25,12 @@ counted in ``failed_samples``; the first error is logged once as a warning.
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 import time
 from contextlib import suppress
 from types import TracebackType
+from typing import Literal
 
 import psutil
 from pydantic import BaseModel
@@ -36,11 +42,15 @@ except ImportError:  # optional: GPU memory is then not measured
 
 log = logging.getLogger(__name__)
 
+MemoryMetric = Literal["rss", "pss"]
+MEMORY_METRIC: MemoryMetric = "pss" if sys.platform.startswith("linux") else "rss"
+
 
 class ResourceUsage(BaseModel):
     wall_s: float
     cpu_s: float
     peak_rss_bytes: int
+    memory_metric: MemoryMetric = "rss"  # what peak_rss_bytes sums over the process tree
     gpu_mem_peak_bytes: int | None = None
     samples: int
     failed_samples: int = 0
@@ -91,6 +101,7 @@ class ResourceSampler:
             wall_s=round(wall, 3),
             cpu_s=round(max(sum(self._cpu.values()) - self._cpu_baseline, 0.0), 3),
             peak_rss_bytes=self._peak_rss,
+            memory_metric=MEMORY_METRIC,
             gpu_mem_peak_bytes=gpu_peak,
             samples=self._samples,
             failed_samples=self._failed,
@@ -118,7 +129,7 @@ class ResourceSampler:
         for proc in procs:
             try:
                 with proc.oneshot():
-                    rss += proc.memory_info().rss
+                    rss += _memory(proc)
                     times = proc.cpu_times()
                     key = (proc.pid, proc.create_time())
             except (psutil.Error, OSError):
@@ -128,6 +139,16 @@ class ResourceSampler:
         if self._gpu:
             self._gpu.sample()
         self._samples += 1
+
+
+def _memory(proc: psutil.Process) -> int:
+    """Memory of one process in the metric of this platform (see the module docstring)."""
+    if MEMORY_METRIC == "pss":
+        try:
+            return int(proc.memory_full_info().pss)  # /proc/<pid>/smaps_rollup
+        except psutil.AccessDenied:  # e.g. a child that changed its user
+            pass
+    return int(proc.memory_info().rss)
 
 
 class _GpuMemory:

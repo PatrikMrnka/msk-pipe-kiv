@@ -1,15 +1,17 @@
 name: Release
 
-# Tag vX.Y.Z on main -> Windows release on GitHub (GitLab: a tag pipeline + release job).
+# Tag vX.Y.Z on main -> Windows and Linux release on GitHub (GitLab: a tag pipeline +
+# release job).
 #   git tag -a v0.1.0 -m "msk-pipe 0.1.0"
 #   git push origin v0.1.0
-# "Run workflow" (workflow_dispatch) builds and tests the same package and leaves it in the
-# draft release "ci-<run id>" (gh release download ci-<id>; gh release delete ci-<id> --yes).
+# "Run workflow" (workflow_dispatch) builds and tests the same packages and leaves them in
+# the draft release "ci-<run id>" (gh release download ci-<id>; gh release delete ci-<id> --yes).
 #
-# The package (~1 GB) goes from job to job through a draft release, not an Actions
-# artifact: the artifact storage quota of a private repository is smaller than the package.
-# The tag run publishes its draft at the end; a failed tag run leaves the draft behind
-# (delete it before tagging again).
+# The packages (~1 GB each) go from job to job through a draft release, not an Actions
+# artifact: the artifact storage quota of a private repository is smaller than a package.
+# The Windows build creates the draft, the Linux build adds its package to it. The tag run
+# publishes its draft at the end, after both packages passed their tests; a failed tag run
+# leaves the draft behind (delete it before tagging again).
 
 on:
   push:
@@ -199,10 +201,117 @@ jobs:
           & "C:\r2\msk-pipe-$env:VERSION\mskpipe.cmd" --version
           if ($LASTEXITCODE) { throw "relocated release does not start" }
 
+  build-linux:
+    name: Build Linux package
+    needs: build  # the draft release and the version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write  # adds the package to the draft release
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      RELEASE: ${{ needs.build.outputs.release }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # hatch-vcs: version from the tag
+      - uses: prefix-dev/setup-pixi@v0.11.2
+        with:
+          pixi-version: ${{ env.PIXI_VERSION }}
+          run-install: false
+
+      - name: Download pixi-pack and pixi-unpack (pinned)
+        run: pixi exec --spec python=3.11 python packaging/build_release.py tools --out build/tools
+
+      - name: Build wheels of non-wheel packages (mskpipe, MuscleMap, pystaple, sdists)
+        run: pixi exec --spec python=3.11 --spec pip --spec pyyaml python packaging/build_release.py wheels --out build/wheels
+
+      - name: Version (the same as the Windows package)
+        run: |
+          v=$(pixi exec --spec python=3.11 python packaging/build_release.py version --wheels build/wheels)
+          echo "mskpipe $v"
+          [ "$v" = "$VERSION" ] || { echo "::error::Linux package $v, Windows package $VERSION"; exit 1; }
+
+      - name: Pack the cpu environment
+        run: |
+          inject=()
+          for wheel in build/wheels/*.whl; do inject+=(--inject "$wheel"); done
+          build/tools/pixi-pack --environment cpu --platform linux-64 --ignore-pypi-non-wheel \
+            --use-cache build/cache --output-file build/environment.tar "${inject[@]}" pixi.toml
+          rm -rf build/cache  # the runner disk is small
+          du -h build/environment.tar
+
+      - name: Unpack for checks (licences, CA certificates)
+        run: |
+          build/tools/pixi-unpack build/environment.tar -o build/test -e env -s bash -q
+          build/test/env/bin/python packaging/collect_licenses.py --prefix build/test/env --out build/licenses
+          du -sh build/test
+
+      - name: Attachment atlas (pinned release asset)
+        run: |
+          args=()
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then args+=(--allow-missing); fi
+          pixi exec --spec python=3.11 python packaging/build_release.py atlas --out build/assets "${args[@]}"
+
+      - name: Assemble release
+        run: |
+          atlas=()
+          for zip in build/assets/*.zip; do
+            if [ -e "$zip" ]; then atlas=(--atlas "$zip"); fi
+          done
+          pixi exec --spec python=3.11 python packaging/build_release.py assemble \
+            --version "$VERSION" --pack build/environment.tar --unpack build/tools/pixi-unpack \
+            --licenses build/licenses --runtime-from build/test/env --out dist "${atlas[@]}"
+
+      - name: Add the package to the draft release
+        run: |
+          package="dist/msk-pipe-$VERSION-linux-x86_64.tar.gz"
+          gh release download "$RELEASE" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS.txt --dir sums
+          pixi exec --spec python=3.11 python packaging/build_release.py sums --file sums/SHA256SUMS.txt "$package"
+          gh release upload "$RELEASE" "$package" --repo "$GITHUB_REPOSITORY"
+          gh release upload "$RELEASE" sums/SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --clobber
+
+  smoke-linux:
+    # In Docker images of Ubuntu, which have neither Python nor any graphics or X11
+    # library: what packaging/linux/smoke_test.sh needs for the GUI it installs itself.
+    name: Test on clean Ubuntu ${{ matrix.ubuntu }}
+    needs: [build, build-linux]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write  # a draft release is visible only with write access
+    strategy:
+      fail-fast: false
+      matrix:
+        ubuntu: ["24.04", "26.04"]
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      RELEASE: ${{ needs.build.outputs.release }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7  # smoke_test.sh and tools/skeleton_parity.py
+      - name: Download the package from the draft release
+        run: |
+          gh release download "$RELEASE" --repo "$GITHUB_REPOSITORY" \
+            --pattern "msk-pipe-$VERSION-linux-x86_64.tar.gz" --pattern SHA256SUMS.txt --dir dist
+          (cd dist && sha256sum --check --ignore-missing SHA256SUMS.txt)
+      - name: Unpack
+        run: |
+          mkdir release
+          tar -xzf "dist/msk-pipe-$VERSION-linux-x86_64.tar.gz" -C release
+          rm -rf dist
+          test -x "release/msk-pipe-$VERSION/mskpipe"
+          test ! -e "release/msk-pipe-$VERSION/msk-pipe"  # command line only, no GUI launcher
+      - name: Test in ubuntu:${{ matrix.ubuntu }}
+        run: |
+          docker run --rm -v "$PWD/release:/release" -v "$PWD:/repo:ro" "ubuntu:${{ matrix.ubuntu }}" \
+            bash /repo/packaging/linux/smoke_test.sh "/release/msk-pipe-$VERSION" "$VERSION" /repo
+
   publish:
     name: Publish GitHub release
     if: github.ref_type == 'tag'
-    needs: [build, smoke]
+    needs: [build, smoke, build-linux, smoke-linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write

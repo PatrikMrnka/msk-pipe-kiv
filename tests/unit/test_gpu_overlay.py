@@ -3,6 +3,7 @@
 install from local fake wheels, device selection and manifest (no GPU, no network)."""
 
 import json
+import os
 import sys
 import zipfile
 from pathlib import Path
@@ -27,20 +28,34 @@ runner = CliRunner()
 
 
 def test_spec_matches_pixi_lock():
-    """gpu_wheels.json = torch/torchvision of the locked gpu environment, and that
-    environment differs from cpu only in them (otherwise the overlay is not the gpu env)."""
+    """gpu_wheels.json = the wheels in which the locked gpu environment differs from cpu,
+    for every release platform of the lock file; the environments differ only in the
+    build of torch/torchvision and in wheels only gpu has (Linux: the CUDA libraries),
+    otherwise the overlay is not the gpu environment."""
     lock = yaml.safe_load((ROOT / "pixi.lock").read_text(encoding="utf-8"))
-    assert gpu.load_spec() == gpu.spec_from_lock(lock), "run tools/gpu_wheels.py"
-    diff = gpu.env_differences(lock)
-    assert set(diff) == set(gpu.OVERLAY_PACKAGES), diff
-    for cpu_version, gpu_version in diff.values():
-        assert cpu_version.split("+")[0] == gpu_version.split("+")[0]
+    specs = gpu.specs_from_lock(lock)
+    assert gpu.load_specs() == specs.platforms, "run tools/gpu_wheels.py"
+    assert "win-64" in specs.platforms
+    for platform, spec in specs.platforms.items():
+        assert gpu.unexpected_differences(lock, platform) == {}
+        diff = gpu.env_differences(lock, platform=platform)
+        assert set(diff) == {w.name for w in spec.wheels}
+        for name in gpu.OVERLAY_PACKAGES:
+            cpu_version, gpu_version = diff[name]
+            assert cpu_version.split("+")[0] == gpu_version.split("+")[0]
+        assert spec.tag == specs.platforms["win-64"].tag  # same torch everywhere
+    assert [w.name for w in specs.platforms["win-64"].wheels] == list(gpu.OVERLAY_PACKAGES)
 
 
-def _lock(gpu_torch: str = "2.7.1+cu128", extra_gpu: list | None = None) -> dict:
-    def wheel(name, version):
+def _lock(
+    gpu_torch: str = "2.7.1+cu128",
+    extra_gpu: list | None = None,
+    platform: str = "win-64",
+    wheel_platform: str = "win_amd64",
+) -> dict:
+    def wheel(name, version, py="cp311-cp311"):
         tag = version.replace("+", "%2B")
-        return f"https://example.org/{name}-{tag}-cp311-cp311-win_amd64.whl"
+        return f"https://example.org/{name}-{tag}-{py}-{wheel_platform}.whl"
 
     pkgs = [
         {
@@ -57,6 +72,24 @@ def _lock(gpu_torch: str = "2.7.1+cu128", extra_gpu: list | None = None) -> dict
             "sha256": "c",
         },
         {"pypi": "git+https://github.com/x/y?rev=1#1", "name": "y", "sha256": "d"},
+        {
+            "pypi": wheel("nvidia_cublas_cu12", "12.8.3.14", "py3-none"),
+            "name": "nvidia-cublas-cu12",
+            "version": "12.8.3.14",
+            "sha256": "e",
+        },
+        {
+            "pypi": "https://example.org/setuptools-80.0.0-py3-none-any.whl",
+            "name": "setuptools",
+            "version": "80.0.0",
+            "sha256": "f",
+        },
+        {
+            "pypi": "https://example.org/filelock-4.0.8-py3-none-any.whl",
+            "name": "filelock",
+            "version": "4.0.8",
+            "sha256": "g",
+        },
     ]
     common = [
         {
@@ -73,8 +106,8 @@ def _lock(gpu_torch: str = "2.7.1+cu128", extra_gpu: list | None = None) -> dict
     cpu_env = [*common, {"pypi": wheel("torch", "2.7.1+cpu")}]
     return {
         "environments": {
-            "cpu": {"packages": {"win-64": cpu_env}},
-            "gpu": {"packages": {"win-64": gpu_env}},
+            "cpu": {"packages": {platform: cpu_env}},
+            "gpu": {"packages": {platform: gpu_env}},
         },
         "packages": pkgs,
     }
@@ -96,6 +129,53 @@ def test_spec_from_synthetic_lock():
     ][:2]
     with pytest.raises(gpu.GpuSetupError, match="no wheel"):
         gpu.spec_from_lock(bad)
+
+
+def test_spec_of_linux_carries_the_cuda_wheels():
+    """Linux: CUDA is not inside the torch wheel; whatever only gpu has goes to the overlay."""
+    cuda = [
+        {
+            "pypi": "https://example.org/nvidia_cublas_cu12-12.8.3.14-py3-none-manylinux_2_27_x86_64.whl"
+        },
+        {"pypi": "https://example.org/setuptools-80.0.0-py3-none-any.whl"},
+    ]
+    kwargs = {"platform": "linux-64", "wheel_platform": "manylinux_2_27_x86_64"}
+    lock = _lock(extra_gpu=cuda, **kwargs)
+    spec = gpu.spec_from_lock(lock, platform="linux-64")
+    assert spec.platform == "manylinux_2_27_x86_64"
+    assert [w.name for w in spec.wheels] == [
+        "torch",
+        "torchvision",
+        "nvidia-cublas-cu12",
+        "setuptools",
+    ]
+    assert gpu.unexpected_differences(lock, "linux-64") == {}
+    assert list(gpu.specs_from_lock(lock).platforms) == ["linux-64"]
+    # a common package in another version is not something an overlay may change
+    lock["environments"]["cpu"]["packages"]["linux-64"].append(
+        {"pypi": "https://example.org/setuptools-80.0.0-py3-none-any.whl"}
+    )
+    lock["environments"]["gpu"]["packages"]["linux-64"].append(
+        {"pypi": "https://example.org/filelock-4.0.8-py3-none-any.whl"}
+    )
+    lock["environments"]["cpu"]["packages"]["linux-64"].append(
+        {"conda": "https://conda.anaconda.org/conda-forge/noarch/filelock-4.0.7-pyhd8ed1ab_0.conda"}
+    )
+    assert gpu.unexpected_differences(lock, "linux-64") == {"filelock": ("4.0.7", "4.0.8")}
+    # a difference that is no wheel (conda package) cannot be overlaid
+    conda = [{"conda": "https://conda.anaconda.org/conda-forge/linux-64/cudnn-9.7-h1_0.conda"}]
+    with pytest.raises(gpu.GpuSetupError, match="cudnn"):
+        gpu.spec_from_lock(_lock(extra_gpu=conda, **kwargs), platform="linux-64")
+
+
+def test_spec_file_per_platform(monkeypatch):
+    specs = gpu.load_specs()
+    assert gpu.load_spec("win-64") == specs["win-64"]
+    with pytest.raises(gpu.GpuSetupError, match="no GPU wheels"):
+        gpu.load_spec("osx-arm64")
+    monkeypatch.setattr(gpu, "current_platform", lambda: None)  # e.g. macOS: display only
+    assert gpu.load_spec() == next(iter(specs.values()))
+    assert not gpu.platform_supported()
 
 
 # ------------------------------------------------------------------ fake wheels
@@ -152,7 +232,11 @@ def wheels(tmp_path):
 
 @pytest.fixture
 def supported(monkeypatch):
+    """Install the fake wheels on any system: platform and free disk space are not checked
+    (the real overlay needs 12 GiB, a CI runner may have less; test_install_refused checks
+    the limit)."""
     monkeypatch.setattr(gpu, "platform_supported", lambda spec=None: True)
+    monkeypatch.setattr(gpu, "MIN_FREE_BYTES", 0)
 
 
 def test_extract_wheel(tmp_path, wheels):
@@ -168,6 +252,20 @@ def test_extract_wheel(tmp_path, wheels):
         zf.writestr("../evil.py", "")
     with pytest.raises(gpu.GpuSetupError, match="Unsafe"):
         gpu.extract_wheel(bad, site)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix file modes")
+def test_extract_wheel_keeps_executables(tmp_path):
+    """Linux wheels of torch and CUDA have helper programs (torch_shm_manager, ptxas)."""
+    wheel = tmp_path / "x-1-py3-none-manylinux_2_28_x86_64.whl"
+    with zipfile.ZipFile(wheel, "w") as zf:
+        for name, mode in (("x/bin/tool", 0o755), ("x/lib/libx.so", 0o644)):
+            info = zipfile.ZipInfo(name)
+            info.external_attr = (0o100000 | mode) << 16
+            zf.writestr(info, "")
+    gpu.extract_wheel(wheel, tmp_path / "site")
+    assert os.access(tmp_path / "site" / "x" / "bin" / "tool", os.X_OK)
+    assert not os.access(tmp_path / "site" / "x" / "lib" / "libx.so", os.X_OK)
 
 
 def test_install_from_wheel_dir_and_remove(wheels, supported, monkeypatch):
@@ -226,11 +324,42 @@ def test_install_refused(wheels, monkeypatch):
 
 
 def test_platform_supported(monkeypatch):
-    spec = gpu.load_spec()
+    py311 = sys.version_info[:2] == (3, 11)
+    windows = gpu.load_spec("win-64")
+    linux = windows.model_copy(update={"platform": "manylinux_2_28_x86_64"})
+    monkeypatch.setattr(gpu.platform_module, "machine", lambda: "x86_64")
     monkeypatch.setattr(sys, "platform", "linux")
-    assert not gpu.platform_supported(spec)
+    assert gpu.current_platform() == "linux-64"
+    assert not gpu.platform_supported(windows)
+    assert gpu.platform_supported(linux) == py311
     monkeypatch.setattr(sys, "platform", "win32")
-    assert gpu.platform_supported(spec) == (sys.version_info[:2] == (3, 11))
+    monkeypatch.setattr(gpu.platform_module, "machine", lambda: "AMD64")
+    assert gpu.current_platform() == "win-64"
+    assert gpu.platform_supported(windows) == py311
+    assert not gpu.platform_supported(linux)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    assert gpu.current_platform() is None and not gpu.platform_supported(windows)
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(gpu.platform_module, "machine", lambda: "aarch64")
+    assert gpu.current_platform() is None and not gpu.platform_supported(linux)
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="/proc: Linux")
+def test_overlay_in_use_is_not_removed(wheels, supported, monkeypatch):
+    """Linux lets a folder in use be renamed, so a GPU run is looked for before."""
+    import mmap
+
+    spec, folder = wheels
+    site = gpu.install_gpu(print, spec=spec, wheel_dir=folder)
+    lib = site / "torch" / "lib" / "fake.dll"
+    with lib.open("rb") as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ):
+        assert gpu.running_gpu_processes() == []  # this process does not count
+        monkeypatch.setattr(gpu.os, "getpid", lambda: -1)
+        assert gpu.running_gpu_processes() != []
+        with pytest.raises(gpu.GpuSetupError, match="in use"):
+            gpu.remove_gpu(print, spec)
+    assert gpu.installed_overlay() == site
+    assert gpu.remove_gpu(print, spec)
 
 
 def test_overlay_from_environment(tmp_path, monkeypatch):
